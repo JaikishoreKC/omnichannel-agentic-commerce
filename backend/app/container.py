@@ -15,6 +15,9 @@ from app.infrastructure.persistence_clients import MongoClientManager, RedisClie
 from app.infrastructure.observability import MetricsCollector
 from app.infrastructure.rate_limiter import SlidingWindowRateLimiter
 from app.infrastructure.state_persistence import StatePersistence
+from app.repositories.cart_repository import CartRepository
+from app.repositories.memory_repository import MemoryRepository
+from app.repositories.order_repository import OrderRepository
 from app.repositories.session_repository import SessionRepository
 from app.services.admin_service import AdminService
 from app.services.auth_service import AuthService
@@ -52,7 +55,18 @@ session_repository = SessionRepository(
     redis_manager=redis_manager,
 )
 session_service = SessionService(store=store, session_repository=session_repository)
-cart_service = CartService(store=store, settings=settings)
+cart_repository = CartRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+cart_service = CartService(store=store, settings=settings, cart_repository=cart_repository)
+order_repository = OrderRepository(store=store, mongo_manager=mongo_manager)
+memory_repository = MemoryRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
 inventory_service = InventoryService(store=store)
 payment_service = PaymentService(store=store)
 notification_service = NotificationService(store=store)
@@ -62,8 +76,9 @@ order_service = OrderService(
     inventory_service=inventory_service,
     payment_service=payment_service,
     notification_service=notification_service,
+    order_repository=order_repository,
 )
-memory_service = MemoryService(store=store)
+memory_service = MemoryService(store=store, memory_repository=memory_repository)
 admin_service = AdminService(store=store)
 interaction_service = InteractionService(store=store)
 support_service = SupportService(store=store)

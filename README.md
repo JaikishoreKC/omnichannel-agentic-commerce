@@ -23,6 +23,7 @@ The initial implementation includes:
 - API gateway rate limiting with standard rate-limit headers
 - In-memory persistence with optional MongoDB/Redis connectivity
 - Optional runtime state persistence to MongoDB (with Redis session cache mirrors) when `ENABLE_EXTERNAL_SERVICES=true`
+- Repository-backed persistence path implemented for sessions, carts, orders, and memory (Mongo/Redis adapters)
 - Backend unit/integration tests for auth, interactions, checkout, and websocket flows
 - Playwright E2E coverage for 3 P0 user journeys (guest cart transfer, checkout, chat-driven checkout)
 - Prometheus metrics endpoint and Grafana dashboards for latency/error/checkout success tracking

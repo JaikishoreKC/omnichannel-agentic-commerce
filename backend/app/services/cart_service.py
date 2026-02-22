@@ -6,13 +6,20 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.core.config import Settings
+from app.repositories.cart_repository import CartRepository
 from app.store.in_memory import InMemoryStore
 
 
 class CartService:
-    def __init__(self, store: InMemoryStore, settings: Settings) -> None:
+    def __init__(
+        self,
+        store: InMemoryStore,
+        settings: Settings,
+        cart_repository: CartRepository,
+    ) -> None:
         self.store = store
         self.settings = settings
+        self.cart_repository = cart_repository
 
     def get_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
@@ -54,6 +61,7 @@ class CartService:
                 }
                 cart["items"].append(item)
             self._recalculate_cart(cart)
+            self.cart_repository.update(cart)
             return deepcopy(cart)
 
     def update_item(
@@ -66,6 +74,7 @@ class CartService:
                 raise HTTPException(status_code=404, detail="Cart item not found")
             target["quantity"] = quantity
             self._recalculate_cart(cart)
+            self.cart_repository.update(cart)
             return deepcopy(cart)
 
     def remove_item(self, user_id: str | None, session_id: str, item_id: str) -> None:
@@ -76,6 +85,7 @@ class CartService:
             if len(cart["items"]) == before:
                 raise HTTPException(status_code=404, detail="Cart item not found")
             self._recalculate_cart(cart)
+            self.cart_repository.update(cart)
 
     def apply_discount(
         self, user_id: str | None, session_id: str, discount_code: str
@@ -90,28 +100,34 @@ class CartService:
                     "value": 20,
                 }
                 self._recalculate_cart(cart)
+                self.cart_repository.update(cart)
                 return deepcopy(cart)
         raise HTTPException(status_code=400, detail="Invalid discount code")
 
     def attach_cart_to_user(self, session_id: str, user_id: str) -> None:
-        with self.store.lock:
-            session_cart = next(
-                (c for c in self.store.carts_by_id.values() if c.get("sessionId") == session_id),
-                None,
-            )
-            if not session_cart:
-                return
-            session_cart["userId"] = user_id
-            self._recalculate_cart(session_cart)
+        session_cart = self.cart_repository.get_for_user_or_session(user_id=None, session_id=session_id)
+        if not session_cart:
+            return
+        session_cart["userId"] = user_id
+        self._recalculate_cart(session_cart)
+        self.cart_repository.update(session_cart)
+
+    def clear_cart_for_user(self, user_id: str) -> dict[str, Any] | None:
+        cart = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id="")
+        if not cart:
+            return None
+        cart["items"] = []
+        cart["appliedDiscount"] = None
+        self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
+        return deepcopy(cart)
 
     def _get_or_create_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
-        with self.store.lock:
-            for cart in self.store.carts_by_id.values():
-                if user_id and cart.get("userId") == user_id:
-                    return cart
-                if not user_id and cart.get("sessionId") == session_id and not cart.get("userId"):
-                    return cart
+        existing = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id=session_id)
+        if existing:
+            return existing
 
+        with self.store.lock:
             cart_id = self.store.next_id("cart")
             cart = {
                 "id": cart_id,
@@ -129,8 +145,7 @@ class CartService:
                 "createdAt": self.store.iso_now(),
                 "updatedAt": self.store.iso_now(),
             }
-            self.store.carts_by_id[cart_id] = cart
-            return cart
+        return self.cart_repository.create(cart)
 
     def _resolve_product_variant(
         self, product_id: str, variant_id: str

@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.repositories.order_repository import OrderRepository
 from app.services.cart_service import CartService
 from app.services.inventory_service import InventoryService
 from app.services.notification_service import NotificationService
@@ -21,12 +22,14 @@ class OrderService:
         inventory_service: InventoryService,
         payment_service: PaymentService,
         notification_service: NotificationService,
+        order_repository: OrderRepository,
     ) -> None:
         self.store = store
         self.cart_service = cart_service
         self.inventory_service = inventory_service
         self.payment_service = payment_service
         self.notification_service = notification_service
+        self.order_repository = order_repository
 
     def create_order(
         self,
@@ -39,10 +42,11 @@ class OrderService:
             raise HTTPException(status_code=400, detail="Missing Idempotency-Key header")
 
         key = f"{user_id}:{idempotency_key.strip()}"
-        with self.store.lock:
-            existing_order_id = self.store.idempotency_keys.get(key)
-            if existing_order_id:
-                return deepcopy(self.store.orders_by_id[existing_order_id])
+        existing_order_id = self.order_repository.get_idempotent(key)
+        if existing_order_id:
+            existing_order = self.order_repository.get(existing_order_id)
+            if existing_order:
+                return existing_order
 
         cart = self.cart_service.get_cart(user_id=user_id, session_id="")
         if not cart["items"]:
@@ -93,16 +97,9 @@ class OrderService:
                 "createdAt": created_at,
                 "updatedAt": created_at,
             }
-            self.store.orders_by_id[order_id] = order
-            self.store.idempotency_keys[key] = order_id
-
-            # Clear cart after successful conversion.
-            for candidate in self.store.carts_by_id.values():
-                if candidate.get("userId") == user_id:
-                    candidate["items"] = []
-                    candidate["appliedDiscount"] = None
-                    self.cart_service._recalculate_cart(candidate)  # noqa: SLF001
-                    break
+            self.order_repository.create(order)
+            self.order_repository.set_idempotent(key=key, order_id=order_id)
+            self.cart_service.clear_cart_for_user(user_id)
 
             self.inventory_service.commit_reservation(order["items"])
             self.notification_service.send_order_confirmation(user_id=user_id, order=order)
@@ -110,44 +107,42 @@ class OrderService:
             return deepcopy(order)
 
     def list_orders(self, user_id: str) -> dict[str, Any]:
-        with self.store.lock:
-            orders = [order for order in self.store.orders_by_id.values() if order["userId"] == user_id]
-            orders.sort(key=lambda order: order["createdAt"], reverse=True)
-            return {
-                "orders": [
-                    {
-                        "id": order["id"],
-                        "status": order["status"],
-                        "total": order["total"],
-                        "itemCount": sum(int(item.get("quantity", 0)) for item in order["items"]),
-                        "createdAt": order["createdAt"],
-                    }
-                    for order in orders
-                ]
-            }
+        orders = self.order_repository.list_by_user(user_id)
+        orders.sort(key=lambda order: order["createdAt"], reverse=True)
+        return {
+            "orders": [
+                {
+                    "id": order["id"],
+                    "status": order["status"],
+                    "total": order["total"],
+                    "itemCount": sum(int(item.get("quantity", 0)) for item in order["items"]),
+                    "createdAt": order["createdAt"],
+                }
+                for order in orders
+            ]
+        }
 
     def get_order(self, user_id: str, order_id: str) -> dict[str, Any]:
-        with self.store.lock:
-            order = self.store.orders_by_id.get(order_id)
-            if not order or order["userId"] != user_id:
-                raise HTTPException(status_code=404, detail="Order not found")
-            return deepcopy(order)
+        order = self.order_repository.get(order_id)
+        if not order or order["userId"] != user_id:
+            raise HTTPException(status_code=404, detail="Order not found")
+        return deepcopy(order)
 
     def cancel_order(self, user_id: str, order_id: str, reason: str | None) -> dict[str, Any]:
-        with self.store.lock:
-            order = self.store.orders_by_id.get(order_id)
-            if not order or order["userId"] != user_id:
-                raise HTTPException(status_code=404, detail="Order not found")
-            if order["status"] in {"shipped", "delivered", "cancelled", "refunded"}:
-                raise HTTPException(status_code=409, detail="Order can no longer be cancelled")
+        order = self.order_repository.get(order_id)
+        if not order or order["userId"] != user_id:
+            raise HTTPException(status_code=404, detail="Order not found")
+        if order["status"] in {"shipped", "delivered", "cancelled", "refunded"}:
+            raise HTTPException(status_code=409, detail="Order can no longer be cancelled")
 
-            order["status"] = "cancelled"
-            order["updatedAt"] = self.store.iso_now()
-            order["timeline"].append(
-                {
-                    "status": "cancelled",
-                    "timestamp": order["updatedAt"],
-                    "note": reason or "Cancelled by customer",
-                }
-            )
-            return {"success": True, "orderId": order_id, "status": "cancelled"}
+        order["status"] = "cancelled"
+        order["updatedAt"] = self.store.iso_now()
+        order["timeline"].append(
+            {
+                "status": "cancelled",
+                "timestamp": order["updatedAt"],
+                "note": reason or "Cancelled by customer",
+            }
+        )
+        self.order_repository.update(order)
+        return {"success": True, "orderId": order_id, "status": "cancelled"}
