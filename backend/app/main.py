@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+from contextlib import suppress
 from time import time
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from fastapi.responses import PlainTextResponse
 from starlette.concurrency import run_in_threadpool
 
 from app.api.routes.admin_routes import router as admin_router
@@ -20,6 +22,7 @@ from app.api.routes.session_routes import router as session_router
 from app.container import (
     auth_service,
     mongo_manager,
+    metrics_collector,
     orchestrator,
     rate_limiter,
     redis_manager,
@@ -28,6 +31,7 @@ from app.container import (
     state_persistence,
     store,
 )
+from app.infrastructure.observability import RequestTimer
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
 
@@ -78,9 +82,13 @@ def _rate_limit_scope(path: str) -> str:
     return "root"
 
 
+def _path_group(path: str) -> str:
+    return _rate_limit_scope(path)
+
+
 @app.middleware("http")
 async def enforce_rate_limits(request: Request, call_next):  # type: ignore[no-untyped-def]
-    if request.url.path == "/health":
+    if request.url.path in {"/health", "/metrics"}:
         return await call_next(request)
 
     subject, limit = _rate_limit_profile(request)
@@ -120,6 +128,28 @@ async def persist_state_on_mutation(request: Request, call_next):  # type: ignor
     return response
 
 
+@app.middleware("http")
+async def collect_http_metrics(request: Request, call_next):  # type: ignore[no-untyped-def]
+    stopwatch = RequestTimer.start()
+    path_group = _path_group(request.url.path)
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        duration_ms = stopwatch.elapsed_ms()
+        with suppress(Exception):
+            metrics_collector.record_http(
+                method=request.method,
+                path_group=path_group,
+                status_code=status_code,
+                duration_ms=duration_ms,
+            )
+            if request.method == "POST" and request.url.path == f"{settings.api_prefix}/orders":
+                metrics_collector.record_checkout(success=200 <= status_code < 400)
+
+
 @app.get("/health")
 def health() -> dict[str, object]:
     return {
@@ -130,6 +160,11 @@ def health() -> dict[str, object]:
             "statePersistence": {"enabled": state_persistence.enabled},
         },
     }
+
+
+@app.get("/metrics", response_class=PlainTextResponse)
+def metrics() -> PlainTextResponse:
+    return PlainTextResponse(metrics_collector.render_prometheus(), media_type="text/plain; version=0.0.4")
 
 
 @app.websocket("/ws")
@@ -190,6 +225,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     }
                 )
                 continue
+
+            if not user_id:
+                try:
+                    session = session_service.get_session(session_id)
+                    if session.get("userId"):
+                        user_id = str(session["userId"])
+                except Exception:
+                    user_id = None
 
             response = await orchestrator.process_message(
                 message=message,

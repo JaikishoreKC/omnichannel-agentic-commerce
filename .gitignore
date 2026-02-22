@@ -7,6 +7,8 @@ __pycache__/
 node_modules/
 dist/
 *.tsbuildinfo
+test-results/
+playwright-report/
 
 # Env
 .env

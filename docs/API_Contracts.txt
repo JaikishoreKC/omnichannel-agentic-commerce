@@ -23,6 +23,7 @@ WebSocket: ws://localhost:8000/ws
 ### Public Endpoints
 
 - `GET /health`
+- `GET /metrics` (Prometheus scrape endpoint)
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/refresh`

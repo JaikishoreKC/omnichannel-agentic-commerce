@@ -24,6 +24,8 @@ The initial implementation includes:
 - In-memory persistence with optional MongoDB/Redis connectivity
 - Optional runtime state persistence to MongoDB (with Redis session cache mirrors) when `ENABLE_EXTERNAL_SERVICES=true`
 - Backend unit/integration tests for auth, interactions, checkout, and websocket flows
+- Playwright E2E coverage for 3 P0 user journeys (guest cart transfer, checkout, chat-driven checkout)
+- Prometheus metrics endpoint and Grafana dashboards for latency/error/checkout success tracking
 
 ## Run Backend
 
@@ -50,6 +52,11 @@ cd backend
 python -m pytest tests -q
 ```
 
+```bash
+cd frontend
+npm run test:e2e
+```
+
 ## Docker Compose
 
 ```bash
@@ -62,6 +69,8 @@ Services:
 - Frontend: `http://localhost:5173`
 - MongoDB: `mongodb://localhost:27017`
 - Redis: `redis://localhost:6379`
+- Prometheus: `http://localhost:9090`
+- Grafana: `http://localhost:3000` (anonymous viewer enabled)
 
 ## API Summary
 
@@ -82,6 +91,7 @@ Services:
 - `GET /v1/admin/inventory/{variantId}`
 - `PUT /v1/admin/inventory/{variantId}`
 - `GET /health`
+- `GET /metrics`
 
 ## Demo Admin Account
 

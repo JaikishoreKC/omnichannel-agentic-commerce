@@ -43,8 +43,11 @@ export default function App(): JSX.Element {
     Array<{ role: "user" | "assistant"; text: string; agent?: string }>
   >([]);
   const [chatActions, setChatActions] = useState<Array<{ label: string; action: string }>>([]);
+  const [chatReady, setChatReady] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
+  const connectSocketRef = useRef<(session: string) => void>(() => undefined);
   const reconnectTimerRef = useRef<number | null>(null);
+  const intentionalSocketCloseRef = useRef(false);
 
   const totalItems = useMemo(() => cart.itemCount, [cart.itemCount]);
 
@@ -83,12 +86,30 @@ export default function App(): JSX.Element {
       if (!active) {
         return;
       }
+      if (reconnectTimerRef.current !== null) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       if (socketRef.current) {
+        intentionalSocketCloseRef.current = true;
         socketRef.current.close();
       }
+      setChatReady(false);
       const socket = connectChat({
         sessionId: nextSessionId,
+        onOpen: () => {
+          if (socketRef.current !== socket) {
+            return;
+          }
+          if (!active) {
+            return;
+          }
+          setChatReady(true);
+        },
         onMessage: (payload) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
           if (!active) {
             return;
           }
@@ -102,16 +123,31 @@ export default function App(): JSX.Element {
           setSessionId(resolvedSessionId);
         },
         onError: (errorMessage) => {
+          if (socketRef.current !== socket) {
+            return;
+          }
           if (!active) {
             return;
           }
+          setChatReady(false);
           setMessage(errorMessage);
         },
         onClose: () => {
+          if (socketRef.current !== socket) {
+            if (intentionalSocketCloseRef.current) {
+              intentionalSocketCloseRef.current = false;
+            }
+            return;
+          }
           socketRef.current = null;
+          if (intentionalSocketCloseRef.current) {
+            intentionalSocketCloseRef.current = false;
+            return;
+          }
           if (!active) {
             return;
           }
+          setChatReady(false);
           setMessage("Chat disconnected. Reconnecting...");
           reconnectTimerRef.current = window.setTimeout(() => {
             connectSocket(currentSessionId || nextSessionId);
@@ -120,6 +156,7 @@ export default function App(): JSX.Element {
       });
       socketRef.current = socket;
     };
+    connectSocketRef.current = connectSocket;
 
     (async () => {
       try {
@@ -142,9 +179,12 @@ export default function App(): JSX.Element {
         reconnectTimerRef.current = null;
       }
       if (socketRef.current) {
+        intentionalSocketCloseRef.current = true;
         socketRef.current.close();
         socketRef.current = null;
       }
+      setChatReady(false);
+      connectSocketRef.current = () => undefined;
     };
   }, []);
 
@@ -156,6 +196,9 @@ export default function App(): JSX.Element {
       setToken(payload.accessToken);
       setUser(payload.user);
       await reloadData();
+      if (sessionId) {
+        connectSocketRef.current(sessionId);
+      }
       setMessage("Account created. Guest cart has been attached.");
     } catch (err) {
       setMessage((err as Error).message);
@@ -172,6 +215,9 @@ export default function App(): JSX.Element {
       setToken(payload.accessToken);
       setUser(payload.user);
       await reloadData();
+      if (sessionId) {
+        connectSocketRef.current(sessionId);
+      }
       setMessage("Signed in. You can now checkout.");
     } catch (err) {
       setMessage((err as Error).message);
@@ -231,7 +277,7 @@ export default function App(): JSX.Element {
 
   function onSendChat(): void {
     const text = chatInput.trim();
-    if (!text || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
+    if (!text || !chatReady || !socketRef.current || socketRef.current.readyState !== WebSocket.OPEN) {
       return;
     }
     setChatInput("");
@@ -271,22 +317,31 @@ export default function App(): JSX.Element {
       <header className="hero">
         <p className="kicker">Omnichannel Agentic Commerce</p>
         <h1>Guest-first shopping. Authenticated checkout.</h1>
-        <p className="status">{message}</p>
-        <p className="status">Session: {sessionId || "initializing..."}</p>
+        <p className="status" data-testid="status-message">
+          {message}
+        </p>
+        <p className="status" data-testid="session-id">
+          Session: {sessionId || "initializing..."}
+        </p>
       </header>
 
       <main className="grid">
-        <section className="panel auth-panel">
+        <section className="panel auth-panel" data-testid="auth-panel">
           <h2>{user ? `Signed in as ${user.name}` : "Sign in for checkout"}</h2>
           {!user ? (
             <>
               <label>
                 Name
-                <input value={name} onChange={(event) => setName(event.target.value)} />
+                <input
+                  data-testid="name-input"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                />
               </label>
               <label>
                 Email
                 <input
+                  data-testid="email-input"
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
@@ -295,28 +350,29 @@ export default function App(): JSX.Element {
               <label>
                 Password
                 <input
+                  data-testid="password-input"
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                 />
               </label>
               <div className="button-row">
-                <button disabled={busy} onClick={onRegister}>
+                <button data-testid="register-button" disabled={busy} onClick={onRegister}>
                   Register
                 </button>
-                <button disabled={busy} onClick={onLogin}>
+                <button data-testid="login-button" disabled={busy} onClick={onLogin}>
                   Login
                 </button>
               </div>
             </>
           ) : (
-            <button disabled={busy} onClick={onLogout}>
+            <button data-testid="logout-button" disabled={busy} onClick={onLogout}>
               Logout
             </button>
           )}
         </section>
 
-        <section className="panel catalog-panel">
+        <section className="panel catalog-panel" data-testid="catalog-panel">
           <div className="panel-header">
             <h2>Catalog</h2>
             <span>{products.length} products</span>
@@ -332,7 +388,11 @@ export default function App(): JSX.Element {
                 </div>
                 <h3>{product.name}</h3>
                 <p>{product.description}</p>
-                <button disabled={busy} onClick={() => void onAddProduct(product)}>
+                <button
+                  data-testid={`add-to-cart-${product.id}`}
+                  disabled={busy}
+                  onClick={() => void onAddProduct(product)}
+                >
                   Add to Cart
                 </button>
               </article>
@@ -340,12 +400,12 @@ export default function App(): JSX.Element {
           </div>
         </section>
 
-        <section className="panel cart-panel">
+        <section className="panel cart-panel" data-testid="cart-panel">
           <div className="panel-header">
             <h2>Cart</h2>
-            <span>{totalItems} items</span>
+            <span data-testid="cart-item-count">{totalItems} items</span>
           </div>
-          <ul className="cart-list">
+          <ul className="cart-list" data-testid="cart-list">
             {cart.items.map((item) => (
               <li key={item.itemId}>
                 <strong>{item.name}</strong>
@@ -374,18 +434,26 @@ export default function App(): JSX.Element {
               <dd>${cart.total.toFixed(2)}</dd>
             </div>
           </dl>
-          <button className="checkout" disabled={busy || cart.itemCount === 0} onClick={onCheckout}>
+          <button
+            className="checkout"
+            data-testid="checkout-button"
+            disabled={busy || cart.itemCount === 0}
+            onClick={onCheckout}
+          >
             Checkout
           </button>
           {!user && <p className="hint">Login is required before order creation.</p>}
         </section>
 
-        <section className="panel chat-panel">
+        <section className="panel chat-panel" data-testid="chat-panel">
           <div className="panel-header">
             <h2>Assistant Chat</h2>
-            <span>{chatMessages.length} msgs</span>
+            <span data-testid="chat-message-count">{chatMessages.length} msgs</span>
           </div>
-          <div className="chat-log">
+          <p className="hint" data-testid="chat-ready">
+            {chatReady ? "connected" : "connecting"}
+          </p>
+          <div className="chat-log" data-testid="chat-log">
             {chatMessages.length === 0 && (
               <p className="hint">
                 Ask: "show me running shoes", "add to cart", "checkout", "order status".
@@ -414,11 +482,12 @@ export default function App(): JSX.Element {
           )}
           <div className="chat-input-row">
             <input
+              data-testid="chat-input"
               value={chatInput}
               onChange={(event) => setChatInput(event.target.value)}
               placeholder="Type a shopping request..."
             />
-            <button type="button" disabled={busy} onClick={onSendChat}>
+            <button data-testid="chat-send-button" type="button" disabled={busy || !chatReady} onClick={onSendChat}>
               Send
             </button>
           </div>

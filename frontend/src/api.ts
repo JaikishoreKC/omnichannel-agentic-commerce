@@ -97,9 +97,11 @@ export function connectChat(params: {
   onMessage: (payload: ChatResponsePayload) => void;
   onSession: (sessionId: string) => void;
   onError: (message: string) => void;
+  onOpen?: () => void;
   onClose?: () => void;
 }): WebSocket {
   const socket = new WebSocket(`${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
+  socket.onopen = () => params.onOpen?.();
   socket.onmessage = (event) => {
     try {
       const parsed = JSON.parse(event.data as string) as {
