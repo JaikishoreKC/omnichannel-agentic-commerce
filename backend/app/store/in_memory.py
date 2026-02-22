@@ -9,6 +9,22 @@ from app.core.security import hash_password
 
 
 class InMemoryStore:
+    STATE_KEYS = (
+        "users_by_id",
+        "user_ids_by_email",
+        "sessions_by_id",
+        "carts_by_id",
+        "orders_by_id",
+        "refresh_tokens",
+        "idempotency_keys",
+        "memories_by_user_id",
+        "messages_by_session",
+        "support_tickets",
+        "notifications",
+        "products_by_id",
+        "inventory_by_variant",
+    )
+
     def __init__(self) -> None:
         self.lock = RLock()
         self._counters = {
@@ -176,3 +192,21 @@ class InMemoryStore:
         }
         self.users_by_id[admin_id] = admin
         self.user_ids_by_email[admin["email"]] = admin_id
+
+    def export_state(self) -> dict[str, Any]:
+        with self.lock:
+            state = {"_counters": deepcopy(self._counters)}
+            for key in self.STATE_KEYS:
+                state[key] = deepcopy(getattr(self, key))
+            return state
+
+    def import_state(self, state: dict[str, Any]) -> None:
+        with self.lock:
+            counters = state.get("_counters")
+            if isinstance(counters, dict):
+                self._counters.update({k: int(v) for k, v in counters.items()})
+
+            for key in self.STATE_KEYS:
+                value = state.get(key)
+                if value is not None:
+                    setattr(self, key, deepcopy(value))

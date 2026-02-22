@@ -12,6 +12,8 @@ from app.orchestrator.intent_classifier import IntentClassifier
 from app.orchestrator.orchestrator_core import Orchestrator
 from app.orchestrator.response_formatter import ResponseFormatter
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
+from app.infrastructure.rate_limiter import SlidingWindowRateLimiter
+from app.infrastructure.state_persistence import StatePersistence
 from app.services.admin_service import AdminService
 from app.services.auth_service import AuthService
 from app.services.cart_service import CartService
@@ -32,6 +34,12 @@ mongo_manager = MongoClientManager(uri=settings.mongodb_uri, enabled=settings.en
 redis_manager = RedisClientManager(url=settings.redis_url, enabled=settings.enable_external_services)
 mongo_manager.connect()
 redis_manager.connect()
+rate_limiter = SlidingWindowRateLimiter()
+state_persistence = StatePersistence(
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
+state_persistence.load(store)
 
 auth_service = AuthService(store=store, settings=settings)
 product_service = ProductService(store=store)

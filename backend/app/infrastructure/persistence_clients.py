@@ -36,6 +36,10 @@ class MongoClientManager:
     def error(self) -> str | None:
         return self._last_error
 
+    @property
+    def client(self) -> Any:
+        return self._client
+
 
 @dataclass
 class RedisClientManager:
@@ -69,3 +73,6 @@ class RedisClientManager:
     def error(self) -> str | None:
         return self._last_error
 
+    @property
+    def client(self) -> Any:
+        return self._client

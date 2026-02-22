@@ -17,6 +17,8 @@ class Settings:
     mongodb_uri: str = "mongodb://localhost:27017/commerce"
     redis_url: str = "redis://localhost:6379/0"
     enable_external_services: bool = False
+    rate_limit_anonymous_per_minute: int = 120
+    rate_limit_authenticated_per_minute: int = 600
 
     @property
     def cors_origin_list(self) -> list[str]:
@@ -44,4 +46,16 @@ class Settings:
             redis_url=os.getenv("REDIS_URL", cls.redis_url),
             enable_external_services=os.getenv("ENABLE_EXTERNAL_SERVICES", "false").lower()
             in {"1", "true", "yes"},
+            rate_limit_anonymous_per_minute=int(
+                os.getenv(
+                    "RATE_LIMIT_ANONYMOUS_PER_MINUTE",
+                    str(cls.rate_limit_anonymous_per_minute),
+                )
+            ),
+            rate_limit_authenticated_per_minute=int(
+                os.getenv(
+                    "RATE_LIMIT_AUTHENTICATED_PER_MINUTE",
+                    str(cls.rate_limit_authenticated_per_minute),
+                )
+            ),
         )

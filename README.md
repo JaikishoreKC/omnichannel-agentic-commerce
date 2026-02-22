@@ -20,7 +20,9 @@ The initial implementation includes:
 - Admin inventory operations and richer admin analytics (agent performance, message volume, support queue)
 - Support escalation tickets from conversational assistant
 - Preference-aware recommendations (memory-informed product suggestions)
+- API gateway rate limiting with standard rate-limit headers
 - In-memory persistence with optional MongoDB/Redis connectivity
+- Optional runtime state persistence to MongoDB (with Redis session cache mirrors) when `ENABLE_EXTERNAL_SERVICES=true`
 - Backend unit/integration tests for auth, interactions, checkout, and websocket flows
 
 ## Run Backend
