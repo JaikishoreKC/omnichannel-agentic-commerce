@@ -22,12 +22,15 @@ class LLMIntentPrediction:
 class LLMClient:
     SUPPORTED_INTENTS = {
         "product_search",
+        "search_and_add_to_cart",
         "add_to_cart",
+        "apply_discount",
         "update_cart",
         "remove_from_cart",
         "view_cart",
         "checkout",
         "order_status",
+        "change_order_address",
         "cancel_order",
         "request_refund",
         "multi_status",

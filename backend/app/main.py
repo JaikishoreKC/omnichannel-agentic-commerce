@@ -271,6 +271,7 @@ def metrics() -> PlainTextResponse:
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket) -> None:
     await websocket.accept()
+    session_service.cleanup_expired()
     session_id = websocket.query_params.get("sessionId")
     if not session_id:
         session = session_service.create_session(channel="websocket", initial_context={})
@@ -298,10 +299,52 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         except Exception:
             user_id = None
 
+    heartbeat_state = {"last_pong": time()}
+    heartbeat_interval = max(0.0, float(settings.ws_heartbeat_interval_seconds))
+    heartbeat_timeout = max(0.0, float(settings.ws_heartbeat_timeout_seconds))
+    stop_heartbeat = asyncio.Event()
+
+    async def heartbeat_loop() -> None:
+        if heartbeat_interval <= 0.0 or heartbeat_timeout <= 0.0:
+            return
+        while not stop_heartbeat.is_set():
+            await asyncio.sleep(heartbeat_interval)
+            if stop_heartbeat.is_set():
+                return
+            if time() - heartbeat_state["last_pong"] > heartbeat_timeout:
+                with suppress(Exception):
+                    await websocket.send_json(
+                        {
+                            "type": "error",
+                            "payload": {
+                                "code": "SESSION_EXPIRED",
+                                "message": "Connection closed due to heartbeat timeout.",
+                            },
+                        }
+                    )
+                with suppress(Exception):
+                    await websocket.close(code=1001, reason="heartbeat timeout")
+                return
+            with suppress(Exception):
+                await websocket.send_json(
+                    {"type": "ping", "payload": {"timestamp": int(time() * 1000)}}
+                )
+
+    heartbeat_task = asyncio.create_task(heartbeat_loop())
+
     try:
         while True:
             payload = await websocket.receive_json()
             msg_type = payload.get("type")
+            if msg_type == "pong":
+                heartbeat_state["last_pong"] = time()
+                continue
+            if msg_type == "ping":
+                heartbeat_state["last_pong"] = time()
+                await websocket.send_json(
+                    {"type": "pong", "payload": {"timestamp": int(time() * 1000)}}
+                )
+                continue
             if msg_type == "typing":
                 await websocket.send_json({"type": "typing", "payload": payload.get("payload", {})})
                 continue
@@ -311,7 +354,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         "type": "error",
                         "payload": {
                             "code": "UNSUPPORTED_MESSAGE_TYPE",
-                            "message": "Only `message` and `typing` event types are supported.",
+                            "message": "Only `message`, `typing`, `ping`, and `pong` event types are supported.",
                         },
                     }
                 )
@@ -335,6 +378,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 except Exception:
                     user_id = None
 
+            heartbeat_state["last_pong"] = time()
             assistant_typing_requested = bool(payload.get("payload", {}).get("typing", False))
             if assistant_typing_requested:
                 await websocket.send_json(
@@ -389,3 +433,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await websocket.send_json(envelope)
     except WebSocketDisconnect:
         return
+    finally:
+        stop_heartbeat.set()
+        heartbeat_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await heartbeat_task

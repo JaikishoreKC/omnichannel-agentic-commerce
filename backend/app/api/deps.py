@@ -42,6 +42,7 @@ def resolve_session_id(
     response: Response,
     x_session_id: str | None = Header(default=None),
 ) -> str:
+    session_service.cleanup_expired()
     session_id = x_session_id or request.cookies.get("session_id")
     if session_id:
         try:

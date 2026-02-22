@@ -107,3 +107,48 @@ def test_websocket_assistant_typing_events_when_requested() -> None:
         assert saw_typing_start is True
         assert saw_typing_end is True
         assert saw_response is True
+
+
+def test_websocket_ping_pong_roundtrip() -> None:
+    client = TestClient(app)
+    session = client.post("/v1/sessions", json={"channel": "websocket", "initialContext": {}})
+    assert session.status_code == 201
+    session_id = session.json()["sessionId"]
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json({"type": "ping", "payload": {"timestamp": "2026-01-01T00:00:00Z"}})
+        event = websocket.receive_json()
+        assert event["type"] == "pong"
+
+
+def test_websocket_reconnect_same_session() -> None:
+    client = TestClient(app)
+    session = client.post("/v1/sessions", json={"channel": "websocket", "initialContext": {}})
+    assert session.status_code == 201
+    session_id = session.json()["sessionId"]
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {"content": "show me running shoes", "timestamp": "2026-01-01T00:00:00Z"},
+            }
+        )
+        while True:
+            first = websocket.receive_json()
+            if first["type"] == "response":
+                break
+        assert first["payload"]["agent"] == "product"
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {"content": "show me accessories", "timestamp": "2026-01-01T00:01:00Z"},
+            }
+        )
+        while True:
+            second = websocket.receive_json()
+            if second["type"] == "response":
+                break
+        assert second["payload"]["agent"] == "product"

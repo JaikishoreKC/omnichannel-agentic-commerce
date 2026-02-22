@@ -27,6 +27,8 @@ class Settings:
     llm_temperature: float = 0.0
     llm_circuit_breaker_failure_threshold: int = 5
     llm_circuit_breaker_timeout_seconds: float = 60.0
+    ws_heartbeat_interval_seconds: float = 25.0
+    ws_heartbeat_timeout_seconds: float = 70.0
     openai_api_key: str = ""
     anthropic_api_key: str = ""
 
@@ -84,6 +86,18 @@ class Settings:
                 os.getenv(
                     "LLM_CIRCUIT_BREAKER_TIMEOUT_SECONDS",
                     str(cls.llm_circuit_breaker_timeout_seconds),
+                )
+            ),
+            ws_heartbeat_interval_seconds=float(
+                os.getenv(
+                    "WS_HEARTBEAT_INTERVAL_SECONDS",
+                    str(cls.ws_heartbeat_interval_seconds),
+                )
+            ),
+            ws_heartbeat_timeout_seconds=float(
+                os.getenv(
+                    "WS_HEARTBEAT_TIMEOUT_SECONDS",
+                    str(cls.ws_heartbeat_timeout_seconds),
                 )
             ),
             openai_api_key=os.getenv("OPENAI_API_KEY", cls.openai_api_key),

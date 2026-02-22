@@ -17,6 +17,7 @@ The initial implementation includes:
 - Agent orchestration pipeline (intent -> actions -> router -> specialized agents)
 - Real-time chat via WebSocket (`/ws`) and REST interactions endpoint, including optional streaming chunks
 - Assistant typing indicators over WebSocket (opt-in per message)
+- WebSocket heartbeat support (`ping`/`pong`) and stale session cleanup
 - One-message search-and-add conversational flow and conversational discount-code application
 - Inventory reservation, payment authorization stub, and order confirmation notifications
 - Admin inventory operations and richer admin analytics (agent performance, message volume, support queue)
@@ -31,6 +32,7 @@ The initial implementation includes:
 - Optional LLM-backed intent classification with circuit-breaker fallback
 - Backend unit/integration tests for auth, interactions, checkout, and websocket flows
 - Playwright E2E coverage for 3 P0 user journeys (guest cart transfer, checkout, chat-driven checkout)
+- CI quality gates for backend coverage (>=80%), Bandit static scan, dependency audit, and perf-smoke summary artifacts
 - Prometheus metrics endpoint and Grafana dashboards for latency/error/checkout success tracking
 
 ## Run Backend
@@ -75,6 +77,31 @@ python -m pytest tests -q
 ```bash
 cd frontend
 npm run test:e2e
+```
+
+## Run Perf Smoke
+
+```bash
+cd backend
+python -m app.scripts.perf_smoke --iterations 40 --ws-iterations 20
+```
+
+## Local Validation (One Command)
+
+```powershell
+./scripts/validate_local.ps1
+```
+
+Options:
+
+- `-SkipE2E`
+- `-SkipPerf`
+
+## Load Testing (Locust)
+
+```bash
+pip install -r backend/requirements-perf.txt
+locust -f backend/perf/locustfile.py --host http://localhost:8000
 ```
 
 ## Docker Compose

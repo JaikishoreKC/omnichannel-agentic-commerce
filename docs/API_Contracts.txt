@@ -616,6 +616,10 @@ ws://localhost:8000/ws?sessionId=session_abc123
 ```
 
 Auth should be provided by secure cookie or a short-lived WS token exchange endpoint (not querystring access token).
+Server also supports heartbeat events:
+- Server may send `ping` events periodically.
+- Client can send `pong` and/or `ping`.
+- Server responds to client `ping` with `pong`.
 
 ### Client -> Server Message
 
@@ -634,6 +638,28 @@ Auth should be provided by secure cookie or a short-lived WS token exchange endp
 `stream` and `typing` are optional flags.
 - `stream=true` enables response chunk events (`stream_start`, `stream_delta`, `stream_end`).
 - `typing=true` requests assistant typing indicator events (`typing` with `actor=assistant`).
+
+Client heartbeat message (optional):
+
+```json
+{
+  "type": "pong",
+  "payload": {
+    "timestamp": "2026-02-22T10:30:01Z"
+  }
+}
+```
+
+Client ping message (optional):
+
+```json
+{
+  "type": "ping",
+  "payload": {
+    "timestamp": "2026-02-22T10:30:01Z"
+  }
+}
+```
 
 ### Server -> Client Response
 
@@ -708,6 +734,28 @@ Client can request streaming by setting `payload.stream=true` in the message eve
   "payload": {
     "code": "SESSION_EXPIRED",
     "message": "Your session has expired. Please refresh."
+  }
+}
+```
+
+Server heartbeat ping event:
+
+```json
+{
+  "type": "ping",
+  "payload": {
+    "timestamp": 1740220200123
+  }
+}
+```
+
+Server heartbeat pong response:
+
+```json
+{
+  "type": "pong",
+  "payload": {
+    "timestamp": 1740220201123
   }
 }
 ```

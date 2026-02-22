@@ -223,6 +223,48 @@ def test_session_repository_count_cached() -> None:
     assert repo.count() == 1
 
 
+def test_session_repository_cleanup_expired_sessions() -> None:
+    from datetime import timedelta
+
+    from app.services.session_service import SessionService
+
+    store = InMemoryStore()
+    mongo_manager, redis_manager = _disabled_managers()
+    repo = SessionRepository(store=store, mongo_manager=mongo_manager, redis_manager=redis_manager)
+    service = SessionService(store=store, session_repository=repo)
+
+    expired_id = "session_expired_1"
+    active_id = "session_active_1"
+    now = store.utc_now()
+    repo.create(
+        {
+            "id": expired_id,
+            "userId": None,
+            "channel": "web",
+            "createdAt": now.isoformat(),
+            "lastActivity": now.isoformat(),
+            "expiresAt": (now - timedelta(minutes=1)).isoformat(),
+            "context": {},
+        }
+    )
+    repo.create(
+        {
+            "id": active_id,
+            "userId": None,
+            "channel": "web",
+            "createdAt": now.isoformat(),
+            "lastActivity": now.isoformat(),
+            "expiresAt": (now + timedelta(minutes=10)).isoformat(),
+            "context": {},
+        }
+    )
+
+    removed = service.cleanup_expired()
+    assert removed == 1
+    assert repo.get(expired_id) is None
+    assert repo.get(active_id) is not None
+
+
 def test_product_and_inventory_repositories_roundtrip() -> None:
     store = InMemoryStore()
     mongo_manager, redis_manager = _disabled_managers()

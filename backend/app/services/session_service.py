@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -87,3 +87,27 @@ class SessionService:
         conversation["entities"] = entities or {}
         session["lastActivity"] = self.store.iso_now()
         self.session_repository.update(session)
+
+    def cleanup_expired(self) -> int:
+        now = self.store.utc_now()
+        to_delete: list[str] = []
+        with self.store.lock:
+            for session_id, payload in self.store.sessions_by_id.items():
+                expires_at = self._parse_iso(payload.get("expiresAt"))
+                if expires_at is not None and expires_at <= now:
+                    to_delete.append(session_id)
+        for session_id in to_delete:
+            self.session_repository.delete(session_id)
+        return len(to_delete)
+
+    @staticmethod
+    def _parse_iso(value: Any) -> datetime | None:
+        if not isinstance(value, str) or not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed
