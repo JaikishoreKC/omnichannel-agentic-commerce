@@ -12,6 +12,7 @@ from app.orchestrator.context_builder import ContextBuilder
 from app.orchestrator.intent_classifier import IntentClassifier
 from app.orchestrator.orchestrator_core import Orchestrator
 from app.orchestrator.response_formatter import ResponseFormatter
+from app.infrastructure.superu_client import SuperUClient
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
 from app.infrastructure.observability import MetricsCollector
 from app.infrastructure.llm_client import LLMClient
@@ -39,6 +40,7 @@ from app.services.payment_service import PaymentService
 from app.services.product_service import ProductService
 from app.services.session_service import SessionService
 from app.services.support_service import SupportService
+from app.services.voice_recovery_service import VoiceRecoveryService
 from app.store.in_memory import InMemoryStore
 
 settings = Settings.from_env()
@@ -127,6 +129,7 @@ notification_service = NotificationService(
     store=store,
     notification_repository=notification_repository,
 )
+superu_client = SuperUClient(settings=settings)
 order_service = OrderService(
     store=store,
     cart_service=cart_service,
@@ -136,14 +139,6 @@ order_service = OrderService(
     order_repository=order_repository,
 )
 memory_service = MemoryService(store=store, memory_repository=memory_repository)
-admin_service = AdminService(
-    store=store,
-    session_repository=session_repository,
-    order_repository=order_repository,
-    interaction_repository=interaction_repository,
-    support_repository=support_repository,
-    product_repository=product_repository,
-)
 interaction_service = InteractionService(
     store=store,
     interaction_repository=interaction_repository,
@@ -151,6 +146,22 @@ interaction_service = InteractionService(
 support_service = SupportService(
     store=store,
     support_repository=support_repository,
+)
+voice_recovery_service = VoiceRecoveryService(
+    store=store,
+    settings=settings,
+    superu_client=superu_client,
+    support_service=support_service,
+    notification_service=notification_service,
+)
+admin_service = AdminService(
+    store=store,
+    session_repository=session_repository,
+    order_repository=order_repository,
+    interaction_repository=interaction_repository,
+    support_repository=support_repository,
+    product_repository=product_repository,
+    voice_recovery_service=voice_recovery_service,
 )
 
 product_agent = ProductAgent(product_service=product_service)

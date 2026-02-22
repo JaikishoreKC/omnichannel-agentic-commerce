@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Depends, HTTPException, Response
 
 from app.api.deps import require_admin
-from app.container import admin_service, inventory_service, product_service
-from app.models.schemas import InventoryUpdateRequest, ProductWriteRequest
+from app.container import admin_service, inventory_service, product_service, voice_recovery_service
+from app.models.schemas import (
+    InventoryUpdateRequest,
+    ProductWriteRequest,
+    VoiceSettingsUpdateRequest,
+    VoiceSuppressionRequest,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -66,3 +73,77 @@ def update_inventory(
         available_quantity=payload.availableQuantity,
     )
     return {"inventory": inventory}
+
+
+@router.get("/voice/settings")
+def get_voice_settings(_: dict[str, object] = Depends(require_admin)) -> dict[str, Any]:
+    return {"settings": voice_recovery_service.get_settings()}
+
+
+@router.put("/voice/settings")
+def update_voice_settings(
+    payload: VoiceSettingsUpdateRequest,
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    updates = payload.model_dump(exclude_none=True)
+    return {"settings": voice_recovery_service.update_settings(updates)}
+
+
+@router.post("/voice/process")
+def run_voice_recovery_now(_: dict[str, object] = Depends(require_admin)) -> dict[str, Any]:
+    return {"result": voice_recovery_service.process_due_work()}
+
+
+@router.get("/voice/calls")
+def list_voice_calls(
+    limit: int = 100,
+    status: str | None = None,
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    return {"calls": voice_recovery_service.list_calls(limit=limit, status=status)}
+
+
+@router.get("/voice/jobs")
+def list_voice_jobs(
+    limit: int = 100,
+    status: str | None = None,
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    return {"jobs": voice_recovery_service.list_jobs(limit=limit, status=status)}
+
+
+@router.get("/voice/suppressions")
+def list_voice_suppressions(_: dict[str, object] = Depends(require_admin)) -> dict[str, Any]:
+    return {"suppressions": voice_recovery_service.list_suppressions()}
+
+
+@router.post("/voice/suppressions")
+def create_voice_suppression(
+    payload: VoiceSuppressionRequest,
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    row = voice_recovery_service.suppress_user(user_id=payload.userId, reason=payload.reason)
+    return {"suppression": row}
+
+
+@router.delete("/voice/suppressions/{user_id}", status_code=204, response_class=Response)
+def delete_voice_suppression(
+    user_id: str,
+    _: dict[str, object] = Depends(require_admin),
+) -> Response:
+    voice_recovery_service.unsuppress_user(user_id=user_id)
+    return Response(status_code=204)
+
+
+@router.get("/voice/alerts")
+def list_voice_alerts(
+    limit: int = 50,
+    severity: str | None = None,
+    _: dict[str, object] = Depends(require_admin),
+) -> dict[str, Any]:
+    return {"alerts": voice_recovery_service.list_alerts(limit=limit, severity=severity)}
+
+
+@router.get("/voice/stats")
+def voice_stats(_: dict[str, object] = Depends(require_admin)) -> dict[str, Any]:
+    return {"stats": voice_recovery_service.stats()}

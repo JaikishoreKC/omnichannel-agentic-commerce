@@ -14,6 +14,8 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
         email=payload.email,
         password=payload.password,
         name=payload.name,
+        phone=payload.phone,
+        timezone=payload.timezone,
     )
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
     if session_id:

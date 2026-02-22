@@ -34,6 +34,7 @@ The initial implementation includes:
 - Playwright E2E coverage for 3 P0 user journeys (guest cart transfer, checkout, chat-driven checkout)
 - CI quality gates for backend coverage (>=80%), Bandit static scan, dependency audit, and perf-smoke summary artifacts
 - Prometheus metrics endpoint and Grafana dashboards for latency/error/checkout success tracking
+- Configurable abandoned-cart outbound voice recovery workflow (SuperU) with retries, quiet-hours, budget guardrails, suppression list, alerts, and admin controls
 
 ## Run Backend
 
@@ -140,6 +141,16 @@ Services:
 - `POST /v1/admin/products`
 - `GET /v1/admin/inventory/{variantId}`
 - `PUT /v1/admin/inventory/{variantId}`
+- `GET /v1/admin/voice/settings`
+- `PUT /v1/admin/voice/settings`
+- `POST /v1/admin/voice/process`
+- `GET /v1/admin/voice/calls`
+- `GET /v1/admin/voice/jobs`
+- `GET /v1/admin/voice/suppressions`
+- `POST /v1/admin/voice/suppressions`
+- `DELETE /v1/admin/voice/suppressions/{userId}`
+- `GET /v1/admin/voice/alerts`
+- `GET /v1/admin/voice/stats`
 - `GET /health`
 - `GET /metrics`
 

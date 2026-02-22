@@ -9,6 +9,8 @@ class RegisterRequest(BaseModel):
     email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
     password: str = Field(min_length=12)
     name: str = Field(min_length=1)
+    phone: str | None = None
+    timezone: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -26,6 +28,8 @@ class AuthUser(BaseModel):
     name: str
     role: str
     createdAt: str
+    phone: str | None = None
+    timezone: str | None = None
 
 
 class AuthResponse(BaseModel):
@@ -135,3 +139,29 @@ class ProductWriteRequest(BaseModel):
 class InventoryUpdateRequest(BaseModel):
     totalQuantity: int | None = Field(default=None, ge=0)
     availableQuantity: int | None = Field(default=None, ge=0)
+
+
+class VoiceSettingsUpdateRequest(BaseModel):
+    enabled: bool | None = None
+    killSwitch: bool | None = None
+    abandonmentMinutes: int | None = Field(default=None, ge=1)
+    maxAttemptsPerCart: int | None = Field(default=None, ge=1)
+    maxCallsPerUserPerDay: int | None = Field(default=None, ge=1)
+    maxCallsPerDay: int | None = Field(default=None, ge=1)
+    dailyBudgetUsd: float | None = Field(default=None, ge=0)
+    estimatedCostPerCallUsd: float | None = Field(default=None, ge=0)
+    quietHoursStart: int | None = Field(default=None, ge=0, le=23)
+    quietHoursEnd: int | None = Field(default=None, ge=0, le=23)
+    retryBackoffSeconds: list[int] | str | None = None
+    scriptVersion: str | None = None
+    scriptTemplate: str | None = None
+    assistantId: str | None = None
+    fromPhoneNumber: str | None = None
+    defaultTimezone: str | None = None
+    alertBacklogThreshold: int | None = Field(default=None, ge=1)
+    alertFailureRatioThreshold: float | None = Field(default=None, ge=0.01, le=1.0)
+
+
+class VoiceSuppressionRequest(BaseModel):
+    userId: str = Field(min_length=1)
+    reason: str = Field(default="manual_suppression", min_length=1)

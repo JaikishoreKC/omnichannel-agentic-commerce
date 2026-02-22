@@ -33,10 +33,13 @@ from app.container import (
     settings,
     state_persistence,
     store,
+    voice_recovery_service,
 )
 from app.infrastructure.observability import RequestTimer
 
 app = FastAPI(title=settings.app_name, version="0.1.0")
+
+_voice_scheduler_task: asyncio.Task[None] | None = None
 
 app.add_middleware(
     CORSMiddleware,
@@ -54,6 +57,42 @@ app.include_router(session_router, prefix=settings.api_prefix)
 app.include_router(memory_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(interaction_router, prefix=settings.api_prefix)
+
+
+async def _voice_recovery_scheduler_loop(stop_event: asyncio.Event, interval_seconds: float) -> None:
+    while not stop_event.is_set():
+        with suppress(Exception):
+            await run_in_threadpool(voice_recovery_service.process_due_work)
+        try:
+            await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
+        except asyncio.TimeoutError:
+            continue
+
+
+@app.on_event("startup")
+async def start_voice_recovery_scheduler() -> None:
+    global _voice_scheduler_task
+    if not settings.voice_recovery_scheduler_enabled:
+        return
+    if _voice_scheduler_task and not _voice_scheduler_task.done():
+        return
+    interval = max(5.0, float(settings.voice_recovery_scan_interval_seconds))
+    stop_event = asyncio.Event()
+    app.state.voice_recovery_stop_event = stop_event
+    _voice_scheduler_task = asyncio.create_task(_voice_recovery_scheduler_loop(stop_event, interval))
+
+
+@app.on_event("shutdown")
+async def stop_voice_recovery_scheduler() -> None:
+    global _voice_scheduler_task
+    stop_event = getattr(app.state, "voice_recovery_stop_event", None)
+    if isinstance(stop_event, asyncio.Event):
+        stop_event.set()
+    if _voice_scheduler_task:
+        _voice_scheduler_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await _voice_scheduler_task
+    _voice_scheduler_task = None
 
 
 def _error_code(status_code: int) -> str:
@@ -259,6 +298,11 @@ def health() -> dict[str, object]:
                 "model": settings.llm_model,
                 "circuitBreakerState": llm_snapshot.state,
                 "circuitBreakerFailures": llm_snapshot.failure_count,
+            },
+            "voiceRecovery": {
+                "schedulerEnabled": settings.voice_recovery_scheduler_enabled,
+                "providerEnabled": voice_recovery_service.superu_client.enabled,
+                "runtimeEnabled": bool(voice_recovery_service.get_settings().get("enabled", False)),
             },
         },
     }

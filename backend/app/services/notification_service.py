@@ -26,3 +26,23 @@ class NotificationService:
         }
         self.notification_repository.create(payload)
         return payload
+
+    def send_voice_recovery_followup(
+        self,
+        *,
+        user_id: str,
+        call_id: str,
+        message: str,
+        disposition: str,
+    ) -> dict[str, Any]:
+        payload = {
+            "id": f"notif_{self.store.next_id('item')}",
+            "type": "voice_recovery_followup",
+            "userId": user_id,
+            "callId": call_id,
+            "disposition": disposition,
+            "message": message,
+            "createdAt": self.store.iso_now(),
+        }
+        self.notification_repository.create(payload)
+        return payload

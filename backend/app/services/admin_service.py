@@ -5,6 +5,7 @@ from app.repositories.order_repository import OrderRepository
 from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.support_repository import SupportRepository
+from app.services.voice_recovery_service import VoiceRecoveryService
 from app.store.in_memory import InMemoryStore
 
 
@@ -17,6 +18,7 @@ class AdminService:
         interaction_repository: InteractionRepository,
         support_repository: SupportRepository,
         product_repository: ProductRepository,
+        voice_recovery_service: VoiceRecoveryService,
     ) -> None:
         self.store = store
         self.session_repository = session_repository
@@ -24,6 +26,7 @@ class AdminService:
         self.interaction_repository = interaction_repository
         self.support_repository = support_repository
         self.product_repository = product_repository
+        self.voice_recovery_service = voice_recovery_service
 
     def stats(self) -> dict[str, object]:
         today = self.store.utc_now().date().isoformat()
@@ -78,6 +81,7 @@ class AdminService:
         agent_performance.sort(key=lambda item: int(item["interactions"]), reverse=True)
 
         open_tickets = self.support_repository.list_open()
+        voice_stats = self.voice_recovery_service.stats()
         return {
             "activeSessions": active_sessions,
             "ordersToday": orders_today,
@@ -86,4 +90,5 @@ class AdminService:
             "messagesToday": len(interactions),
             "supportOpenTickets": len(open_tickets),
             "agentPerformance": agent_performance,
+            "voiceRecovery": voice_stats,
         }

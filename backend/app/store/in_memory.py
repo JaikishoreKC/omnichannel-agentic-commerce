@@ -23,6 +23,12 @@ class InMemoryStore:
         "notifications",
         "products_by_id",
         "inventory_by_variant",
+        "voice_settings",
+        "voice_calls_by_id",
+        "voice_jobs_by_id",
+        "voice_suppressions_by_user",
+        "voice_call_idempotency",
+        "voice_alerts",
     )
 
     def __init__(self) -> None:
@@ -49,6 +55,12 @@ class InMemoryStore:
         self.notifications: list[dict[str, Any]] = []
         self.products_by_id: dict[str, dict[str, Any]] = self._seed_products()
         self.inventory_by_variant: dict[str, dict[str, Any]] = self._seed_inventory()
+        self.voice_settings: dict[str, Any] = self._seed_voice_settings()
+        self.voice_calls_by_id: dict[str, dict[str, Any]] = {}
+        self.voice_jobs_by_id: dict[str, dict[str, Any]] = {}
+        self.voice_suppressions_by_user: dict[str, dict[str, Any]] = {}
+        self.voice_call_idempotency: dict[str, str] = {}
+        self.voice_alerts: list[dict[str, Any]] = []
         self._seed_admin_user()
 
     def next_id(self, prefix: str) -> str:
@@ -192,6 +204,31 @@ class InMemoryStore:
         }
         self.users_by_id[admin_id] = admin
         self.user_ids_by_email[admin["email"]] = admin_id
+
+    def _seed_voice_settings(self) -> dict[str, Any]:
+        return {
+            "enabled": False,
+            "killSwitch": False,
+            "abandonmentMinutes": 30,
+            "maxAttemptsPerCart": 3,
+            "maxCallsPerUserPerDay": 2,
+            "maxCallsPerDay": 300,
+            "dailyBudgetUsd": 300.0,
+            "estimatedCostPerCallUsd": 0.7,
+            "quietHoursStart": 21,
+            "quietHoursEnd": 8,
+            "retryBackoffSeconds": [60, 300, 900],
+            "scriptVersion": "v1",
+            "scriptTemplate": (
+                "Hi {name}, you still have {item_count} item(s) in your cart worth ${cart_total:.2f}. "
+                "Would you like help checking out?"
+            ),
+            "assistantId": "",
+            "fromPhoneNumber": "",
+            "defaultTimezone": "UTC",
+            "alertBacklogThreshold": 50,
+            "alertFailureRatioThreshold": 0.35,
+        }
 
     def export_state(self) -> dict[str, Any]:
         with self.lock:

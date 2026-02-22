@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -22,14 +22,21 @@ class AuthService:
         self.settings = settings
         self.auth_repository = auth_repository
 
-    def register(self, email: str, password: str, name: str) -> dict[str, Any]:
+    def register(
+        self,
+        email: str,
+        password: str,
+        name: str,
+        phone: str | None = None,
+        timezone: str | None = None,
+    ) -> dict[str, Any]:
         normalized_email = email.strip().lower()
         with self.store.lock:
             if self.auth_repository.get_user_by_email(normalized_email):
                 raise HTTPException(status_code=409, detail="Email already registered")
 
             user_id = self.store.next_id("user")
-            now = datetime.now(timezone.utc).isoformat()
+            now = datetime.now(dt_timezone.utc).isoformat()
             user = {
                 "id": user_id,
                 "email": normalized_email,
@@ -39,6 +46,8 @@ class AuthService:
                 "createdAt": now,
                 "updatedAt": now,
                 "lastLoginAt": now,
+                "phone": phone.strip() if isinstance(phone, str) and phone.strip() else None,
+                "timezone": timezone.strip() if isinstance(timezone, str) and timezone.strip() else None,
             }
             self.auth_repository.create_user(user)
             return self._issue_tokens(user)
@@ -53,7 +62,7 @@ class AuthService:
             if not verify_password(password, user["passwordHash"]):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
-            user["lastLoginAt"] = datetime.now(timezone.utc).isoformat()
+            user["lastLoginAt"] = datetime.now(dt_timezone.utc).isoformat()
             self.auth_repository.update_user(user)
             return self._issue_tokens(user)
 
@@ -116,7 +125,7 @@ class AuthService:
             refresh_token,
             {
                 "userId": user["id"],
-                "createdAt": datetime.now(timezone.utc).isoformat(),
+                "createdAt": datetime.now(dt_timezone.utc).isoformat(),
             },
         )
 
@@ -126,6 +135,8 @@ class AuthService:
             "name": user["name"],
             "role": user["role"],
             "createdAt": user["createdAt"],
+            "phone": user.get("phone"),
+            "timezone": user.get("timezone"),
         }
         return {
             "user": public_user,
