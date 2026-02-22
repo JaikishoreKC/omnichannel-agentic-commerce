@@ -42,6 +42,16 @@ jobs:
             --retry-delay 1 \
             --timeout-ms 2500
 
+      - name: Validate Mongo bootstrap
+        run: |
+          cd backend
+          python -m app.scripts.bootstrap_db \
+            --mongo-uri mongodb://localhost:27017/commerce \
+            --retries 20 \
+            --retry-delay 1 \
+            --timeout-ms 2500 \
+            --no-seed-runtime-state
+
   backend-tests:
     runs-on: ubuntu-latest
     steps:
