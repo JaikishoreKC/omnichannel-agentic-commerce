@@ -7,6 +7,41 @@ on:
     branches: ["*"]
 
 jobs:
+  mongo-index-check:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7.0
+        ports:
+          - 27017:27017
+        options: >-
+          --health-cmd "mongosh --eval \"db.adminCommand('ping')\""
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+
+      - name: Validate Mongo indexes
+        run: |
+          cd backend
+          python -m app.scripts.create_indexes \
+            --mongo-uri mongodb://localhost:27017/commerce \
+            --retries 20 \
+            --retry-delay 1 \
+            --timeout-ms 2500
+
   backend-tests:
     runs-on: ubuntu-latest
     steps:
