@@ -204,6 +204,7 @@ orchestrator = Orchestrator(
     action_extractor=ActionExtractor(),
     router=AgentRouter(),
     formatter=ResponseFormatter(),
+    llm_client=llm_client,
     interaction_service=interaction_service,
     memory_service=memory_service,
     agents={

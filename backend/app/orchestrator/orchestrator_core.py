@@ -5,6 +5,7 @@ from dataclasses import asdict
 from typing import Any
 
 from app.agents.base_agent import BaseAgent
+from app.infrastructure.llm_client import LLMActionPlan, LLMClient
 from app.orchestrator.action_extractor import ActionExtractor
 from app.orchestrator.agent_router import AgentRouter
 from app.orchestrator.context_builder import ContextBuilder
@@ -24,6 +25,7 @@ class Orchestrator:
         action_extractor: ActionExtractor,
         router: AgentRouter,
         formatter: ResponseFormatter,
+        llm_client: LLMClient | None,
         interaction_service: InteractionService,
         memory_service: MemoryService,
         agents: dict[str, BaseAgent],
@@ -33,6 +35,7 @@ class Orchestrator:
         self.action_extractor = action_extractor
         self.router = router
         self.formatter = formatter
+        self.llm_client = llm_client
         self.interaction_service = interaction_service
         self.memory_service = memory_service
         self.agents = agents
@@ -58,24 +61,62 @@ class Orchestrator:
         )
         actions = self.action_extractor.extract(intent)
         route_agent_name = self.router.route(intent)
-        if len(actions) == 1:
-            action = actions[0]
-            agent_name = action.target_agent or route_agent_name
-            agent = self.agents[agent_name]
-            result = agent.execute(action=action, context=context)
-        else:
-            result, agent_name = await self._execute_multi_action(
-                route_agent_name=route_agent_name,
-                actions=actions,
-                context=context,
-                intent_name=intent.name,
+
+        planner_plan = self._build_llm_action_plan(
+            message=message,
+            recent=recent,
+            inferred_intent=intent.name,
+        )
+        planner_used = False
+
+        if planner_plan and planner_plan.needs_clarification:
+            planner_used = True
+            result = AgentExecutionResult(
+                success=False,
+                message=planner_plan.clarification_question,
+                data={"code": "CLARIFICATION_REQUIRED"},
+                next_actions=[],
             )
+            agent_name = "orchestrator"
+        else:
+            if planner_plan and planner_plan.actions:
+                actions = [
+                    AgentAction(
+                        name=action.name,
+                        params=action.params,
+                        target_agent=action.target_agent,
+                    )
+                    for action in planner_plan.actions
+                ]
+                if actions:
+                    route_agent_name = actions[0].target_agent or route_agent_name
+                    planner_used = True
+
+            if len(actions) == 1:
+                action = actions[0]
+                agent_name = action.target_agent or route_agent_name
+                agent = self.agents[agent_name]
+                result = agent.execute(action=action, context=context)
+            else:
+                result, agent_name = await self._execute_multi_action(
+                    route_agent_name=route_agent_name,
+                    actions=actions,
+                    context=context,
+                    intent_name=intent.name,
+                )
 
         response: AgentResponse = self.formatter.format(
             result=result,
             intent=intent,
             agent_name=agent_name,
         )
+        if planner_plan is not None:
+            response.metadata["planner"] = {
+                "used": planner_used,
+                "confidence": planner_plan.confidence,
+                "needsClarification": planner_plan.needs_clarification,
+                "actionCount": len(planner_plan.actions),
+            }
         payload = self._to_transport_payload(response)
 
         self.interaction_service.record(
@@ -119,6 +160,24 @@ class Orchestrator:
             message=message,
             response=response,
         )
+
+    def _build_llm_action_plan(
+        self,
+        *,
+        message: str,
+        recent: list[dict[str, Any]],
+        inferred_intent: str,
+    ) -> LLMActionPlan | None:
+        if self.llm_client is None:
+            return None
+        try:
+            return self.llm_client.plan_actions(
+                message=message,
+                recent_messages=recent,
+                inferred_intent=inferred_intent,
+            )
+        except Exception:
+            return None
 
     async def _execute_multi_action(
         self,

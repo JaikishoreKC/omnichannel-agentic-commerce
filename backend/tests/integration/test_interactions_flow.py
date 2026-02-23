@@ -449,3 +449,53 @@ def test_interaction_remove_partial_quantity_from_cart() -> None:
     cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
     assert cart.status_code == 200
     assert cart.json()["items"][0]["quantity"] == 1
+
+
+def test_interaction_llm_planner_executes_multi_step_cart_actions(monkeypatch) -> None:
+    from app.container import llm_client
+    from app.infrastructure.llm_client import LLMActionPlan, LLMPlannedAction
+
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    def fake_plan_actions(*, message: str, recent_messages: list[dict[str, object]] | None = None, inferred_intent: str | None = None) -> LLMActionPlan | None:
+        lowered = message.lower()
+        if "running shoes" not in lowered:
+            return None
+        return LLMActionPlan(
+            actions=[
+                LLMPlannedAction(
+                    name="add_item",
+                    target_agent="cart",
+                    params={"query": "running shoes", "quantity": 2},
+                ),
+                LLMPlannedAction(
+                    name="add_item",
+                    target_agent="cart",
+                    params={"query": "hoodie", "quantity": 1},
+                ),
+            ],
+            confidence=0.92,
+            needs_clarification=False,
+            clarification_question="",
+        )
+
+    monkeypatch.setattr(llm_client, "plan_actions", fake_plan_actions)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add running shoes and hoodie to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "orchestrator"
+    assert payload["metadata"]["planner"]["used"] is True
+    assert payload["metadata"]["planner"]["actionCount"] == 2
+
+    cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
+    assert cart.status_code == 200
+    assert cart.json()["itemCount"] == 3

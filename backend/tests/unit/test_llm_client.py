@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from typing import Any
 
 import httpx
@@ -190,3 +192,110 @@ def test_anthropic_call_success_and_errors(monkeypatch: pytest.MonkeyPatch) -> N
     with pytest.raises(ValueError):
         client._call_anthropic("prompt")
 
+
+
+def test_plan_actions_parses_multi_action_payload() -> None:
+    client = LLMClient(settings=_base_settings())
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"running shoes","quantity":2}},'
+            '{"name":"add_item","targetAgent":"cart","params":{"query":"training backpack","quantity":1}}],'
+            '"confidence":0.93,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    plan = client.plan_actions(message="add running shoes x2 and training backpack x1 to cart")
+    assert plan is not None
+    assert plan.needs_clarification is False
+    assert plan.confidence == 0.93
+    assert len(plan.actions) == 2
+    assert plan.actions[0].name == "add_item"
+    assert plan.actions[0].target_agent == "cart"
+    assert plan.actions[0].params["query"] == "running shoes"
+    assert plan.actions[0].params["quantity"] == 2
+
+
+def test_plan_actions_returns_clarification_when_requested() -> None:
+    client = LLMClient(settings=_base_settings())
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[],"confidence":0.9,"needsClarification":true,'
+            '"clarificationQuestion":"Which size and color should I add?"}'
+        )
+    )
+    plan = client.plan_actions(message="add running shoes to cart")
+    assert plan is not None
+    assert plan.needs_clarification is True
+    assert plan.actions == []
+    assert "size and color" in plan.clarification_question
+
+
+def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
+    client = LLMClient(settings=_base_settings())
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[{"name":"drop_database","targetAgent":"orchestrator","params":{}}],'
+            '"confidence":0.99,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    assert client.plan_actions(message="do something unsafe") is None
+
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[{"name":"clear_cart","targetAgent":"cart","params":{}}],'
+            '"confidence":0.2,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    assert client.plan_actions(message="empty my cart") is None
+
+
+def test_plan_actions_sanitizes_unknown_params() -> None:
+    client = LLMClient(settings=_base_settings())
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[{"name":"add_item","targetAgent":"cart",'
+            '"params":{"query":"running shoes","quantity":2,"unsupported":"x",'
+            '"items":[{"query":"bad"}]}}],'
+            '"confidence":0.9,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    plan = client.plan_actions(message="add running shoes")
+    assert plan is not None
+    assert len(plan.actions) == 1
+    params = plan.actions[0].params
+    assert params["query"] == "running shoes"
+    assert params["quantity"] == 2
+    assert "unsupported" not in params
+    assert "items" not in params
+
+
+def test_call_action_planner_model_dispatches_and_rejects_unknown_provider() -> None:
+    openai_client = LLMClient(settings=_base_settings(llm_provider="openai"))
+    openai_client._call_openai_with_system = (  # type: ignore[method-assign]
+        lambda *, user_prompt, system_prompt: f"openai:{len(user_prompt)}:{len(system_prompt)}"
+    )
+    assert openai_client._call_action_planner_model("hello").startswith("openai:")
+
+    anthropic_client = LLMClient(settings=_base_settings(llm_provider="anthropic"))
+    anthropic_client._call_anthropic_with_system = (  # type: ignore[method-assign]
+        lambda *, user_prompt, system_prompt: f"anthropic:{len(user_prompt)}:{len(system_prompt)}"
+    )
+    assert anthropic_client._call_action_planner_model("hello").startswith("anthropic:")
+
+    unknown_client = LLMClient(settings=_base_settings(llm_provider="unknown"))
+    with pytest.raises(ValueError):
+        unknown_client._call_action_planner_model("hello")
+
+
+def test_build_action_plan_prompt_contains_allowed_actions() -> None:
+    client = LLMClient(settings=_base_settings())
+    prompt = client._build_action_plan_prompt(
+        message="add running shoes",
+        recent_messages=[{"message": "show me shoes", "intent": "product_search", "agent": "product"}],
+        inferred_intent="add_to_cart",
+        allowed_actions=["add_item", "get_cart"],
+    )
+    payload = json.loads(prompt)
+    assert payload["message"] == "add running shoes"
+    assert payload["inferredIntent"] == "add_to_cart"
+    assert payload["allowedActions"] == ["add_item", "get_cart"]
+    assert payload["recent"][0]["intent"] == "product_search"
