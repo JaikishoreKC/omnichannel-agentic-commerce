@@ -19,6 +19,8 @@ class ActionExtractor:
             return [AgentAction(name="search_products", params=entities)]
         if name == "search_and_add_to_cart":
             product_params = {"query": entities.get("query", "")}
+            if entities.get("size") is not None:
+                product_params["size"] = entities["size"]
             if entities.get("color") is not None:
                 product_params["color"] = entities["color"]
             if entities.get("brand") is not None:
@@ -38,6 +40,8 @@ class ActionExtractor:
                     params={
                         "productId": entities.get("productId"),
                         "variantId": entities.get("variantId"),
+                        "size": entities.get("size"),
+                        "color": entities.get("color"),
                         "quantity": entities.get("quantity", 1),
                     },
                     target_agent="cart",

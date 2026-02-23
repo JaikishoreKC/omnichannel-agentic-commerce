@@ -13,8 +13,16 @@ class IntentClassifier:
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm_client = llm_client
 
-    def classify(self, message: str, context: dict[str, Any] | None = None) -> IntentResult:
+    def classify(
+        self,
+        message: str,
+        context: dict[str, Any] | None = None,
+        *,
+        allow_llm: bool = True,
+    ) -> IntentResult:
         rule_intent = self._classify_rules(message=message, context=context)
+        if not allow_llm:
+            return rule_intent
         llm_choice = self._classify_with_llm(message=message, context=context)
         if llm_choice is None:
             return rule_intent
@@ -108,6 +116,7 @@ class IntentClassifier:
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_variant_id(text))
             entities.update(self._extract_price_range(text))
+            entities.update(self._extract_size(message))
             entities.update(self._extract_color(text))
             entities.update(self._extract_brand(message))
             entities["query"] = self._extract_search_query_for_combo(message)
@@ -148,6 +157,7 @@ class IntentClassifier:
         if "add" in text and "cart" in text:
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_variant_id(text))
+            entities.update(self._extract_size(message))
             entities.update(self._extract_color(text))
             entities.update(self._extract_brand(message))
             query = self._extract_add_query(message)
@@ -160,18 +170,21 @@ class IntentClassifier:
         # Product intents.
         if any(token in text for token in ["find", "search", "show me", "recommend", "looking for"]):
             entities.update(self._extract_price_range(text))
+            entities.update(self._extract_size(message))
             entities.update(self._extract_color(text))
             entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
             return IntentResult(name="product_search", confidence=0.84, entities=entities)
         if self._is_price_refinement_request(text=phrase_text, context=context):
             entities.update(self._extract_price_range(text))
+            entities.update(self._extract_size(message))
             entities.update(self._extract_color(text))
             entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
             return IntentResult(name="product_search", confidence=0.8, entities=entities)
         if self._looks_like_product_query(phrase_text):
             entities.update(self._extract_price_range(text))
+            entities.update(self._extract_size(message))
             entities.update(self._extract_color(text))
             entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
@@ -201,6 +214,12 @@ class IntentClassifier:
             if color in text:
                 return {"color": color}
         return {}
+
+    def _extract_size(self, message: str) -> dict[str, Any]:
+        match = re.search(r"\bsize\s*([a-z0-9\-]+)\b", message, flags=re.IGNORECASE)
+        if not match:
+            return {}
+        return {"size": match.group(1).strip().upper()}
 
     def _extract_price_range(self, text: str) -> dict[str, Any]:
         below = re.search(r"(under|below)\s*\$?(\d+)", text)

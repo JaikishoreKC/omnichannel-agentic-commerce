@@ -122,5 +122,5 @@ class AdminActivityService:
             sort_keys=True,
             separators=(",", ":"),
         )
-        secret = str(self.settings.token_secret or "").strip() or "dev-insecure-secret-change-me"
+        secret = str(self.settings.token_secret or "").strip() or "replace-with-strong-secret"
         return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()

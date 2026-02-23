@@ -488,8 +488,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 existing = session_service.get_session(resolved_session_id)
                 return resolved_session_id, existing
-            except Exception:
-                pass
+            except HTTPException:
+                resolved_session_id = ""
 
         created = session_service.create_session(
             channel="websocket",
@@ -718,4 +718,3 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         heartbeat_task.cancel()
         with suppress(asyncio.CancelledError):
             await heartbeat_task
-

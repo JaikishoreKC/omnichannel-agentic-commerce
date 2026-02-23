@@ -64,11 +64,11 @@ class LLMClient:
     SUPPORTED_PLANNER_ACTIONS: dict[str, dict[str, Any]] = {
         "search_products": {
             "target": "product",
-            "allowedParams": {"query", "category", "brand", "minPrice", "maxPrice", "color"},
+            "allowedParams": {"query", "category", "brand", "minPrice", "maxPrice", "color", "size"},
         },
         "add_item": {
             "target": "cart",
-            "allowedParams": {"query", "productId", "variantId", "quantity", "brand", "color", "minPrice", "maxPrice"},
+            "allowedParams": {"query", "productId", "variantId", "quantity", "brand", "color", "size", "minPrice", "maxPrice"},
         },
         "add_multiple_items": {
             "target": "cart",
@@ -152,8 +152,6 @@ class LLMClient:
         },
     }
 
-    MAX_PLAN_ACTIONS = 5
-    PLAN_CONFIDENCE_FLOOR = 0.55
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -173,8 +171,22 @@ class LLMClient:
             return bool(self.settings.anthropic_api_key)
         return False
 
+    @property
+    def intent_classification_enabled(self) -> bool:
+        decision_policy = str(self.settings.llm_decision_policy).strip().lower()
+        planner_blocks_classifier = self.settings.llm_planner_enabled and decision_policy != "classifier_first"
+        return (
+            self.enabled
+            and self.settings.llm_intent_classifier_enabled
+            and not planner_blocks_classifier
+        )
+
+    @property
+    def planner_enabled(self) -> bool:
+        return self.enabled and self.settings.llm_planner_enabled
+
     def classify_intent(self, *, message: str, recent_messages: list[dict[str, Any]] | None = None) -> LLMIntentPrediction | None:
-        if not self.enabled:
+        if not self.intent_classification_enabled:
             return None
         user_prompt = self._build_classification_prompt(message=message, recent_messages=recent_messages or [])
         try:
@@ -208,7 +220,7 @@ class LLMClient:
         recent_messages: list[dict[str, Any]] | None = None,
         inferred_intent: str | None = None,
     ) -> LLMActionPlan | None:
-        if not self.enabled:
+        if not self.planner_enabled:
             return None
 
         user_prompt = self._build_action_plan_prompt(
@@ -235,7 +247,7 @@ class LLMClient:
         raw_actions = payload.get("actions", [])
         actions: list[LLMPlannedAction] = []
         if isinstance(raw_actions, list):
-            for row in raw_actions[: self.MAX_PLAN_ACTIONS]:
+            for row in raw_actions[: self._planner_max_actions()]:
                 parsed = self._parse_planned_action(row)
                 if parsed is not None:
                     actions.append(parsed)
@@ -250,7 +262,7 @@ class LLMClient:
                 clarification_question=clarification_question,
             )
 
-        if confidence < self.PLAN_CONFIDENCE_FLOOR:
+        if confidence < self._planner_confidence_floor():
             return None
         if not actions:
             return None
@@ -457,6 +469,16 @@ class LLMClient:
             },
             ensure_ascii=True,
         )
+
+    def _planner_max_actions(self) -> int:
+        try:
+            value = int(self.settings.llm_planner_max_actions)
+        except Exception:
+            value = 5
+        return max(1, min(10, value))
+
+    def _planner_confidence_floor(self) -> float:
+        return max(0.0, min(1.0, float(self.settings.llm_planner_min_confidence)))
 
     @staticmethod
     def _normalize_confidence(value: Any) -> float:

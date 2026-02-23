@@ -1,0 +1,144 @@
+services:
+  backend:
+    build:
+      context: ./backend
+    container_name: omnichannel-backend
+    command: >
+      sh -c "python -m app.scripts.create_indexes --retries 20 --retry-delay 2 &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    environment:
+      - APP_NAME=Omnichannel Agentic Commerce API
+      - API_PREFIX=/v1
+      - TOKEN_SECRET=${TOKEN_SECRET:?TOKEN_SECRET must be set in .env or shell}
+      - ACCESS_TOKEN_TTL_SECONDS=900
+      - REFRESH_TOKEN_TTL_SECONDS=604800
+      - CART_TAX_RATE=0.08
+      - DEFAULT_SHIPPING_FEE=5.99
+      - CORS_ORIGINS=http://localhost:5173
+      - MONGODB_URI=mongodb://mongo:27017/commerce
+      - REDIS_URL=redis://redis:6379/0
+      - ENABLE_EXTERNAL_SERVICES=true
+      - RATE_LIMIT_ANONYMOUS_PER_MINUTE=120
+      - RATE_LIMIT_AUTHENTICATED_PER_MINUTE=600
+      - RATE_LIMIT_ADMIN_PER_MINUTE=2000
+      - REQUEST_MAX_BODY_BYTES=10485760
+      - SESSION_COOKIE_SECURE=true
+      - SESSION_COOKIE_SAMESITE=lax
+      - ENFORCE_JSON_CONTENT_TYPE=true
+      - REJECT_DUPLICATE_CRITICAL_HEADERS=true
+      - ADMIN_MFA_REQUIRED=false
+      - ADMIN_MFA_STATIC_CODE=
+      - LLM_ENABLED=true
+      - LLM_PROVIDER=openai
+      - LLM_MODEL=gpt-4o-mini
+      - LLM_TIMEOUT_SECONDS=8
+      - LLM_MAX_TOKENS=200
+      - LLM_TEMPERATURE=0
+      - LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD=5
+      - LLM_CIRCUIT_BREAKER_TIMEOUT_SECONDS=60
+      - LLM_INTENT_CLASSIFIER_ENABLED=${LLM_INTENT_CLASSIFIER_ENABLED:-false}
+      - LLM_PLANNER_ENABLED=${LLM_PLANNER_ENABLED:-true}
+      - LLM_DECISION_POLICY=${LLM_DECISION_POLICY:-planner_first}
+      - PLANNER_FEATURE_ENABLED=${PLANNER_FEATURE_ENABLED:-true}
+      - PLANNER_CANARY_PERCENT=${PLANNER_CANARY_PERCENT:-100}
+      - LLM_PLANNER_MAX_ACTIONS=${LLM_PLANNER_MAX_ACTIONS:-5}
+      - LLM_PLANNER_MIN_CONFIDENCE=${LLM_PLANNER_MIN_CONFIDENCE:-0.55}
+      - LLM_PLANNER_EXECUTION_MODE=${LLM_PLANNER_EXECUTION_MODE:-partial}
+      - ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST=${ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST:-5}
+      - WS_HEARTBEAT_INTERVAL_SECONDS=25
+      - WS_HEARTBEAT_TIMEOUT_SECONDS=70
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - SUPERU_ENABLED=false
+      - SUPERU_API_URL=https://api.superu.ai
+      - SUPERU_API_KEY=
+      - SUPERU_ASSISTANT_ID=
+      - SUPERU_FROM_PHONE_NUMBER=
+      - SUPERU_WEBHOOK_SECRET=
+      - SUPERU_WEBHOOK_TOLERANCE_SECONDS=300
+      - VOICE_RECOVERY_SCHEDULER_ENABLED=false
+      - VOICE_RECOVERY_SCAN_INTERVAL_SECONDS=30
+      - VOICE_ABANDONMENT_MINUTES=30
+      - VOICE_MAX_ATTEMPTS_PER_CART=3
+      - VOICE_MAX_CALLS_PER_USER_PER_DAY=2
+      - VOICE_MAX_CALLS_PER_DAY=300
+      - VOICE_DAILY_BUDGET_USD=300
+      - VOICE_ESTIMATED_COST_PER_CALL_USD=0.7
+      - VOICE_QUIET_HOURS_START=21
+      - VOICE_QUIET_HOURS_END=8
+      - VOICE_RETRY_BACKOFF_SECONDS_CSV=60,300,900
+      - VOICE_SCRIPT_VERSION=v1
+      - VOICE_SCRIPT_TEMPLATE=Hi {name}, you still have {item_count} item(s) in your cart worth $${cart_total:.2f}. Would you like help checking out?
+      - VOICE_GLOBAL_KILL_SWITCH=false
+      - VOICE_DEFAULT_TIMEZONE=UTC
+      - VOICE_ALERT_BACKLOG_THRESHOLD=50
+      - VOICE_ALERT_FAILURE_RATIO_THRESHOLD=0.35
+    ports:
+      - "8000:8000"
+    depends_on:
+      - mongo
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    container_name: omnichannel-frontend
+    environment:
+      - VITE_API_URL=http://localhost:8000/v1
+      - VITE_WS_URL=ws://localhost:8000/ws
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:7.0
+    container_name: omnichannel-mongo
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:7-alpine
+    container_name: omnichannel-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: omnichannel-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - backend
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: omnichannel-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+volumes:
+  mongo_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:

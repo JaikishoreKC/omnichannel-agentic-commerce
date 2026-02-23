@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from dataclasses import asdict
 from typing import Any
 
@@ -51,7 +52,19 @@ class Orchestrator:
         recent = self.interaction_service.recent(session_id=session_id, limit=12)
         if not recent and user_id:
             recent = self._recent_from_memory(user_id=user_id, limit=12)
-        intent = self.intent_classifier.classify(message=message, context={"recent": recent})
+
+        decision_policy = self._decision_policy()
+        planner_enabled_for_request = self._planner_enabled_for_request(
+            session_id=session_id,
+            user_id=user_id,
+        )
+        allow_classifier_llm = decision_policy == "classifier_first" and not planner_enabled_for_request
+
+        intent = self.intent_classifier.classify(
+            message=message,
+            context={"recent": recent},
+            allow_llm=allow_classifier_llm,
+        )
         context = self.context_builder.build(
             intent=intent,
             session_id=session_id,
@@ -62,15 +75,35 @@ class Orchestrator:
         actions = self.action_extractor.extract(intent)
         route_agent_name = self.router.route(intent)
 
-        planner_plan = self._build_llm_action_plan(
-            message=message,
-            recent=recent,
-            inferred_intent=intent.name,
+        planner_attempted = False
+        planner_plan: LLMActionPlan | None = None
+        should_try_planner = planner_enabled_for_request and (
+            decision_policy == "planner_first" or len(actions) > 1
         )
+        if should_try_planner:
+            planner_attempted = True
+            planner_plan = self._build_llm_action_plan(
+                message=message,
+                recent=recent,
+                inferred_intent=intent.name,
+            )
+
         planner_used = False
+        planner_steps: list[dict[str, Any]] = []
+        action_limit = self._max_actions_per_request()
+        actions, truncated_action_count = self._apply_action_limit(actions=actions, limit=action_limit)
 
         if planner_plan and planner_plan.needs_clarification:
             planner_used = True
+            planner_steps.append(
+                {
+                    "index": 1,
+                    "action": "clarification",
+                    "targetAgent": "orchestrator",
+                    "success": False,
+                    "message": planner_plan.clarification_question,
+                }
+            )
             result = AgentExecutionResult(
                 success=False,
                 message=planner_plan.clarification_question,
@@ -80,7 +113,7 @@ class Orchestrator:
             agent_name = "orchestrator"
         else:
             if planner_plan and planner_plan.actions:
-                actions = [
+                plan_actions = [
                     AgentAction(
                         name=action.name,
                         params=action.params,
@@ -88,11 +121,21 @@ class Orchestrator:
                     )
                     for action in planner_plan.actions
                 ]
+                actions, truncated_action_count = self._apply_action_limit(
+                    actions=plan_actions,
+                    limit=action_limit,
+                )
                 if actions:
                     route_agent_name = actions[0].target_agent or route_agent_name
                     planner_used = True
 
-            if len(actions) == 1:
+            if planner_used and actions:
+                result, agent_name, planner_steps = await self._execute_planned_actions(
+                    route_agent_name=route_agent_name,
+                    actions=actions,
+                    context=context,
+                )
+            elif len(actions) == 1:
                 action = actions[0]
                 agent_name = action.target_agent or route_agent_name
                 agent = self.agents[agent_name]
@@ -110,12 +153,33 @@ class Orchestrator:
             intent=intent,
             agent_name=agent_name,
         )
+        response.metadata["executionPolicy"] = {
+            "decisionPolicy": decision_policy,
+            "plannerEnabled": planner_enabled_for_request,
+            "plannerAttempted": planner_attempted,
+            "mode": self._planner_execution_mode(),
+            "maxActions": action_limit,
+            "truncatedActionCount": truncated_action_count,
+        }
         if planner_plan is not None:
             response.metadata["planner"] = {
                 "used": planner_used,
                 "confidence": planner_plan.confidence,
                 "needsClarification": planner_plan.needs_clarification,
                 "actionCount": len(planner_plan.actions),
+                "executionMode": self._planner_execution_mode(),
+                "stepCount": len(planner_steps),
+                "steps": planner_steps,
+            }
+        elif planner_attempted:
+            response.metadata["planner"] = {
+                "used": False,
+                "confidence": 0.0,
+                "needsClarification": False,
+                "actionCount": 0,
+                "executionMode": self._planner_execution_mode(),
+                "stepCount": 0,
+                "steps": [],
             }
         payload = self._to_transport_payload(response)
 
@@ -179,6 +243,140 @@ class Orchestrator:
         except Exception:
             return None
 
+    def _planner_execution_mode(self) -> str:
+        if self.llm_client is None:
+            return "partial"
+        raw = str(self.llm_client.settings.llm_planner_execution_mode).strip().lower()
+        if raw in {"strict", "atomic"}:
+            return "atomic"
+        if raw == "partial":
+            return raw
+        return "partial"
+
+    def _decision_policy(self) -> str:
+        if self.llm_client is None:
+            return "planner_first"
+        raw = str(self.llm_client.settings.llm_decision_policy).strip().lower()
+        if raw in {"planner_first", "classifier_first"}:
+            return raw
+        return "planner_first"
+
+    def _planner_enabled_for_request(self, *, session_id: str, user_id: str | None) -> bool:
+        if self.llm_client is None:
+            return False
+        if not self.llm_client.settings.planner_feature_enabled:
+            return False
+        if not self.llm_client.settings.llm_planner_enabled:
+            return False
+        percent = int(self.llm_client.settings.planner_canary_percent)
+        if percent <= 0:
+            return False
+        if percent >= 100:
+            return True
+        seed = f"{user_id or 'anonymous'}:{session_id}"
+        digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()
+        bucket = int(digest[:8], 16) % 100
+        return bucket < percent
+
+    def _max_actions_per_request(self) -> int:
+        if self.llm_client is None:
+            return 5
+        configured = int(self.llm_client.settings.orchestrator_max_actions_per_request)
+        return max(1, min(10, configured))
+
+    def _apply_action_limit(self, *, actions: list[Any], limit: int) -> tuple[list[Any], int]:
+        if len(actions) <= limit:
+            return actions, 0
+        return actions[:limit], len(actions) - limit
+
+    async def _execute_planned_actions(
+        self,
+        *,
+        route_agent_name: str,
+        actions: list[Any],
+        context: Any,
+    ) -> tuple[AgentExecutionResult, str, list[dict[str, Any]]]:
+        mode = self._planner_execution_mode()
+        atomic = mode == "atomic"
+        combined_data: dict[str, Any] = {}
+        messages: list[str] = []
+        suggested: list[dict[str, str]] = []
+        steps: list[dict[str, Any]] = []
+        any_success = False
+        all_success = True
+
+        for index, action in enumerate(actions, start=1):
+            agent_name = action.target_agent or route_agent_name
+            agent = self.agents[agent_name]
+            result = await asyncio.to_thread(agent.execute, action, context)
+
+            if agent_name in combined_data:
+                existing = combined_data[agent_name]
+                if isinstance(existing, list):
+                    existing.append(result.data)
+                    combined_data[agent_name] = existing
+                else:
+                    combined_data[agent_name] = [existing, result.data]
+            else:
+                combined_data[agent_name] = result.data
+
+            messages.append(result.message)
+            suggested.extend(result.next_actions)
+            any_success = any_success or result.success
+            all_success = all_success and result.success
+            error: dict[str, Any] | None = None
+            if not result.success:
+                code = "ACTION_FAILED"
+                if isinstance(result.data, dict):
+                    raw_code = str(result.data.get("code", "")).strip()
+                    if raw_code:
+                        code = raw_code
+                error = {"code": code, "message": result.message}
+            steps.append(
+                {
+                    "index": index,
+                    "action": action.name,
+                    "targetAgent": agent_name,
+                    "success": result.success,
+                    "message": result.message,
+                    "error": error,
+                }
+            )
+
+            if atomic and not result.success:
+                for skipped_index, skipped in enumerate(actions[index:], start=index + 1):
+                    steps.append(
+                        {
+                            "index": skipped_index,
+                            "action": skipped.name,
+                            "targetAgent": skipped.target_agent or route_agent_name,
+                            "success": False,
+                            "message": "Skipped due to previous failure in atomic mode.",
+                            "error": {
+                                "code": "SKIPPED_ATOMIC_MODE",
+                                "message": "Skipped due to previous failure in atomic mode.",
+                            },
+                        }
+                    )
+                break
+
+        overall_success = all_success if atomic else any_success
+        if not messages:
+            messages = ["I couldn't execute the requested action plan."]
+        if not all_success and not atomic:
+            combined_data["partialFailure"] = True
+
+        return (
+            AgentExecutionResult(
+                success=overall_success,
+                message=" ".join(messages),
+                data=combined_data,
+                next_actions=suggested[:6],
+            ),
+            "orchestrator",
+            steps,
+        )
+
     async def _execute_multi_action(
         self,
         *,
@@ -192,6 +390,34 @@ class Orchestrator:
                 route_agent_name=route_agent_name,
                 actions=actions,
                 context=context,
+            )
+
+        mode = self._planner_execution_mode()
+        atomic = mode == "atomic"
+
+        if atomic:
+            combined_data: dict[str, Any] = {}
+            messages: list[str] = []
+            suggested: list[dict[str, str]] = []
+            all_success = True
+            for action in actions:
+                agent_name = action.target_agent or route_agent_name
+                agent = self.agents[agent_name]
+                result = await asyncio.to_thread(agent.execute, action, context)
+                combined_data[agent_name] = result.data
+                messages.append(result.message)
+                suggested.extend(result.next_actions)
+                all_success = all_success and result.success
+                if not result.success:
+                    break
+            return (
+                AgentExecutionResult(
+                    success=all_success,
+                    message=" ".join(messages),
+                    data=combined_data,
+                    next_actions=suggested[:6],
+                ),
+                "orchestrator",
             )
 
         async def run_action(action: Any) -> tuple[str, AgentExecutionResult]:

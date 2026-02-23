@@ -8,7 +8,7 @@ from dataclasses import dataclass
 class Settings:
     app_name: str = "Omnichannel Agentic Commerce API"
     api_prefix: str = "/v1"
-    token_secret: str = "dev-insecure-secret-change-me"
+    token_secret: str = "replace-with-strong-secret"
     access_token_ttl_seconds: int = 900
     refresh_token_ttl_seconds: int = 7 * 24 * 60 * 60
     cart_tax_rate: float = 0.08
@@ -35,6 +35,15 @@ class Settings:
     llm_temperature: float = 0.0
     llm_circuit_breaker_failure_threshold: int = 5
     llm_circuit_breaker_timeout_seconds: float = 60.0
+    llm_intent_classifier_enabled: bool = False
+    llm_planner_enabled: bool = True
+    llm_decision_policy: str = "planner_first"
+    planner_feature_enabled: bool = True
+    planner_canary_percent: int = 100
+    llm_planner_max_actions: int = 5
+    llm_planner_min_confidence: float = 0.55
+    llm_planner_execution_mode: str = "partial"
+    orchestrator_max_actions_per_request: int = 5
     ws_heartbeat_interval_seconds: float = 25.0
     ws_heartbeat_timeout_seconds: float = 70.0
     openai_api_key: str = ""
@@ -139,6 +148,81 @@ class Settings:
                     "LLM_CIRCUIT_BREAKER_TIMEOUT_SECONDS",
                     str(cls.llm_circuit_breaker_timeout_seconds),
                 )
+            ),
+            llm_intent_classifier_enabled=os.getenv(
+                "LLM_INTENT_CLASSIFIER_ENABLED", str(cls.llm_intent_classifier_enabled)
+            ).lower()
+            in {"1", "true", "yes"},
+            llm_planner_enabled=os.getenv(
+                "LLM_PLANNER_ENABLED", str(cls.llm_planner_enabled)
+            ).lower()
+            in {"1", "true", "yes"},
+            llm_decision_policy=str(
+                os.getenv("LLM_DECISION_POLICY", cls.llm_decision_policy)
+            )
+            .strip()
+            .lower()
+            or cls.llm_decision_policy,
+            planner_feature_enabled=os.getenv(
+                "PLANNER_FEATURE_ENABLED", str(cls.planner_feature_enabled)
+            ).lower()
+            in {"1", "true", "yes"},
+            planner_canary_percent=max(
+                0,
+                min(
+                    100,
+                    int(
+                        os.getenv(
+                            "PLANNER_CANARY_PERCENT",
+                            str(cls.planner_canary_percent),
+                        )
+                    ),
+                ),
+            ),
+            llm_planner_max_actions=max(
+                1,
+                min(
+                    10,
+                    int(
+                        os.getenv(
+                            "LLM_PLANNER_MAX_ACTIONS",
+                            str(cls.llm_planner_max_actions),
+                        )
+                    ),
+                ),
+            ),
+            llm_planner_min_confidence=max(
+                0.0,
+                min(
+                    1.0,
+                    float(
+                        os.getenv(
+                            "LLM_PLANNER_MIN_CONFIDENCE",
+                            str(cls.llm_planner_min_confidence),
+                        )
+                    ),
+                ),
+            ),
+            llm_planner_execution_mode=str(
+                os.getenv(
+                    "LLM_PLANNER_EXECUTION_MODE",
+                    cls.llm_planner_execution_mode,
+                )
+            )
+            .strip()
+            .lower()
+            or cls.llm_planner_execution_mode,
+            orchestrator_max_actions_per_request=max(
+                1,
+                min(
+                    10,
+                    int(
+                        os.getenv(
+                            "ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST",
+                            str(cls.orchestrator_max_actions_per_request),
+                        )
+                    ),
+                ),
             ),
             ws_heartbeat_interval_seconds=float(
                 os.getenv(

@@ -34,10 +34,22 @@ def _base_settings(**overrides: Any) -> Settings:
         "anthropic_api_key": "sk-ant-test",
         "llm_timeout_seconds": 3.0,
         "llm_max_tokens": 128,
+        "llm_intent_classifier_enabled": True,
+        "llm_planner_enabled": False,
+        "llm_planner_max_actions": 5,
+        "llm_planner_min_confidence": 0.55,
     }
     data.update(overrides)
     return Settings(**data)
 
+
+def _planner_settings(**overrides: Any) -> Settings:
+    planner_overrides = {
+        "llm_intent_classifier_enabled": False,
+        "llm_planner_enabled": True,
+    }
+    planner_overrides.update(overrides)
+    return _base_settings(**planner_overrides)
 
 def test_enabled_flag_checks_provider_keys() -> None:
     disabled = LLMClient(settings=_base_settings(llm_enabled=False))
@@ -58,6 +70,25 @@ def test_enabled_flag_checks_provider_keys() -> None:
 def test_classify_intent_returns_none_when_disabled() -> None:
     client = LLMClient(settings=_base_settings(llm_enabled=False))
     assert client.classify_intent(message="show me shoes") is None
+
+
+def test_classify_intent_disabled_when_planner_enabled() -> None:
+    client = LLMClient(settings=_base_settings(llm_planner_enabled=True))
+    client._call_intent_model = lambda _prompt: '{"intent":"checkout","confidence":0.9,"entities":{}}'  # type: ignore[method-assign]
+    assert client.classify_intent(message="checkout") is None
+
+
+def test_classify_intent_enabled_when_classifier_first_policy() -> None:
+    client = LLMClient(
+        settings=_base_settings(
+            llm_planner_enabled=True,
+            llm_decision_policy="classifier_first",
+        )
+    )
+    client._call_intent_model = lambda _prompt: '{"intent":"checkout","confidence":0.9,"entities":{}}'  # type: ignore[method-assign]
+    prediction = client.classify_intent(message="checkout")
+    assert prediction is not None
+    assert prediction.intent == "checkout"
 
 
 def test_classify_intent_parses_valid_json_and_clamps_confidence() -> None:
@@ -195,7 +226,7 @@ def test_anthropic_call_success_and_errors(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_plan_actions_parses_multi_action_payload() -> None:
-    client = LLMClient(settings=_base_settings())
+    client = LLMClient(settings=_planner_settings())
     client._call_action_planner_model = (  # type: ignore[method-assign]
         lambda _prompt: (
             '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"running shoes","quantity":2}},'
@@ -215,7 +246,7 @@ def test_plan_actions_parses_multi_action_payload() -> None:
 
 
 def test_plan_actions_returns_clarification_when_requested() -> None:
-    client = LLMClient(settings=_base_settings())
+    client = LLMClient(settings=_planner_settings())
     client._call_action_planner_model = (  # type: ignore[method-assign]
         lambda _prompt: (
             '{"actions":[],"confidence":0.9,"needsClarification":true,'
@@ -230,7 +261,7 @@ def test_plan_actions_returns_clarification_when_requested() -> None:
 
 
 def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
-    client = LLMClient(settings=_base_settings())
+    client = LLMClient(settings=_planner_settings())
     client._call_action_planner_model = (  # type: ignore[method-assign]
         lambda _prompt: (
             '{"actions":[{"name":"drop_database","targetAgent":"orchestrator","params":{}}],'
@@ -249,7 +280,7 @@ def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
 
 
 def test_plan_actions_sanitizes_unknown_params() -> None:
-    client = LLMClient(settings=_base_settings())
+    client = LLMClient(settings=_planner_settings())
     client._call_action_planner_model = (  # type: ignore[method-assign]
         lambda _prompt: (
             '{"actions":[{"name":"add_item","targetAgent":"cart",'
@@ -266,6 +297,20 @@ def test_plan_actions_sanitizes_unknown_params() -> None:
     assert params["quantity"] == 2
     assert "unsupported" not in params
     assert "items" not in params
+
+
+def test_plan_actions_respects_configured_limits() -> None:
+    client = LLMClient(settings=_planner_settings(llm_planner_max_actions=1, llm_planner_min_confidence=0.9))
+    client._call_action_planner_model = (  # type: ignore[method-assign]
+        lambda _prompt: (
+            '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"running shoes","quantity":1}},'
+            '{"name":"add_item","targetAgent":"cart","params":{"query":"hoodie","quantity":1}}],'
+            '"confidence":0.91,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    plan = client.plan_actions(message="add shoes and hoodie")
+    assert plan is not None
+    assert len(plan.actions) == 1
 
 
 def test_call_action_planner_model_dispatches_and_rejects_unknown_provider() -> None:

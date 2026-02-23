@@ -320,6 +320,62 @@ def test_interaction_add_by_product_name_and_quantity() -> None:
     assert cart.json()["itemCount"] == 2
 
 
+def test_interaction_add_to_cart_requests_clarification_when_ambiguous() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add shoes to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert payload["data"]["code"] == "CLARIFICATION_REQUIRED"
+    assert "multiple matches" in payload["message"].lower()
+    assert len(payload["data"]["options"]) >= 2
+
+
+def test_interaction_add_by_product_id_requires_variant_clarification() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add prod_001 to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert payload["data"]["code"] == "CLARIFICATION_REQUIRED"
+    assert "size" in payload["message"].lower() or "color" in payload["message"].lower()
+
+
+def test_interaction_add_by_product_id_with_size_and_color_succeeds() -> None:
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add prod_001 size 10 color blue to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "cart"
+    assert "added" in payload["message"].lower()
+
 def test_interaction_add_multiple_items_in_single_message() -> None:
     client = TestClient(app)
     session_id = _create_session(client)
@@ -495,7 +551,101 @@ def test_interaction_llm_planner_executes_multi_step_cart_actions(monkeypatch) -
     assert payload["agent"] == "orchestrator"
     assert payload["metadata"]["planner"]["used"] is True
     assert payload["metadata"]["planner"]["actionCount"] == 2
+    assert payload["metadata"]["planner"]["stepCount"] == 2
+    assert payload["metadata"]["planner"]["steps"][0]["action"] == "add_item"
+    assert payload["metadata"]["planner"]["steps"][0]["targetAgent"] == "cart"
 
     cart = client.get("/v1/cart", headers={"X-Session-Id": session_id})
     assert cart.status_code == 200
     assert cart.json()["itemCount"] == 3
+
+
+def test_interaction_planner_atomic_mode_reports_step_errors(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from app.container import llm_client
+    from app.infrastructure.llm_client import LLMActionPlan, LLMPlannedAction
+
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    planner_settings = replace(
+        llm_client.settings,
+        llm_enabled=True,
+        openai_api_key="test-key",
+        llm_planner_enabled=True,
+        planner_feature_enabled=True,
+        planner_canary_percent=100,
+        llm_planner_execution_mode="atomic",
+    )
+    monkeypatch.setattr(llm_client, "settings", planner_settings)
+
+    def fake_plan_actions(*, message: str, recent_messages: list[dict[str, object]] | None = None, inferred_intent: str | None = None) -> LLMActionPlan | None:
+        return LLMActionPlan(
+            actions=[
+                LLMPlannedAction(
+                    name="add_item",
+                    target_agent="cart",
+                    params={"query": "item-does-not-exist", "quantity": 1},
+                ),
+                LLMPlannedAction(
+                    name="add_item",
+                    target_agent="cart",
+                    params={"query": "running shoes", "quantity": 1},
+                ),
+            ],
+            confidence=0.95,
+            needs_clarification=False,
+            clarification_question="",
+        )
+
+    monkeypatch.setattr(llm_client, "plan_actions", fake_plan_actions)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add items to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    planner = payload["metadata"]["planner"]
+    assert planner["executionMode"] == "atomic"
+    assert planner["stepCount"] == 2
+    assert planner["steps"][0]["success"] is False
+    assert planner["steps"][0]["error"]["code"] in {"ACTION_FAILED", "CLARIFICATION_REQUIRED"}
+    assert planner["steps"][1]["error"]["code"] == "SKIPPED_ATOMIC_MODE"
+
+
+def test_interaction_planner_canary_zero_disables_planner_attempt(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from app.container import llm_client
+
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    planner_settings = replace(
+        llm_client.settings,
+        llm_enabled=True,
+        openai_api_key="test-key",
+        llm_planner_enabled=True,
+        planner_feature_enabled=True,
+        planner_canary_percent=0,
+    )
+    monkeypatch.setattr(llm_client, "settings", planner_settings)
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "add running shoes and hoodie to cart",
+            "channel": "web",
+        },
+    )
+    assert response.status_code == 200
+    execution_policy = response.json()["payload"]["metadata"]["executionPolicy"]
+    assert execution_policy["plannerEnabled"] is False
+    assert execution_policy["plannerAttempted"] is False

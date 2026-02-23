@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import Any
 
 from fastapi import HTTPException
@@ -8,6 +9,18 @@ from app.agents.base_agent import BaseAgent
 from app.orchestrator.types import AgentAction, AgentContext, AgentExecutionResult
 from app.services.cart_service import CartService
 from app.services.product_service import ProductService
+
+
+@dataclass
+class _AddResolution:
+    product_id: str | None = None
+    variant_id: str | None = None
+    clarification: str = ""
+    options: list[dict[str, Any]] = field(default_factory=list)
+
+    @property
+    def resolved(self) -> bool:
+        return bool(self.product_id and self.variant_id)
 
 
 class CartAgent(BaseAgent):
@@ -32,15 +45,30 @@ class CartAgent(BaseAgent):
             )
 
         if action.name == "add_item":
-            resolved = self._resolve_variant_for_add(params=params, context=context)
-            if not resolved:
+            resolution = self._resolve_variant_for_add(params=params, context=context)
+            if resolution.clarification:
+                suggestion_actions = [
+                    {
+                        "label": f"Add {option['name']}",
+                        "action": f"add_to_cart:{option['productId']}:{option['variantId']}",
+                    }
+                    for option in resolution.options[:3]
+                ]
+                return AgentExecutionResult(
+                    success=False,
+                    message=resolution.clarification,
+                    data={"code": "CLARIFICATION_REQUIRED", "options": resolution.options},
+                    next_actions=suggestion_actions,
+                )
+            if not resolution.resolved:
                 return AgentExecutionResult(
                     success=False,
                     message="Tell me what to add, for example: add 2 running shoes to cart.",
                     data={},
                 )
 
-            product_id, variant_id = resolved
+            product_id = str(resolution.product_id)
+            variant_id = str(resolution.variant_id)
             quantity = self._safe_quantity(params.get("quantity", 1))
             cart = self.cart_service.add_item(
                 user_id=user_id,
@@ -70,14 +98,20 @@ class CartAgent(BaseAgent):
 
             added: list[str] = []
             unresolved: list[str] = []
+            clarifications: list[str] = []
             for raw_item in raw_items:
                 if not isinstance(raw_item, dict):
                     continue
-                resolved = self._resolve_variant_for_add(params=raw_item, context=context)
-                if not resolved:
+                resolution = self._resolve_variant_for_add(params=raw_item, context=context)
+                if resolution.clarification:
+                    unresolved.append(str(raw_item.get("query", "item")).strip())
+                    clarifications.append(resolution.clarification)
+                    continue
+                if not resolution.resolved:
                     unresolved.append(str(raw_item.get("query", "item")).strip())
                     continue
-                product_id, variant_id = resolved
+                product_id = str(resolution.product_id)
+                variant_id = str(resolution.variant_id)
                 quantity = self._safe_quantity(raw_item.get("quantity", 1))
                 self.cart_service.add_item(
                     user_id=user_id,
@@ -90,10 +124,11 @@ class CartAgent(BaseAgent):
 
             cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
             if not added:
+                fallback = "I couldn't match those items. Try product names like running shoes or hoodie."
                 return AgentExecutionResult(
                     success=False,
-                    message="I couldn't match those items. Try product names like running shoes or hoodie.",
-                    data={"cart": cart, "unresolved": unresolved},
+                    message=clarifications[0] if clarifications else fallback,
+                    data={"cart": cart, "unresolved": unresolved, "clarifications": clarifications},
                 )
 
             message = f"Added {', '.join(added)}."
@@ -259,14 +294,15 @@ class CartAgent(BaseAgent):
         *,
         params: dict[str, Any],
         context: AgentContext,
-    ) -> tuple[str, str] | None:
+    ) -> _AddResolution:
         product_id = str(params.get("productId", "")).strip()
         variant_id = str(params.get("variantId", "")).strip()
         query = str(params.get("query", "")).strip()
         color = str(params.get("color", "")).strip().lower()
+        size = str(params.get("size", "")).strip().lower()
 
         if product_id and variant_id:
-            return product_id, variant_id
+            return _AddResolution(product_id=product_id, variant_id=variant_id)
 
         if product_id and not variant_id:
             try:
@@ -274,37 +310,51 @@ class CartAgent(BaseAgent):
             except HTTPException:
                 product = None
             if isinstance(product, dict):
-                variant = self._choose_variant(product=product, color=color)
-                if variant is not None:
-                    return product_id, str(variant["id"])
+                variants = self._matching_in_stock_variants(product=product, color=color, size=size)
+                if len(variants) == 1:
+                    return _AddResolution(product_id=product_id, variant_id=str(variants[0]["id"]))
+                if len(variants) > 1:
+                    options = [
+                        self._resolution_option(product=product, variant=variant)
+                        for variant in variants[:3]
+                    ]
+                    return _AddResolution(
+                        clarification=(
+                            f"I found multiple variants for {str(product.get('name', 'that product'))}. "
+                            "Please specify size and/or color."
+                        ),
+                        options=options,
+                    )
 
         if query:
-            resolved = self._resolve_variant_from_query(
+            resolution = self._resolve_variant_from_query(
                 query=query,
                 color=color,
+                size=size,
                 brand=str(params.get("brand", "")).strip(),
                 min_price=params.get("minPrice"),
                 max_price=params.get("maxPrice"),
             )
-            if resolved:
-                return resolved
+            if resolution.resolved or resolution.clarification:
+                return resolution
 
         inferred = self._infer_from_recent(context.recent_messages)
         inferred_product = str(inferred.get("productId", "")).strip()
         inferred_variant = str(inferred.get("variantId", "")).strip()
         if inferred_product and inferred_variant:
-            return inferred_product, inferred_variant
-        return None
+            return _AddResolution(product_id=inferred_product, variant_id=inferred_variant)
+        return _AddResolution()
 
     def _resolve_variant_from_query(
         self,
         *,
         query: str,
         color: str,
+        size: str,
         brand: str,
         min_price: Any,
         max_price: Any,
-    ) -> tuple[str, str] | None:
+    ) -> _AddResolution:
         results = self.product_service.list_products(
             query=query,
             category=None,
@@ -316,33 +366,97 @@ class CartAgent(BaseAgent):
         )
         products = results.get("products", [])
         if not isinstance(products, list):
-            return None
+            return _AddResolution()
+
+        candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
+        ambiguous_variant_options: list[dict[str, Any]] = []
         for product in products:
             if not isinstance(product, dict):
                 continue
-            variant = self._choose_variant(product=product, color=color)
-            if variant is None:
+            variants = self._matching_in_stock_variants(product=product, color=color, size=size)
+            if not variants:
                 continue
-            return str(product["id"]), str(variant["id"])
-        return None
+            if len(variants) == 1:
+                candidates.append((product, variants[0]))
+                continue
+            if not size and not color:
+                candidates.append((product, variants[0]))
+                continue
+            ambiguous_variant_options.extend(
+                [self._resolution_option(product=product, variant=variant) for variant in variants[:3]]
+            )
 
-    def _choose_variant(self, *, product: dict[str, Any], color: str) -> dict[str, Any] | None:
+        if not candidates and ambiguous_variant_options:
+            option_names = ", ".join(option["name"] for option in ambiguous_variant_options[:3])
+            clarification = (
+                f"I found multiple size/color variants for '{query}': {option_names}. "
+                "Please specify size and/or color."
+            )
+            return _AddResolution(
+                clarification=clarification,
+                options=ambiguous_variant_options[:3],
+            )
+
+        if not candidates:
+            return _AddResolution()
+
+        query_lower = query.strip().lower()
+        query_tokens = [token for token in query_lower.split() if token]
+        generic_queries = {"shoe", "shoes", "running", "runner", "trail", "clothing", "accessories"}
+        strong_matches = [
+            pair for pair in candidates if query_lower and query_lower in str(pair[0].get("name", "")).lower()
+        ]
+
+        if len(candidates) > 1 and (len(query_tokens) <= 1 or query_lower in generic_queries):
+            narrowed = candidates
+        else:
+            narrowed = strong_matches if strong_matches else candidates
+
+        if len(narrowed) == 1:
+            product, variant = narrowed[0]
+            return _AddResolution(product_id=str(product["id"]), variant_id=str(variant["id"]))
+
+        options = [self._resolution_option(product=product, variant=variant) for product, variant in narrowed[:3]]
+        names = ", ".join(option["name"] for option in options)
+        clarification = f"I found multiple matches for '{query}': {names}. Which one should I add?"
+        return _AddResolution(clarification=clarification, options=options)
+
+    def _resolution_option(self, *, product: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
+        size = str(variant.get("size", "")).strip()
+        color = str(variant.get("color", "")).strip()
+        suffix = ""
+        if size or color:
+            suffix = f" ({size or 'n/a'} / {color or 'n/a'})"
+        return {
+            "productId": str(product.get("id", "")),
+            "variantId": str(variant.get("id", "")),
+            "name": f"{str(product.get('name', 'item'))}{suffix}",
+            "price": float(product.get("price", 0.0)),
+            "size": size,
+            "color": color,
+        }
+
+    def _matching_in_stock_variants(
+        self,
+        *,
+        product: dict[str, Any],
+        color: str,
+        size: str,
+    ) -> list[dict[str, Any]]:
         variants = product.get("variants", [])
         if not isinstance(variants, list):
-            return None
+            return []
+        matches: list[dict[str, Any]] = []
         for variant in variants:
             if not isinstance(variant, dict):
                 continue
             if color and str(variant.get("color", "")).lower() != color:
                 continue
+            if size and str(variant.get("size", "")).lower() != size:
+                continue
             if bool(variant.get("inStock", False)):
-                return variant
-        if color:
-            return None
-        for variant in variants:
-            if isinstance(variant, dict) and bool(variant.get("inStock", False)):
-                return variant
-        return None
+                matches.append(variant)
+        return matches
 
     def _find_cart_item(self, *, cart: dict[str, Any], params: dict[str, Any]) -> dict[str, Any] | None:
         items = cart.get("items", [])

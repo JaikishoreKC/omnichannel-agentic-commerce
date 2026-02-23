@@ -164,6 +164,12 @@ scripts/                     Local validation orchestration
 docker compose up --build
 ```
 
+Before running compose, set secrets in your shell or local `.env` (never commit real values):
+
+- `TOKEN_SECRET`
+- `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`
+
 Default local endpoints:
 
 - Frontend: `http://localhost:5173`
@@ -309,8 +315,23 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 | `LLM_TEMPERATURE` | `0` | Sampling temperature |
 | `LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD` | `5` | Consecutive failures before open state |
 | `LLM_CIRCUIT_BREAKER_TIMEOUT_SECONDS` | `60` | Circuit open duration |
+| `LLM_INTENT_CLASSIFIER_ENABLED` | `false` | Enable LLM intent classifier path |
+| `LLM_PLANNER_ENABLED` | `true` | Enable LLM action planner path |
+| `LLM_DECISION_POLICY` | `planner_first` | `planner_first` or `classifier_first` |
+| `PLANNER_FEATURE_ENABLED` | `true` | Global planner feature flag (independent of `LLM_ENABLED`) |
+| `PLANNER_CANARY_PERCENT` | `100` | Percent of sessions eligible for planner rollout |
+| `LLM_PLANNER_MAX_ACTIONS` | `5` | Hard cap on planner action steps |
+| `LLM_PLANNER_MIN_CONFIDENCE` | `0.55` | Minimum confidence required to execute plan |
+| `LLM_PLANNER_EXECUTION_MODE` | `partial` | `partial` or `atomic` multi-step execution |
+| `ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST` | `5` | Max executed actions per user request |
 | `OPENAI_API_KEY` | `` | OpenAI key (when provider=openai) |
 | `ANTHROPIC_API_KEY` | `` | Anthropic key (when provider=anthropic) |
+
+Planner/classifier decision policy:
+
+- This project enforces one primary LLM decision path per request.
+- `LLM_DECISION_POLICY=planner_first`: planner is attempted first (rule-based classifier still provides fallback intent/actions).
+- `LLM_DECISION_POLICY=classifier_first`: classifier is primary; planner is only attempted for multi-action requests.
 
 #### WebSocket
 
@@ -759,6 +780,13 @@ cd backend
 pytest tests -q --cov=app --cov-fail-under=80
 ```
 
+### NL Intent/Action Eval Suite
+
+```bash
+cd backend
+pytest tests/nl_eval -q
+```
+
 ### Frontend Lint + Build
 
 ```bash
@@ -800,6 +828,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) includes:
 
 - Mongo index/bootstrap verification
 - backend tests + coverage gate
+- NL intent/action evaluation gate (`tests/nl_eval`)
 - security scans (Bandit + pip-audit)
 - backend perf smoke
 - frontend build
