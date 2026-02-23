@@ -152,3 +152,58 @@ def test_websocket_reconnect_same_session() -> None:
             if second["type"] == "response":
                 break
         assert second["payload"]["agent"] == "product"
+
+
+def test_websocket_recovers_stale_session_and_keeps_cart_state() -> None:
+    client = TestClient(app)
+    stale_session_id = "session_nonexistent_ws"
+
+    with client.websocket_connect(f"/ws?sessionId={stale_session_id}") as websocket:
+        first = websocket.receive_json()
+        assert first["type"] == "session"
+        repaired_session_id = first["payload"]["sessionId"]
+        assert repaired_session_id != stale_session_id
+
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {"content": "add prod_006 var_011 to cart", "timestamp": "2026-01-01T00:00:00Z"},
+            }
+        )
+        while True:
+            add_first = websocket.receive_json()
+            if add_first["type"] == "response":
+                break
+        first_cart = add_first["payload"]["data"]["cart"]
+        assert add_first["payload"]["agent"] == "cart"
+        assert first_cart["itemCount"] == 1
+
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {"content": "add prod_001 var_001 to cart", "timestamp": "2026-01-01T00:00:01Z"},
+            }
+        )
+        while True:
+            add_second = websocket.receive_json()
+            if add_second["type"] == "response":
+                break
+        second_cart = add_second["payload"]["data"]["cart"]
+        assert add_second["payload"]["agent"] == "cart"
+        assert second_cart["itemCount"] == 2
+        assert float(second_cart["total"]) > float(first_cart["total"])
+
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {"content": "view_cart", "timestamp": "2026-01-01T00:00:02Z"},
+            }
+        )
+        while True:
+            view = websocket.receive_json()
+            if view["type"] == "response":
+                break
+        view_cart = view["payload"]["data"]["cart"]
+        assert view["payload"]["agent"] == "cart"
+        assert view_cart["itemCount"] == 2
+        assert float(view_cart["total"]) == float(second_cart["total"])

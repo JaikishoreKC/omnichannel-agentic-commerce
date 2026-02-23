@@ -119,3 +119,23 @@ def test_intent_classifier_detects_clear_memory() -> None:
     classifier = IntentClassifier()
     result = classifier.classify("clear my memory")
     assert result.name == "clear_memory"
+
+def test_intent_classifier_detects_view_cart_phrases() -> None:
+    classifier = IntentClassifier()
+    for utterance in ("show me cart", "view cart", "view_cart", "my cart"):
+        result = classifier.classify(utterance)
+        assert result.name == "view_cart"
+
+
+def test_intent_classifier_detects_bare_product_query() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("running shoes")
+    assert result.name == "product_search"
+
+
+def test_intent_classifier_detects_price_refinement_query() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify("under 150", context={"recent": [{"intent": "product_search", "agent": "product"}]})
+    assert result.name == "product_search"
+    assert result.entities["maxPrice"] == 150.0
+

@@ -114,6 +114,9 @@ test("chat-driven add to cart and checkout works", async ({ page }) => {
 test("chat history is restored after reload", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByTestId("session-id")).not.toContainText("initializing");
+  await registerUser(page, "history-restore");
+  await page.reload();
+  await expect(page.getByTestId("session-id")).not.toContainText("initializing");
   await expect(page.getByTestId("chat-ready")).toContainText("connected");
 
   await sendChat(page, "show me running shoes");
@@ -122,6 +125,12 @@ test("chat history is restored after reload", async ({ page }) => {
   await page.reload();
   await expect(page.getByTestId("session-id")).not.toContainText("initializing");
   await expect(page.getByTestId("chat-ready")).toContainText("connected");
-  await expect(page.getByTestId("chat-log")).toContainText("show me running shoes");
-  await expect(page.getByTestId("chat-log")).toContainText("Top result");
+
+  await expect
+    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "")
+    .toContain("You: show me running shoes");
+  await expect
+    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "")
+    .toContain("Top result");
 });
+

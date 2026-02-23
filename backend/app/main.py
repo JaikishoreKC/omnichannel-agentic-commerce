@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-from contextlib import suppress
+from contextlib import asynccontextmanager, suppress
 from time import time
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -71,31 +71,31 @@ async def _voice_recovery_scheduler_loop(stop_event: asyncio.Event, interval_sec
             continue
 
 
-@app.on_event("startup")
-async def start_voice_recovery_scheduler() -> None:
+@asynccontextmanager
+async def app_lifespan(_: FastAPI):
     global _voice_scheduler_task
-    if not settings.voice_recovery_scheduler_enabled:
-        return
-    if _voice_scheduler_task and not _voice_scheduler_task.done():
-        return
-    interval = max(5.0, float(settings.voice_recovery_scan_interval_seconds))
-    stop_event = asyncio.Event()
-    app.state.voice_recovery_stop_event = stop_event
-    _voice_scheduler_task = asyncio.create_task(_voice_recovery_scheduler_loop(stop_event, interval))
+    if settings.voice_recovery_scheduler_enabled:
+        if _voice_scheduler_task is None or _voice_scheduler_task.done():
+            interval = max(5.0, float(settings.voice_recovery_scan_interval_seconds))
+            stop_event = asyncio.Event()
+            app.state.voice_recovery_stop_event = stop_event
+            _voice_scheduler_task = asyncio.create_task(
+                _voice_recovery_scheduler_loop(stop_event, interval)
+            )
+    try:
+        yield
+    finally:
+        stop_event = getattr(app.state, "voice_recovery_stop_event", None)
+        if isinstance(stop_event, asyncio.Event):
+            stop_event.set()
+        if _voice_scheduler_task:
+            _voice_scheduler_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await _voice_scheduler_task
+        _voice_scheduler_task = None
 
 
-@app.on_event("shutdown")
-async def stop_voice_recovery_scheduler() -> None:
-    global _voice_scheduler_task
-    stop_event = getattr(app.state, "voice_recovery_stop_event", None)
-    if isinstance(stop_event, asyncio.Event):
-        stop_event.set()
-    if _voice_scheduler_task:
-        _voice_scheduler_task.cancel()
-        with suppress(asyncio.CancelledError):
-            await _voice_scheduler_task
-    _voice_scheduler_task = None
-
+app.router.lifespan_context = app_lifespan
 
 def _error_code(status_code: int) -> str:
     codes = {
@@ -467,24 +467,49 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     await websocket.accept()
     session_service.cleanup_expired()
-    session_id = websocket.query_params.get("sessionId")
-    if not session_id:
-        session = session_service.create_session(
+    async def _send_session_event(session: dict[str, object]) -> None:
+        await websocket.send_json(
+            {
+                "type": "session",
+                "payload": {
+                    "sessionId": str(session["id"]),
+                    "expiresAt": str(session["expiresAt"]),
+                },
+            }
+        )
+
+    async def _ensure_active_session(
+        candidate_session_id: str | None,
+        *,
+        source: str,
+    ) -> tuple[str, dict[str, object]]:
+        resolved_session_id = str(candidate_session_id or "").strip()
+        if resolved_session_id:
+            try:
+                existing = session_service.get_session(resolved_session_id)
+                return resolved_session_id, existing
+            except Exception:
+                pass
+
+        created = session_service.create_session(
             channel="websocket",
             initial_context={},
             anonymous_id=websocket.headers.get("x-anonymous-id"),
             user_agent=websocket.headers.get("user-agent"),
             ip_address=websocket.client.host if websocket.client else None,
             metadata={
-                "source": "websocket_connect",
+                "source": source,
                 "referrer": websocket.headers.get("origin", ""),
             },
         )
-        session_id = session["id"]
         await asyncio.to_thread(state_persistence.save, store)
-        await websocket.send_json(
-            {"type": "session", "payload": {"sessionId": session_id, "expiresAt": session["expiresAt"]}}
-        )
+        await _send_session_event(created)
+        return str(created["id"]), created
+
+    session_id, active_session = await _ensure_active_session(
+        websocket.query_params.get("sessionId"),
+        source="websocket_connect",
+    )
 
     user_id: str | None = None
     auth_header = websocket.headers.get("authorization")
@@ -496,20 +521,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 user_id = str(user["id"])
         except Exception:
             user_id = None
-    if not user_id:
-        try:
-            session = session_service.get_session(session_id)
-            if session.get("userId"):
-                user_id = str(session["userId"])
-        except Exception:
-            user_id = None
+    if not user_id and active_session.get("userId"):
+        user_id = str(active_session["userId"])
     if user_id:
-        anonymous_id = None
-        try:
-            active_session = session_service.get_session(session_id)
-            anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
-        except Exception:
-            anonymous_id = None
+        anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
         if session_id:
             cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
         resolved_session = session_service.resolve_user_session(
@@ -533,13 +548,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             )
         if str(resolved_session["id"]) != session_id:
             session_id = str(resolved_session["id"])
+            active_session = resolved_session
             await asyncio.to_thread(state_persistence.save, store)
-            await websocket.send_json(
-                {
-                    "type": "session",
-                    "payload": {"sessionId": session_id, "expiresAt": resolved_session["expiresAt"]},
-                }
-            )
+            await _send_session_event(resolved_session)
 
     heartbeat_state = {"last_pong": time()}
     heartbeat_interval = max(0.0, float(settings.ws_heartbeat_interval_seconds))
@@ -612,20 +623,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 )
                 continue
 
-            if not user_id:
-                try:
-                    session = session_service.get_session(session_id)
-                    if session.get("userId"):
-                        user_id = str(session["userId"])
-                except Exception:
-                    user_id = None
+            session_id, active_session = await _ensure_active_session(
+                session_id,
+                source="websocket_message",
+            )
+            if not user_id and active_session.get("userId"):
+                user_id = str(active_session["userId"])
             if user_id:
-                anonymous_id = None
-                try:
-                    active_session = session_service.get_session(session_id)
-                    anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
-                except Exception:
-                    anonymous_id = None
+                anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
                 if session_id:
                     cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
                 resolved_session = session_service.resolve_user_session(
@@ -649,13 +654,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     )
                 if str(resolved_session["id"]) != session_id:
                     session_id = str(resolved_session["id"])
+                    active_session = resolved_session
                     await asyncio.to_thread(state_persistence.save, store)
-                    await websocket.send_json(
-                        {
-                            "type": "session",
-                            "payload": {"sessionId": session_id, "expiresAt": resolved_session["expiresAt"]},
-                        }
-                    )
+                    await _send_session_event(resolved_session)
 
             heartbeat_state["last_pong"] = time()
             assistant_typing_requested = bool(payload.get("payload", {}).get("typing", False))
@@ -717,3 +718,4 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         heartbeat_task.cancel()
         with suppress(asyncio.CancelledError):
             await heartbeat_task
+

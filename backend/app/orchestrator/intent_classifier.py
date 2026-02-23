@@ -41,6 +41,7 @@ class IntentClassifier:
 
     def _classify_rules(self, *, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         text = message.strip().lower()
+        phrase_text = re.sub(r"[_\s]+", " ", text).strip()
         entities: dict[str, Any] = {}
 
         if not text:
@@ -153,7 +154,7 @@ class IntentClassifier:
             if query:
                 entities["query"] = query
             return IntentResult(name="add_to_cart", confidence=0.92, entities=entities)
-        if "show cart" in text or "my cart" in text:
+        if self._is_view_cart_request(phrase_text):
             return IntentResult(name="view_cart", confidence=0.9, entities={})
 
         # Product intents.
@@ -163,6 +164,18 @@ class IntentClassifier:
             entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
             return IntentResult(name="product_search", confidence=0.84, entities=entities)
+        if self._is_price_refinement_request(text=phrase_text, context=context):
+            entities.update(self._extract_price_range(text))
+            entities.update(self._extract_color(text))
+            entities.update(self._extract_brand(message))
+            entities["query"] = message.strip()
+            return IntentResult(name="product_search", confidence=0.8, entities=entities)
+        if self._looks_like_product_query(phrase_text):
+            entities.update(self._extract_price_range(text))
+            entities.update(self._extract_color(text))
+            entities.update(self._extract_brand(message))
+            entities["query"] = message.strip()
+            return IntentResult(name="product_search", confidence=0.78, entities=entities)
 
         return IntentResult(name="general_question", confidence=0.6, entities={"query": message.strip()})
 
@@ -551,3 +564,75 @@ class IntentClassifier:
             if token in text:
                 return {"value": token}
         return {}
+
+    def _is_view_cart_request(self, text: str) -> bool:
+        if not text:
+            return False
+        if text in {'cart', 'my cart', 'view cart', 'show cart', 'show me cart', 'view my cart'}:
+            return True
+        if re.search(r'\b(view|show|open|see|display)\s+(my\s+)?cart\b', text):
+            return True
+        if ('what' in text or 'whats' in text or "what's" in text) and 'cart' in text:
+            return True
+        return False
+
+    def _is_price_refinement_request(self, *, text: str, context: dict[str, Any] | None) -> bool:
+        if not self._extract_price_range(text):
+            return False
+        if any(token in text for token in ('cart', 'checkout', 'order', 'refund', 'ticket', 'support')):
+            return False
+        if context is None:
+            return True
+        recent = context.get('recent', [])
+        if not isinstance(recent, list):
+            return True
+        for row in reversed(recent):
+            if not isinstance(row, dict):
+                continue
+            intent = str(row.get('intent', '')).strip()
+            agent = str(row.get('agent', '')).strip()
+            if intent in {'product_search', 'search_and_add_to_cart'} or agent == 'product':
+                return True
+        return True
+
+    def _looks_like_product_query(self, text: str) -> bool:
+        if not text:
+            return False
+        if any(
+            token in text
+            for token in (
+                'support',
+                'ticket',
+                'order',
+                'refund',
+                'cancel',
+                'checkout',
+                'memory',
+                'preference',
+                'cart',
+            )
+        ):
+            return False
+        product_tokens = (
+            'shoe',
+            'shoes',
+            'sneaker',
+            'sneakers',
+            'runner',
+            'running',
+            'trail',
+            'hoodie',
+            'jogger',
+            'joggers',
+            'sock',
+            'socks',
+            'backpack',
+            'bag',
+            'clothing',
+            'accessories',
+            'denim',
+            'athleisure',
+        )
+        return any(token in text for token in product_tokens)
+
+

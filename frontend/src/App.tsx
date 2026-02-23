@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   addToCart,
@@ -44,6 +44,68 @@ function productIdFromPath(pathname: string): string | null {
 }
 
 type ChatEntry = { role: "user" | "assistant"; text: string; agent?: string; streamId?: string };
+
+const CHAT_CACHE_KEY = "commerce_chat_cache_v1";
+const CHAT_CACHE_MAX_MESSAGES_PER_SESSION = 200;
+
+type ChatCachePayload = Record<string, ChatEntry[]>;
+
+function parseChatCache(raw: string | null): ChatCachePayload {
+  if (!raw) {
+    return {};
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") {
+      return {};
+    }
+    const output: ChatCachePayload = {};
+    for (const [session, rows] of Object.entries(parsed as Record<string, unknown>)) {
+      if (!Array.isArray(rows) || !session) {
+        continue;
+      }
+      const normalized: ChatEntry[] = [];
+      for (const row of rows) {
+        if (!row || typeof row !== "object") {
+          continue;
+        }
+        const candidate = row as Partial<ChatEntry>;
+        if ((candidate.role !== "user" && candidate.role !== "assistant") || typeof candidate.text !== "string") {
+          continue;
+        }
+        normalized.push({
+          role: candidate.role,
+          text: candidate.text,
+          agent: typeof candidate.agent === "string" ? candidate.agent : undefined,
+          streamId: typeof candidate.streamId === "string" ? candidate.streamId : undefined,
+        });
+      }
+      if (normalized.length > 0) {
+        output[session] = normalized.slice(-CHAT_CACHE_MAX_MESSAGES_PER_SESSION);
+      }
+    }
+    return output;
+  } catch {
+    return {};
+  }
+}
+
+function loadCachedChatEntries(session: string): ChatEntry[] {
+  if (!session) {
+    return [];
+  }
+  const cache = parseChatCache(localStorage.getItem(CHAT_CACHE_KEY));
+  return cache[session] ?? [];
+}
+
+function saveCachedChatEntries(session: string, entries: ChatEntry[]): void {
+  if (!session) {
+    return;
+  }
+  const cache = parseChatCache(localStorage.getItem(CHAT_CACHE_KEY));
+  cache[session] = entries.slice(-CHAT_CACHE_MAX_MESSAGES_PER_SESSION);
+  localStorage.setItem(CHAT_CACHE_KEY, JSON.stringify(cache));
+}
 
 function historyToChatEntries(history: InteractionHistoryMessage[]): ChatEntry[] {
   const output: ChatEntry[] = [];
@@ -128,31 +190,48 @@ export default function App(): JSX.Element {
   }
 
   async function reloadChatHistory(targetSessionId: string): Promise<void> {
+    const cachedEntries = loadCachedChatEntries(targetSessionId);
+    if (cachedEntries.length > 0) {
+      setChatMessages(cachedEntries);
+    }
+
     try {
-      const payload = await fetchChatHistory({ sessionId: targetSessionId, limit: 80 });
-      let resolvedSessionId = payload.sessionId || targetSessionId;
-      if (payload.sessionId && payload.sessionId !== targetSessionId) {
-        setStoredSessionId(payload.sessionId);
-        setSessionId(payload.sessionId);
-      }
-      let resolvedMessages = payload.messages ?? [];
-      for (let attempt = 0; resolvedMessages.length === 0 && attempt < 4; attempt += 1) {
+      let resolvedSessionId = targetSessionId;
+      let resolvedMessages: InteractionHistoryMessage[] = [];
+
+      for (let attempt = 0; attempt < 12; attempt += 1) {
         try {
-          await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)));
-          const retryPayload = await fetchChatHistory({ sessionId: resolvedSessionId, limit: 80 });
-          if (retryPayload.sessionId && retryPayload.sessionId !== resolvedSessionId) {
-            resolvedSessionId = retryPayload.sessionId;
-            setStoredSessionId(retryPayload.sessionId);
-            setSessionId(retryPayload.sessionId);
+          const payload = await fetchChatHistory({ sessionId: resolvedSessionId, limit: 80 });
+          if (payload.sessionId && payload.sessionId !== resolvedSessionId) {
+            resolvedSessionId = payload.sessionId;
+            setStoredSessionId(payload.sessionId);
+            setSessionId(payload.sessionId);
           }
-          resolvedMessages = retryPayload.messages ?? resolvedMessages;
+          resolvedMessages = payload.messages ?? [];
+          if (resolvedMessages.length > 0) {
+            break;
+          }
         } catch {
-          // Keep retrying with backoff for eventual consistency.
+          if (attempt >= 11) {
+            throw new Error("chat history unavailable");
+          }
         }
+        await new Promise((resolve) => window.setTimeout(resolve, Math.min(1500, 180 * (attempt + 1))));
       }
-      setChatMessages(historyToChatEntries(resolvedMessages));
+
+      const resolvedEntries = historyToChatEntries(resolvedMessages);
+      if (resolvedEntries.length > 0) {
+        setChatMessages(resolvedEntries);
+        return;
+      }
+
+      if (cachedEntries.length === 0) {
+        setChatMessages([]);
+      }
     } catch {
-      // Keep existing chat state when history endpoint is unavailable.
+      if (cachedEntries.length === 0) {
+        setChatMessages([]);
+      }
     }
   }
 
@@ -237,6 +316,13 @@ export default function App(): JSX.Element {
       ),
     );
   }
+
+  useLayoutEffect(() => {
+    if (!sessionId || chatMessages.length === 0) {
+      return;
+    }
+    saveCachedChatEntries(sessionId, chatMessages);
+  }, [chatMessages, sessionId]);
 
   useEffect(() => {
     let active = true;
@@ -369,7 +455,7 @@ export default function App(): JSX.Element {
         currentSessionId = createdSessionId;
         setSessionId(createdSessionId);
         await reloadData();
-        await reloadChatHistory(createdSessionId);
+        void reloadChatHistory(createdSessionId);
         connectSocket(createdSessionId);
       } catch (err) {
         setMessage((err as Error).message);
@@ -451,7 +537,7 @@ export default function App(): JSX.Element {
       setUser(payload.user);
       await reloadData();
       if (resolvedSessionId) {
-        await reloadChatHistory(resolvedSessionId);
+        void reloadChatHistory(resolvedSessionId);
       }
       if (resolvedSessionId) {
         connectSocketRef.current(resolvedSessionId);
@@ -478,7 +564,7 @@ export default function App(): JSX.Element {
       setUser(payload.user);
       await reloadData();
       if (resolvedSessionId) {
-        await reloadChatHistory(resolvedSessionId);
+        void reloadChatHistory(resolvedSessionId);
       }
       if (resolvedSessionId) {
         connectSocketRef.current(resolvedSessionId);
@@ -1029,3 +1115,4 @@ export default function App(): JSX.Element {
     </div>
   );
 }
+

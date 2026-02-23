@@ -13,3 +13,9 @@ playwright-report/
 # Env
 .env
 .env.local
+
+# Coverage
+.coverage
+coverage.xml
+backend/coverage.xml
+backend/perf-smoke-summary.json
