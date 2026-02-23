@@ -1,603 +1,293 @@
-# System Design Document
+# System Design Document (Current v1)
 
-## Overview
+## Purpose
 
-This document provides detailed system design specifications for the omnichannel agentic commerce platform, including identity management, session handling, memory architecture, and data flow patterns.
+This document describes the detailed design of the current implementation for
+`omnichannel-agentic-commerce`.
 
----
+## Design Scope
 
-## System Architecture
+### In Scope
 
-### High-Level Design
+- Web channel implementation (responsive UI).
+- REST and WebSocket conversational commerce APIs.
+- Guest session/cart flows and authenticated checkout.
+- Session and cart continuity across guest -> authenticated transition.
+- Account-linked conversation continuity and preference memory.
+- Admin controls and SuperU voice-recovery orchestration.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        CLIENT LAYER                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────────┐ │
-│  │ Web (React) │  │  Mobile App │  │  Channel Adapters        │ │
-│  └──────┬──────┘  └──────┬──────┘  └────────────┬────────────┘ │
-└─────────┼────────────────┼───────────────────────┼──────────────┘
-          │                │                       │
-          v                v                       v
-┌─────────────────────────────────────────────────────────────────┐
-│                      API GATEWAY LAYER                          │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │  REST Endpoints  │  WebSocket Server  │  Middleware       │ │
-│  │  - Auth         │  - Real-time       │  - Auth           │ │
-│  │  - Products     │  - Streaming       │  - Rate Limiting  │ │
-│  │  - Cart/Orders │                    │  - Logging        │ │
-│  └────────────────────────┬───────────────────────────────────┘ │
-└───────────────────────────┼─────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                   ORCHESTRATION LAYER                           │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                    Orchestrator Core                       │ │
-│  │  ┌─────────────┐ ┌─────────────┐ ┌─────────────────────┐  │ │
-│  │  │   Intent    │ │   Context   │ │    Action           │  │ │
-│  │  │ Classifier │ │  Builder    │ │    Extractor        │  │ │
-│  │  └──────┬──────┘ └──────┬──────┘ └──────────┬──────────┘  │ │
-│  │         └───────────────┼───────────────────┘              │ │
-│  │                         v                                   │ │
-│  │  ┌─────────────────────────────────────────────────────┐  │ │
-│  │  │              Agent Router                            │  │ │
-│  │  └─────────────────────┬───────────────────────────────┘  │ │
-│  └─────────────────────────┼──────────────────────────────────┘ │
-└─────────────────────────────┼────────────────────────────────────┘
-                              │
-         ┌────────────────────┼────────────────────┐
-         v                    v                    v
-┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
-│  Product Agent │  │   Cart Agent    │  │  Order Agent    │
-│  - Search      │  │  - Add/Remove   │  │  - Checkout     │
-│  - Recommend   │  │  - Update       │  │  - Status       │
-└────────┬────────┘  └────────┬────────┘  └────────┬────────┘
-         │                    │                    │
-         v                    v                    v
-┌─────────────────────────────────────────────────────────────────┐
-│                      SERVICE LAYER                              │
-│  ┌──────────────┐ ┌──────────────┐ ┌──────────────────────────┐ │
-│  │Product Service│ │Cart Service │ │   Order Service          │ │
-│  └──────────────┘ └──────────────┘ └──────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
-                            │
-                            v
-┌─────────────────────────────────────────────────────────────────┐
-│                       DATA LAYER                                │
-│  ┌─────────────┐  ┌─────────────┐  ┌──────────────────────────┐ │
-│  │  MongoDB   │  │   Redis     │  │   LLM Services          │ │
-│  │ - Users    │  │ - Sessions │  │   - OpenAI / Anthropic  │ │
-│  │ - Products │  │ - Cache     │  │                          │ │
-│  │ - Orders   │  │ - Sessions │  │                          │ │
-│  └─────────────┘  └─────────────┘  └──────────────────────────┘ │
-└─────────────────────────────────────────────────────────────────┘
+### Out Of Scope (Current)
+
+- Native mobile app.
+- Native kiosk app.
+- Compliance/regulatory programs.
+- Real external payment processor.
+
+## System Context
+
+```text
+Web Client
+  -> FastAPI Routes + WebSocket
+  -> Orchestrator
+  -> Agents
+  -> Services
+  -> Repositories
+  -> In-memory store (default) + optional Mongo/Redis adapters
+  -> External integrations (LLM provider, SuperU)
 ```
 
----
+## Runtime Modules
 
-## Identity Model
+| Module | Key Responsibility |
+| --- | --- |
+| `backend/app/main.py` | FastAPI app setup, middleware stack, `/ws`, `/health`, `/metrics` |
+| `backend/app/api/routes/*` | Route handlers for auth/products/cart/orders/sessions/interactions/memory/admin/voice callback |
+| `backend/app/orchestrator/*` | Intent classification, context build, action extraction, routing, formatting |
+| `backend/app/agents/*` | Domain action execution for product/cart/order/support/memory |
+| `backend/app/services/*` | Business logic and policy enforcement |
+| `backend/app/repositories/*` | Data access over store and optional external adapters |
+| `backend/app/infrastructure/*` | LLM, SuperU, rate-limiter, metrics, persistence helpers |
+| `backend/app/store/in_memory.py` | Primary in-process state model and seed data |
 
-### Overview
+## Identity, Session, And Cart Design
 
-The system supports both authenticated and anonymous users with seamless transitions between states.
+### Identity Modes
 
-### Authentication Flow
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                    AUTHENTICATION FLOW                           │
-│                                                                 │
-│  ┌──────────┐    ┌──────────┐    ┌──────────┐                  │
-│  │ Anonymous│    │  Login   │    │Authenticated│               │
-│  │  User   │───>│ Request  │───>│   User   │                  │
-│  └──────────┘    └────┬─────┘    └──────────┘                  │
-│         │             │                                          │
-│         │             v                                          │
-│         │    ┌────────────────┐                                 │
-│         │    │ 1. Validate    │                                 │
-│         │    │ 2. Check       │                                 │
-│         │    │    credentials │                                 │
-│         │    └───────┬────────┘                                 │
-│         │            │                                           │
-│         │            v                                           │
-│         │    ┌────────────────┐                                 │
-│         │    │ 3. Generate    │                                 │
-│         │    │    JWT tokens   │                                 │
-│         │    └───────┬────────┘                                 │
-│         │            │                                           │
-│         │            v                                           │
-│         │    ┌────────────────┐                                 │
-│         │    │ 4. Return      │                                 │
-│         │    │    tokens +    │                                 │
-│         │    │    user data   │                                 │
-│         └────│    (anonymous  │                                 │
-│              │    history     │                                 │
-│              │    merged)      │                                 │
-│              └────────────────┘                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Identity Data Structure
-
-```python
-# Identity Resolution Flow
-class IdentityResolver:
-    """
-    Determines user identity from request context
-    """
-    
-    def resolve(self, request: Request) -> Identity:
-        """
-        Resolve user identity from:
-        1. JWT token (authenticated)
-        2. Session cookie (known anonymous)
-        3. Device fingerprint (new anonymous)
-        """
-        
-        # Check for JWT
-        if token := request.headers.get("Authorization"):
-            return self._resolve_authenticated(token)
-        
-        # Check for session
-        if session_id := request.cookies.get("session_id"):
-            return self._resolve_session(session_id)
-        
-        # Create new anonymous identity
-        return self._create_anonymous()
-```
-
-### Token Management
-
-| Token Type | Expiry | Purpose |
-|------------|--------|---------|
-| Access Token | 15 minutes | API authorization |
-| Refresh Token | 7 days | Token renewal |
-
-**Refresh Flow:**
-```
-1. Access token expires
-2. Client sends refresh token to /auth/refresh
-3. Server validates refresh token
-4. Server issues new access token + new refresh token
-5. Server revokes previous refresh token
-6. Client continues with rotated token pair
-```
-
----
-
-## Session Model
+- `guest`: no bearer token; session and cart are still available.
+- `authenticated`: bearer token present; account-scoped routes and memory enabled.
+- `admin`: authenticated user with `role=admin` for admin endpoints.
 
 ### Session Lifecycle
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     SESSION LIFECYCLE                           │
-│                                                                 │
-│  CREATION ──> ACTIVE ──> IDLE ──> EXPIRED/ENDED                │
-│     │           │         │                                     │
-│     v           v         v                                     │
-│  - New visit - Browsing - No activity                          │
-│  - Anonymous  - Chatting - TTL reached                          │
-│  - First msg  - Shopping                                        │
-│              - Cart ops                                         │
-└─────────────────────────────────────────────────────────────────┘
-```
+- Session id source precedence:
+  1. `X-Session-Id` header
+  1. `session_id` cookie
+  1. server-created new session
+- Session TTL: 30 minutes inactivity (`SessionService._expiry_minutes=30`).
+- Session contains both `context.conversation` and `context.shopping` data.
 
-### Session Data
+### Guest -> Auth Session Resolution
 
-```python
-class Session:
-    """
-    Represents a user shopping session
-    """
-    
-    # Identifiers
-    session_id: str          # Unique session identifier
-    user_id: Optional[str]   # Link to user if authenticated
-    anonymous_id: str        # Device/browser identifier
-    
-    # Channel
-    channel: ChannelType     # web, websocket, mobile, api
-    
-    # Conversation State
-    conversation: ConversationContext
-    """
-    conversation:
-      current_intent: str           # "browse_products"
-      last_agent: str               # "product_agent"
-      last_message: str             # Last user message
-      pending_action: Dict          # Action awaiting confirmation
-      entities: Dict               # Extracted entities
-    """
-    
-    # Shopping State
-    shopping: ShoppingContext
-    """
-    shopping:
-      cart_id: Optional[str]
-      viewed_products: List[str]
-      search_history: List[str]
-      current_category: Optional[str]
-    """
-    
-    # Timing
-    created_at: datetime
-    last_activity_at: datetime
-    expires_at: datetime
-    
-    # TTL: 30 minutes of inactivity
-```
+On register/login and authenticated interaction history retrieval:
 
-### Session Storage
+1. Optional guest session id is read.
+2. Guest cart is merged into user cart when present.
+3. `resolve_user_session(...)` reuses latest active user session when possible.
+4. Identity channel linkage is recorded.
+5. Response includes resolved `sessionId`.
 
-| Storage | Data | TTL |
-|---------|------|-----|
-| MongoDB | Full session data | 24 hours |
-| Redis | Active sessions only | Session TTL |
+This is the primary continuity mechanism across channel surfaces.
 
-**Redis Cache Structure:**
-```
-session:{session_id} -> Session (JSON)
-```
+### Cart Lifecycle And Rules
 
----
+- Cart TTL: 24 hours.
+- Status values: `active`, `abandoned`, `converted`.
+- Merge key on guest->user migration: `productId + variantId`.
+- Quantity merge cap: max 50 per line item.
+- Guest discount is carried only if user cart has no discount.
+- Guest cart record is removed after successful merge.
 
-## Memory Model
+### Checkout Gate
 
-### Overview
+- Order creation endpoint requires authenticated user.
+- `Idempotency-Key` header is mandatory on `POST /v1/orders`.
+- Guest checkout attempts are blocked by auth dependency.
 
-The memory system provides long-term user context by storing preferences, interaction history, and learned affinities.
+## Orchestration Design
 
-### Memory Layers
+### Processing Pipeline
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                      MEMORY LAYERS                              │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                    WORKING MEMORY                          │ │
-│  │  (Current conversation context, expires on session end)    │ │
-│  │  - Recent messages                                         │ │
-│  │  - Current intent                                          │ │
-│  │  - Active entities                                         │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                    SESSION MEMORY                          │ │
-│  │  (Current session, persists until session ends)             │ │
-│  │  - Cart contents                                           │ │
-│  │  - Viewed products                                         │ │
-│  │  - Search history                                          │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-│  ┌────────────────────────────────────────────────────────────┐ │
-│  │                    LONG-TERM MEMORY                        │ │
-│  │  (User account, persists indefinitely)                    │ │
-│  │  - Preferences                                             │ │
-│  │  - Interaction history                                     │ │
-│  │  - Product affinities                                      │ │
-│  │  - Order history                                           │ │
-│  └────────────────────────────────────────────────────────────┘ │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. Collect recent interaction history for session.
+2. Fallback to memory history when session history is empty (authenticated user).
+3. Classify intent (rule-first, optional LLM refinement).
+4. Build context (session + cart + optional memory snapshot).
+5. Extract one or more actions.
+6. Route actions to target agent(s).
+7. Execute actions and aggregate results.
+8. Format transport payload.
+9. Persist interaction + update session conversation state.
+10. Trigger async memory recording for authenticated users.
 
-### Memory Data Structure
+### Intent Model (Current)
 
-```python
-class UserMemory:
-    """
-    Long-term user memory
-    """
-    
-    user_id: str
-    
-    # Explicit Preferences
-    preferences: UserPreferences
-    """
-    preferences:
-      size: Optional[str]
-      brand_preferences: List[str]
-      categories: List[str]
-      price_range: Dict{min, max}
-      color_preferences: List[str]
-    """
-    
-    # Interaction History
-    interaction_history: List[InteractionRecord]
-    """
-    interaction:
-      - type: "search" | "browse" | "purchase" | "support"
-        query: str
-        product_ids: List[str]
-        timestamp: datetime
-        satisfaction: Optional[int]
-    """
-    
-    # Inferred Affinities
-    affinities: ProductAffinities
-    """
-    affinities:
-      brands: Dict{brand -> score}
-      categories: Dict{category -> score}
-      price_ranges: Dict{range -> score}
-      features: Dict{feature -> score}
-    """
-    
-    # Behavioral Patterns
-    patterns: ConversationPatterns
-    """
-    patterns:
-      common_queries: List[str]
-      preferred_phrasing: Dict
-      shopping_hours: List[int]
-      channel_preference: str
-    """
-```
+- Product discovery:
+  - `product_search`
+  - `search_and_add_to_cart`
+- Cart:
+  - `add_to_cart`
+  - `add_multiple_to_cart`
+  - `apply_discount`
+  - `update_cart`
+  - `adjust_cart_quantity`
+  - `remove_from_cart`
+  - `clear_cart`
+  - `view_cart`
+- Order:
+  - `checkout`
+  - `order_status`
+  - `change_order_address`
+  - `cancel_order`
+  - `request_refund`
+  - `multi_status`
+- Memory:
+  - `show_memory`
+  - `save_preference`
+  - `forget_preference`
+  - `clear_memory`
+- Support:
+  - `support_escalation`
+  - `support_status`
+  - `support_close`
+- Fallback:
+  - `general_question`
 
-### Memory Updates
+### Rule-First + Optional LLM
 
-```python
-class SignalExtractor:
-    """
-    Extracts signals from interactions to update memory
-    """
-    
-    def extract_signals(self, interaction: Interaction) -> MemoryUpdate:
-        """
-        Analyze interaction and generate memory updates:
-        """
-        
-        signals = []
-        
-        # Preference signals
-        if interaction.type == "search":
-            if query := interaction.query:
-                signals.append(Signal(
-                    type="implicit_preference",
-                    category=self._infer_category(query)
-                ))
-        
-        # Affinity signals
-        if interaction.type == "browse":
-            for product in interaction.products:
-                signals.append(Signal(
-                    type="product_affinity",
-                    product_id=product.id,
-                    category=product.category,
-                    brand=product.brand
-                ))
-        
-        # Purchase signals
-        if interaction.type == "purchase":
-            signals.append(Signal(
-                type="purchase_affinity",
-                items=interaction.items
-            ))
-        
-        return MemoryUpdate(signals=signals)
-```
+- Rules always produce a baseline intent.
+- LLM is optional (`LLM_ENABLED=true`).
+- LLM override is accepted only if confidence is high enough.
+- LLM calls are protected by a circuit breaker.
 
----
+## Memory Design
 
-## Data Flow
+### Persistence Model
 
-### Message Processing Flow
+Memory is account-scoped and keyed by `userId`.
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                  MESSAGE PROCESSING FLOW                        │
-│                                                                 │
-│  1. USER INPUT                                                   │
-│     ┌─────────────────────┐                                     │
-│     │ "I want blue       │                                     │
-│     │  running shoes     │                                     │
-│     │  under $150"        │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  2. INPUT VALIDATION                                            │
-│     ┌─────────────────────┐                                     │
-│     │ - Sanitize input   │                                     │
-│     │ - Check rate limit  │                                     │
-│     │ - Validate session │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  3. INTENT CLASSIFICATION                                       │
-│     ┌─────────────────────┐                                     │
-│     │ LLM classifies:    │                                     │
-│     │ - Intent: search   │                                     │
-│     │ - Entities:        │                                     │
-│     │   - color: blue    │                                     │
-│     │   - category: shoes│                                     │
-│     │   - maxPrice: 150  │                                     │
-│     │ - Confidence: 0.92 │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  4. CONTEXT BUILDING                                             │
-│     ┌─────────────────────┐                                     │
-│     │ Aggregate:         │                                     │
-│     │ - Session state    │                                     │
-│     │ - User memory      │                                     │
-│     │ - Recent history   │                                     │
-│     │ - Cart contents    │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  5. AGENT ROUTING                                                │
-│     ┌─────────────────────┐                                     │
-│     │ Route to:          │                                     │
-│     │ Product Agent      │                                     │
-│     │ (based on intent)  │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  6. AGENT EXECUTION                                              │
-│     ┌─────────────────────┐                                     │
-│     │ Product Agent:       │                                     │
-│     │ - Search products   │                                     │
-│     │ - Filter by color   │                                     │
-│     │ - Filter by price   │                                     │
-│     │ - Sort by relevance │                                     │
-│     │ - Generate response │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  7. RESPONSE FORMATTING                                          │
-│     ┌─────────────────────┐                                     │
-│     │ Format for:         │                                     │
-│     │ - Channel (WS/HTTP)│                                     │
-│     │ - Include products │                                     │
-│     │ - Add suggestions  │                                     │
-│     │ - Update context   │                                     │
-│     └──────────┬──────────┘                                     │
-│                │                                                 │
-│                v                                                 │
-│  8. RESPONSE DELIVERY                                            │
-│     ┌─────────────────────┐                                     │
-│     │ {                   │                                     │
-│     │   "message": "...", │                                     │
-│     │   "products": [...],│                                     │
-│     │   "actions": [...]  │                                     │
-│     │ }                   │                                     │
-│     └─────────────────────┘                                     │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
+Stored sections:
 
-### Orchestration Pipeline
+- `preferences`
+  - `size`
+  - `brandPreferences`
+  - `categories`
+  - `stylePreferences`
+  - `colorPreferences`
+  - `priceRange {min,max}`
+- `interactionHistory` (bounded list, last 200)
+- `productAffinities`
+  - `brands`, `categories`, `products`, `priceRanges`, `features`
 
-```python
-class Orchestrator:
-    """
-    Main orchestration pipeline
-    """
-    
-    async def process_message(
-        self,
-        message: str,
-        context: AgentContext
-    ) -> AgentResponse:
-        
-        # Step 1: Intent Classification
-        intent = await self.intent_classifier.classify(
-            message=message,
-            context=context
-        )
-        
-        # Step 2: Context Building
-        enriched_context = await self.context_builder.build(
-            intent=intent,
-            session_id=context.session.id,
-            user_id=context.user.id if context.user else None
-        )
-        
-        # Step 3: Action Extraction
-        actions = await self.action_extractor.extract(
-            intent=intent,
-            entities=intent.entities,
-            context=enriched_context
-        )
-        
-        # Step 4: Agent Routing
-        agent = self.router.route(intent=intent)
-        
-        # Step 5: Agent Execution
-        result = await agent.execute(
-            actions=actions,
-            context=enriched_context
-        )
-        
-        # Step 6: Response Formatting
-        response = await self.formatter.format(
-            result=result,
-            intent=intent,
-            context=enriched_context
-        )
-        
-        # Step 7: Memory Update (async, non-blocking)
-        asyncio.create_task(
-            self.memory_service.record_interaction(
-                message=message,
-                intent=intent,
-                response=response
-            )
-        )
-        
-        return response
-```
+### Write Rules
 
----
+- Guest users: no memory write.
+- Authenticated users: interaction records append summary + affinity counters.
+- Explicit preference commands update/forget/clear preference values.
 
-## Error Handling
+### Read Rules
 
-### Error Types
+- `/v1/memory*` endpoints require authentication.
+- `GET /v1/interactions/history` for authenticated users can synthesize history
+  from memory if session messages are unavailable.
 
-| Error Type | Handling | User Message |
-|------------|----------|---------------|
-| Validation Error | Return 400 | "I couldn't understand that. Could you rephrase?" |
-| Not Found | Return 404 | "I couldn't find any products matching your search." |
-| Unauthorized | Return 401 + Redirect | "Please log in to continue." |
-| Rate Limited | Return 429 | "I'm getting too many requests. Please wait a moment." |
-| LLM Error | Retry + Fallback | "I'm having trouble thinking right now. Please try again." |
-| Server Error | Return 500 | "Something went wrong. Our team has been notified." |
+## Order And Payment Design
 
-### Circuit Breaker
+### Order Creation
 
-```python
-class LLMCircuitBreaker:
-    """
-    Prevents cascade failures from LLM service
-    """
-    
-    def __init__(self, failure_threshold=5, timeout=60):
-        self.failure_count = 0
-        self.failure_threshold = failure_threshold
-        self.timeout = timeout
-        self.state = "closed"  # closed, open, half-open
-    
-    async def call(self, func):
-        if self.state == "open":
-            if time.time() > self.last_failure + self.timeout:
-                self.state = "half-open"
-            else:
-                raise CircuitBreakerOpen()
-        
-        try:
-            result = await func()
-            self.on_success()
-            return result
-        except Exception as e:
-            self.on_failure()
-            raise
-```
+- Validate idempotency key and return existing order if duplicate key is seen.
+- Load authenticated user cart and enforce non-empty cart.
+- Reserve inventory for order items.
+- Authorize payment via `PaymentService`.
+- Persist order + mark cart converted + commit inventory + send notification.
 
----
+### Payment Implementation Note
 
-## Scaling Considerations
+Current payment authorization is a local stub:
 
-### Horizontal Scaling
+- Validates `type=card` and non-empty token.
+- Returns synthetic transaction id (`txn_*`).
 
-- API servers: Stateless, can add more instances behind load balancer
-- WebSocket servers: Use sticky sessions or Redis pub/sub for message distribution
-- Database: MongoDB sharding by user_id for scale
+No external payment processor is integrated in current scope.
 
-### Caching Strategy
+## Voice Recovery Design (SuperU)
 
-| Data | Cache | TTL | Invalidation |
-|------|-------|-----|--------------|
-| Products | Redis | 1 hour | On inventory change |
-| Categories | Redis | 24 hours | Manual |
-| User Sessions | Redis | Session TTL | On logout/expiry |
-| Cart | Redis | 1 hour | On cart change |
-| Preferences | Redis | 24 hours | On preference update |
+### Subsystem Components
 
-### Performance Targets
+- `VoiceRecoveryService`: enqueue/process/poll/alerts orchestration.
+- `SuperUClient`: outbound-call API client and webhook signature verifier.
+- Admin APIs under `/v1/admin/voice/*`.
+- Callback endpoint: `POST /v1/voice/superu/callback`.
 
-- API p95 latency: < 500ms
-- LLM p95 latency: < 3 seconds
-- WebSocket message delivery: < 200ms
-- Database query p95: < 100ms
+### Job Lifecycle
+
+Typical statuses:
+
+- Job: `queued`, `retrying`, `processing`, `completed`, `cancelled`, `dead_letter`.
+- Call event outcomes include `initiated`, `in_progress`, `completed`, `failed`, `suppressed`, `skipped`.
+
+### Guardrails
+
+- Quiet hours (timezone-aware).
+- Max attempts per cart.
+- Max calls per user per day.
+- Max calls per day.
+- Daily budget cap.
+- User suppression list.
+- Global kill switch.
+
+### Callback Integrity
+
+- HMAC SHA256 signature over `<timestamp>.<raw_body>`.
+- Headers supported:
+  - `X-SuperU-Signature` or `X-Signature`
+  - `X-SuperU-Timestamp` or `X-Timestamp`
+- Timestamp tolerance enforced.
+
+## Security And Resilience
+
+### Security Controls
+
+- JWT auth + refresh rotation.
+- Role checks for admin routes.
+- Rate limiting by anonymous/authenticated/admin profile.
+- Request body size cap.
+- JSON content-type enforcement for mutating API calls.
+- Duplicate critical-header rejection.
+- Response security headers (CSP, frame/type/referrer/permissions policies).
+- WebSocket origin validation.
+
+### Resilience Behaviors
+
+- Graceful fallback to rule-based classification when LLM is unavailable.
+- WebSocket heartbeat ping/pong with timeout-based disconnect.
+- Async memory write so chat latency path is not blocked.
+
+## Persistence And Consistency
+
+### Default Mode
+
+- In-process in-memory store.
+- Fast local development, no cross-restart durability.
+
+### External Services Mode
+
+- Enable with `ENABLE_EXTERNAL_SERVICES=true`.
+- Mongo/Redis managers initialize repository adapter paths.
+- State snapshots are persisted on mutating HTTP requests.
+
+## Observability
+
+### Health Endpoint
+
+`GET /health` reports:
+
+- Mongo/Redis status.
+- state persistence enabled flag.
+- LLM circuit-breaker status.
+- Voice scheduler/provider/runtime flags.
+
+### Metrics Endpoint
+
+`GET /metrics` provides Prometheus metrics including HTTP volume/errors/latency,
+checkout counters, and security event counters.
+
+## Testing Alignment
+
+- Backend unit/integration tests under `backend/tests`.
+- Frontend lint/build and Playwright E2E under `frontend/tests/e2e`.
+- Local end-to-end validation script: `scripts/validate_local.ps1`.
+
+## Deferred Engineering Items
+
+- Native mobile and kiosk clients using same API/WebSocket contracts.
+- Production payment provider and reconciliation workflows.
+- Compliance/regulatory controls and evidence workflows.

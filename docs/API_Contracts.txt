@@ -1,257 +1,161 @@
-# API Contracts Specification
+# API Contracts Specification (v1)
 
 ## Overview
 
-This document defines v1 REST and WebSocket contracts for the omnichannel agentic commerce platform.
+This document defines the current REST and WebSocket contracts implemented in the
+codebase.
 
-## Base URL
+Base paths:
 
-```text
-Production: https://api.example.com/v1
-Development: http://localhost:8000/v1
-WebSocket: ws://localhost:8000/ws
-```
+- REST: `/v1`
+- WebSocket: `/ws`
 
-## Naming and Serialization
+Local defaults:
 
-- External API fields use `camelCase`.
-- Internal Python models use `snake_case`.
-- Repository layer maps between API DTOs and persistence models.
+- REST base URL: `http://localhost:8000/v1`
+- WebSocket URL: `ws://localhost:8000/ws`
+
+## Naming And Serialization
+
+- JSON request/response fields use `camelCase`.
+- Python service/domain models use `snake_case` internally.
+- Path params in route signatures currently use `snake_case` names (for example,
+  `{product_id}` and `{order_id}`).
 
 ## Authentication Model
 
-### Public Endpoints
+### Access Tokens
 
-- `GET /health`
-- `GET /metrics` (Prometheus scrape endpoint)
-- `POST /auth/register`
-- `POST /auth/login`
-- `POST /auth/refresh`
-- `GET /products`
-- `GET /products/{productId}`
-- Cart/session bootstrap and anonymous cart operations
-
-### Protected Endpoints
-
-All account-scoped endpoints require:
+- Authorization header format:
 
 ```text
 Authorization: Bearer <access_token>
 ```
 
-## Auth
+- Token algorithm: `HS256`.
+- Access token TTL default: `900` seconds.
+- Refresh token TTL default: `604800` seconds.
+- Refresh tokens rotate on successful `/auth/refresh`.
 
-### POST /auth/register
+### Anonymous Session Model
 
-Register a new user.
+Anonymous browse/cart flows use one of:
 
-Request:
+- `X-Session-Id` header, or
+- `session_id` cookie (set by cart/session dependency when needed).
+
+## Standard Error Shape
+
+Validation and runtime errors are normalized to:
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid request data",
+    "details": [
+      {
+        "field": "email",
+        "message": "Invalid value"
+      }
+    ]
+  }
+}
+```
+
+Common codes:
+
+- `VALIDATION_ERROR`
+- `AUTH_REQUIRED`
+- `FORBIDDEN`
+- `NOT_FOUND`
+- `CONFLICT`
+- `RATE_LIMITED`
+- `INTERNAL_ERROR`
+
+## REST Endpoints
+
+## Public / Anonymous-Capable
+
+### Health And Ops
+
+- `GET /health`
+- `GET /metrics`
+
+### Auth
+
+- `POST /auth/register`
+- `POST /auth/login`
+- `POST /auth/refresh`
+
+Notes:
+
+- `register` and `login` may include `sessionId` in response.
+- Guest cart/session are merged/linked when a session is present.
+
+Example register request:
 
 ```json
 {
   "email": "user@example.com",
   "password": "SecurePass123!",
-  "name": "John Doe"
+  "name": "John Doe",
+  "phone": "+15551234567",
+  "timezone": "America/Chicago"
 }
 ```
 
-Response (201):
+Example register response (shape):
 
 ```json
 {
   "user": {
-    "id": "user_abc123",
+    "id": "user_000001",
     "email": "user@example.com",
     "name": "John Doe",
-    "createdAt": "2026-02-22T10:30:00Z"
-  },
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
-  "expiresIn": 900
-}
-```
-
-### POST /auth/login
-
-Authenticate user and return token pair.
-
-Request:
-
-```json
-{
-  "email": "user@example.com",
-  "password": "SecurePass123!"
-}
-```
-
-Response (200):
-
-```json
-{
-  "user": {
-    "id": "user_abc123",
-    "email": "user@example.com",
-    "name": "John Doe"
-  },
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
-  "expiresIn": 900
-}
-```
-
-### POST /auth/refresh
-
-Rotate refresh token and return a new pair.
-
-Request:
-
-```json
-{
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs..."
-}
-```
-
-Response (200):
-
-```json
-{
-  "accessToken": "eyJhbGciOiJSUzI1NiIs...",
-  "refreshToken": "eyJhbGciOiJSUzI1NiIs...",
-  "expiresIn": 900
-}
-```
-
-## Products
-
-### GET /products
-
-List products with filters.
-
-Query Parameters:
-
-- `query` (string)
-- `category` (string)
-- `minPrice` (number)
-- `maxPrice` (number)
-- `page` (number, default `1`)
-- `limit` (number, default `20`)
-
-Response (200):
-
-```json
-{
-  "products": [
-    {
-      "id": "prod_001",
-      "name": "Running Shoes Pro",
-      "description": "High-performance running shoes",
-      "category": "shoes",
-      "price": 129.99,
-      "currency": "USD",
-      "images": [
-        "https://cdn.example.com/products/prod_001/main.jpg"
-      ],
-      "variants": [
+    "role": "customer",
+    "createdAt": "2026-02-23T00:00:00+00:00",
+    "identity": {
+      "anonymousId": "anon_session_000001",
+      "linkedChannels": [
         {
-          "id": "var_001",
-          "size": "10",
-          "color": "blue",
-          "inStock": true
+          "provider": "web",
+          "externalId": "session_000001"
         }
-      ],
-      "rating": 4.5,
-      "reviewCount": 234
+      ]
     }
-  ],
-  "pagination": {
-    "page": 1,
-    "limit": 20,
-    "total": 150,
-    "pages": 8
-  }
-}
-```
-
-### GET /products/{productId}
-
-Get product details.
-
-Response (200):
-
-```json
-{
-  "id": "prod_001",
-  "name": "Running Shoes Pro",
-  "description": "High-performance running shoes",
-  "category": "shoes",
-  "price": 129.99,
-  "currency": "USD",
-  "images": [
-    "https://cdn.example.com/products/prod_001/main.jpg"
-  ],
-  "variants": [
-    {
-      "id": "var_001",
-      "size": "10",
-      "color": "blue",
-      "inStock": true
-    },
-    {
-      "id": "var_002",
-      "size": "10",
-      "color": "black",
-      "inStock": true
-    }
-  ],
-  "specifications": {
-    "material": "mesh",
-    "weight": "280g"
   },
-  "rating": 4.5,
-  "reviewCount": 234
+  "accessToken": "<jwt>",
+  "refreshToken": "<jwt>",
+  "expiresIn": 900,
+  "sessionId": "session_000001"
 }
 ```
 
-## Cart
+### Products
 
-Notes:
+- `GET /products`
+- `GET /products/{product_id}`
 
-- Cart supports anonymous and authenticated users.
-- For anonymous calls, pass `X-Session-Id` header or session cookie.
+`GET /products` query params:
 
-### GET /cart
+- `query`
+- `category`
+- `brand`
+- `minPrice`
+- `maxPrice`
+- `page` (default `1`)
+- `limit` (default `20`, max `100`)
 
-Response (200):
+### Cart
 
-```json
-{
-  "id": "cart_abc123",
-  "userId": "user_abc123",
-  "sessionId": "session_abc123",
-  "items": [
-    {
-      "itemId": "item_001",
-      "productId": "prod_001",
-      "variantId": "var_001",
-      "name": "Running Shoes Pro",
-      "price": 129.99,
-      "quantity": 1,
-      "image": "https://cdn.example.com/products/prod_001/main.jpg"
-    }
-  ],
-  "subtotal": 129.99,
-  "tax": 10.4,
-  "shipping": 5.99,
-  "discount": 0,
-  "total": 146.38,
-  "itemCount": 1,
-  "currency": "USD"
-}
-```
+- `GET /cart`
+- `POST /cart/items`
+- `PUT /cart/items/{item_id}`
+- `DELETE /cart/items/{item_id}`
+- `POST /cart/apply-discount`
 
-### POST /cart/items
-
-Request:
+`POST /cart/items` request:
 
 ```json
 {
@@ -261,310 +165,13 @@ Request:
 }
 ```
 
-Response (201):
+### Sessions
 
-```json
-{
-  "success": true,
-  "cartId": "cart_abc123"
-}
-```
+- `POST /sessions`
+- `GET /sessions/{session_id}`
+- `DELETE /sessions/{session_id}`
 
-### PUT /cart/items/{itemId}
-
-Request:
-
-```json
-{
-  "quantity": 3
-}
-```
-
-Response (200):
-
-```json
-{
-  "success": true,
-  "cartId": "cart_abc123"
-}
-```
-
-### DELETE /cart/items/{itemId}
-
-Response (204): no content
-
-### POST /cart/apply-discount
-
-Request:
-
-```json
-{
-  "code": "SAVE20"
-}
-```
-
-Response (200):
-
-```json
-{
-  "success": true,
-  "discount": {
-    "code": "SAVE20",
-    "type": "percentage",
-    "value": 20,
-    "amount": 25.99
-  },
-  "cartId": "cart_abc123"
-}
-```
-
-## Orders
-
-Notes:
-
-- Order creation requires authenticated user.
-- Use idempotency key for order creation retries.
-
-### POST /orders
-
-Headers:
-
-```text
-Authorization: Bearer <access_token>
-Idempotency-Key: 0f09bcf4-9859-45c8-a72e-5b8c8ce16d4e
-```
-
-Request:
-
-```json
-{
-  "shippingAddress": {
-    "name": "John Doe",
-    "line1": "123 Main St",
-    "city": "San Francisco",
-    "state": "CA",
-    "postalCode": "94102",
-    "country": "US"
-  },
-  "paymentMethod": {
-    "type": "card",
-    "token": "pm_xxx"
-  }
-}
-```
-
-Response (201):
-
-```json
-{
-  "order": {
-    "id": "order_xyz789",
-    "status": "confirmed",
-    "items": [
-      {
-        "productId": "prod_001",
-        "variantId": "var_001",
-        "name": "Running Shoes Pro",
-        "price": 129.99,
-        "quantity": 1
-      }
-    ],
-    "subtotal": 129.99,
-    "tax": 10.4,
-    "shipping": 5.99,
-    "discount": 0,
-    "total": 146.38,
-    "shippingAddress": {
-      "name": "John Doe",
-      "line1": "123 Main St",
-      "city": "San Francisco",
-      "state": "CA",
-      "postalCode": "94102",
-      "country": "US"
-    },
-    "createdAt": "2026-02-22T10:30:00Z",
-    "estimatedDelivery": "2026-02-27T10:30:00Z"
-  }
-}
-```
-
-Error (401 unauthenticated):
-
-```json
-{
-  "error": {
-    "code": "AUTH_REQUIRED",
-    "message": "Login required before order creation.",
-    "details": [
-      {
-        "field": "auth",
-        "message": "Authenticate, then retry checkout; cart state is preserved."
-      }
-    ]
-  }
-}
-```
-
-### GET /orders
-
-Protected endpoint.
-
-Response (200):
-
-```json
-{
-  "orders": [
-    {
-      "id": "order_xyz789",
-      "status": "delivered",
-      "total": 146.38,
-      "itemCount": 1,
-      "createdAt": "2026-02-22T10:30:00Z"
-    }
-  ]
-}
-```
-
-### GET /orders/{orderId}
-
-Protected endpoint.
-
-Response (200):
-
-```json
-{
-  "id": "order_xyz789",
-  "status": "shipped",
-  "items": [
-    {
-      "productId": "prod_001",
-      "variantId": "var_001",
-      "name": "Running Shoes Pro",
-      "price": 129.99,
-      "quantity": 1
-    }
-  ],
-  "shippingAddress": {
-    "name": "John Doe",
-    "line1": "123 Main St",
-    "city": "San Francisco",
-    "state": "CA",
-    "postalCode": "94102",
-    "country": "US"
-  },
-  "tracking": {
-    "carrier": "UPS",
-    "trackingNumber": "1Z999AA10123456784",
-    "status": "in_transit",
-    "updates": [
-      {
-        "status": "shipped",
-        "location": "Oakland, CA",
-        "timestamp": "2026-02-23T14:00:00Z"
-      }
-    ]
-  },
-  "timeline": [
-    {
-      "status": "order_placed",
-      "timestamp": "2026-02-22T10:30:00Z"
-    },
-    {
-      "status": "shipped",
-      "timestamp": "2026-02-23T14:00:00Z"
-    }
-  ]
-}
-```
-
-### POST /orders/{orderId}/cancel
-
-Protected endpoint.
-
-Request:
-
-```json
-{
-  "reason": "Changed my mind"
-}
-```
-
-Response (200):
-
-```json
-{
-  "success": true,
-  "orderId": "order_xyz789",
-  "status": "cancelled"
-}
-```
-
-### POST /orders/{orderId}/refund
-
-Protected endpoint.
-
-Request:
-
-```json
-{
-  "reason": "Item did not fit"
-}
-```
-
-Response (200):
-
-```json
-{
-  "success": true,
-  "orderId": "order_xyz789",
-  "status": "refunded"
-}
-```
-
-### PUT /orders/{orderId}/shipping-address
-
-Protected endpoint.
-
-Request:
-
-```json
-{
-  "shippingAddress": {
-    "name": "John Doe",
-    "line1": "500 Main St",
-    "city": "Austin",
-    "state": "TX",
-    "postalCode": "78702",
-    "country": "US"
-  }
-}
-```
-
-Response (200):
-
-```json
-{
-  "success": true,
-  "orderId": "order_xyz789",
-  "status": "confirmed",
-  "shippingAddress": {
-    "name": "John Doe",
-    "line1": "500 Main St",
-    "city": "Austin",
-    "state": "TX",
-    "postalCode": "78702",
-    "country": "US"
-  }
-}
-```
-
-## Sessions
-
-### POST /sessions
-
-Create a session for anonymous or authenticated context.
-
-Request:
+`POST /sessions` request:
 
 ```json
 {
@@ -573,232 +180,42 @@ Request:
 }
 ```
 
-Response (201):
+Response:
 
 ```json
 {
-  "sessionId": "session_abc123",
-  "expiresAt": "2026-02-22T12:30:00Z"
+  "sessionId": "session_000001",
+  "anonymousId": "anon_session_000001",
+  "expiresAt": "2026-02-23T00:30:00+00:00"
 }
 ```
 
-### GET /sessions/{sessionId}
+### Interactions
 
-Response (200):
+- `POST /interactions/message`
+- `GET /interactions/history`
 
-```json
-{
-  "id": "session_abc123",
-  "userId": "user_abc123",
-  "channel": "websocket",
-  "createdAt": "2026-02-22T10:30:00Z",
-  "lastActivity": "2026-02-22T11:00:00Z",
-  "context": {
-    "cartId": "cart_abc123",
-    "viewedProducts": [
-      "prod_001"
-    ],
-    "conversationState": "shopping"
-  }
-}
-```
-
-### DELETE /sessions/{sessionId}
-
-Response (204): no content
-
-## Interactions (WebSocket)
-
-### Connection
-
-```text
-ws://localhost:8000/ws?sessionId=session_abc123
-```
-
-Auth should be provided by secure cookie or a short-lived WS token exchange endpoint (not querystring access token).
-Server also supports heartbeat events:
-- Server may send `ping` events periodically.
-- Client can send `pong` and/or `ping`.
-- Server responds to client `ping` with `pong`.
-
-### Client -> Server Message
+`POST /interactions/message` request:
 
 ```json
 {
-  "type": "message",
-  "payload": {
-    "content": "I want to buy running shoes",
-    "timestamp": "2026-02-22T10:30:00Z",
-    "stream": true,
-    "typing": true
-  }
-}
-```
-
-`stream` and `typing` are optional flags.
-- `stream=true` enables response chunk events (`stream_start`, `stream_delta`, `stream_end`).
-- `typing=true` requests assistant typing indicator events (`typing` with `actor=assistant`).
-
-Client heartbeat message (optional):
-
-```json
-{
-  "type": "pong",
-  "payload": {
-    "timestamp": "2026-02-22T10:30:01Z"
-  }
-}
-```
-
-Client ping message (optional):
-
-```json
-{
-  "type": "ping",
-  "payload": {
-    "timestamp": "2026-02-22T10:30:01Z"
-  }
-}
-```
-
-### Server -> Client Response
-
-```json
-{
-  "type": "response",
-  "payload": {
-    "message": "I can help with that. Here are some options.",
-    "agent": "product",
-    "data": {
-      "products": [
-        {
-          "id": "prod_001",
-          "name": "Running Shoes Pro"
-        }
-      ]
-    },
-    "suggestedActions": [
-      {
-        "label": "Add to Cart",
-        "action": "cart:add:prod_001:var_001"
-      }
-    ]
-  }
-}
-```
-
-### Server -> Client Streaming Events (optional)
-
-Client can request streaming by setting `payload.stream=true` in the message event.
-
-`stream_start`:
-
-```json
-{
-  "type": "stream_start",
-  "payload": {
-    "streamId": "stream_1740220200123",
-    "agent": "product"
-  }
-}
-```
-
-`stream_delta`:
-
-```json
-{
-  "type": "stream_delta",
-  "payload": {
-    "streamId": "stream_1740220200123",
-    "delta": "I found two options "
-  }
-}
-```
-
-`stream_end`:
-
-```json
-{
-  "type": "stream_end",
-  "payload": {
-    "streamId": "stream_1740220200123"
-  }
-}
-```
-
-### Error Message
-
-```json
-{
-  "type": "error",
-  "payload": {
-    "code": "SESSION_EXPIRED",
-    "message": "Your session has expired. Please refresh."
-  }
-}
-```
-
-Server heartbeat ping event:
-
-```json
-{
-  "type": "ping",
-  "payload": {
-    "timestamp": 1740220200123
-  }
-}
-```
-
-Server heartbeat pong response:
-
-```json
-{
-  "type": "pong",
-  "payload": {
-    "timestamp": 1740220201123
-  }
-}
-```
-
-## Interactions (REST)
-
-### POST /interactions/message
-
-Process a conversational message through the orchestrator pipeline.
-
-Request:
-
-```json
-{
-  "sessionId": "session_abc123",
-  "content": "show me running shoes under $150",
+  "sessionId": "session_000001",
+  "content": "show me running shoes",
   "channel": "web"
 }
 ```
 
-Response (200):
+Response envelope:
 
 ```json
 {
   "type": "response",
-  "sessionId": "session_abc123",
+  "sessionId": "session_000001",
   "payload": {
-    "message": "I found 2 options. Top result: Running Shoes Pro ($129.99).",
+    "message": "I found 3 options...",
     "agent": "product",
-    "data": {
-      "products": [
-        {
-          "id": "prod_001",
-          "name": "Running Shoes Pro"
-        }
-      ]
-    },
-    "suggestedActions": [
-      {
-        "label": "Add Running Shoes Pro",
-        "action": "add_to_cart:prod_001:var_001"
-      }
-    ],
+    "data": {},
+    "suggestedActions": [],
     "metadata": {
       "intent": "product_search",
       "confidence": 0.84,
@@ -808,267 +225,140 @@ Response (200):
 }
 ```
 
-## Memory
+`GET /interactions/history`:
 
-### GET /memory/preferences
+- For guest users, `sessionId` query param is required.
+- For authenticated users, `sessionId` is optional and server resolves/rehydrates
+  the best user session.
 
-Protected endpoint.
+### Voice Callback
 
-Response (200):
+- `POST /voice/superu/callback`
+
+Required headers:
+
+- `X-SuperU-Signature` or `X-Signature`
+- `X-SuperU-Timestamp` or `X-Timestamp`
+
+## Authenticated Endpoints
+
+### Orders
+
+- `POST /orders`
+- `GET /orders`
+- `GET /orders/{order_id}`
+- `POST /orders/{order_id}/cancel`
+- `POST /orders/{order_id}/refund`
+- `PUT /orders/{order_id}/shipping-address`
+
+`POST /orders` requirements:
+
+- Bearer token required.
+- `Idempotency-Key` header required.
+
+`POST /orders` request:
 
 ```json
 {
-  "preferences": {
-    "size": "M",
-    "brandPreferences": [
-      "Nike",
-      "Adidas"
-    ],
-    "categories": [
-      "shoes",
-      "clothing"
-    ],
-    "priceRange": {
-      "min": 50,
-      "max": 200
-    }
+  "shippingAddress": {
+    "name": "John Doe",
+    "line1": "123 Main St",
+    "city": "Austin",
+    "state": "TX",
+    "postalCode": "78701",
+    "country": "US"
+  },
+  "paymentMethod": {
+    "type": "card",
+    "token": "pm_test_123"
   }
 }
 ```
 
-### PUT /memory/preferences
+### Memory
 
-Protected endpoint.
+- `GET /memory`
+- `GET /memory/preferences`
+- `PUT /memory/preferences`
+- `GET /memory/history`
+- `DELETE /memory`
+- `DELETE /memory/preferences`
+- `DELETE /memory/preferences/{key}`
+- `DELETE /memory/history`
 
-Request:
+## Admin Endpoints (Role = admin)
 
-```json
-{
-  "size": "L",
-  "brandPreferences": [
-    "Nike",
-    "Adidas",
-    "Puma"
-  ]
-}
-```
+- `GET /admin/stats`
+- `GET /admin/categories`
+- `GET /admin/categories/records`
+- `POST /admin/categories`
+- `PUT /admin/categories/{category_id}`
+- `DELETE /admin/categories/{category_id}`
+- `POST /admin/products`
+- `PUT /admin/products/{product_id}`
+- `DELETE /admin/products/{product_id}`
+- `GET /admin/inventory/{variant_id}`
+- `PUT /admin/inventory/{variant_id}`
+- `GET /admin/support/tickets`
+- `PATCH /admin/support/tickets/{ticket_id}`
+- `GET /admin/activity`
+- `GET /admin/activity/integrity`
+- `GET /admin/voice/settings`
+- `PUT /admin/voice/settings`
+- `POST /admin/voice/process`
+- `GET /admin/voice/calls`
+- `GET /admin/voice/jobs`
+- `GET /admin/voice/suppressions`
+- `POST /admin/voice/suppressions`
+- `DELETE /admin/voice/suppressions/{user_id}`
+- `GET /admin/voice/alerts`
+- `GET /admin/voice/stats`
 
-Response (200):
+## WebSocket Contract (`/ws`)
 
-```json
-{
-  "success": true
-}
-```
+Connect with optional query param:
 
-### GET /memory/history
+- `sessionId`
 
-Protected endpoint.
-
-Query Parameters:
-
-- `limit` (number, optional, default `20`)
-
-Response (200):
-
-```json
-{
-  "history": [
-    {
-      "type": "product_search",
-      "timestamp": "2026-02-22T10:30:00Z",
-      "summary": {
-        "query": "show me running shoes under $150",
-        "action": "product_search",
-        "response": "I found 2 options. Top result: Running Shoes Pro ($129.99)."
-      }
-    }
-  ]
-}
-```
-
-## Admin
-
-### GET /admin/stats
-
-Protected endpoint (`admin` role).
-
-Response (200):
+If omitted, server creates a session and sends:
 
 ```json
 {
-  "activeSessions": 1250,
-  "ordersToday": 45,
-  "revenueToday": 5432.1,
-  "messagesToday": 3821,
-  "supportOpenTickets": 12,
-  "agentPerformance": [
-    {
-      "agent": "product",
-      "interactions": 1400,
-      "successRate": 96.4
-    }
-  ],
-  "topProducts": [
-    {
-      "id": "prod_001",
-      "name": "Running Shoes",
-      "sold": 23
-    }
-  ]
-}
-```
-
-### GET /admin/categories
-
-Protected endpoint (`admin` role).
-
-Response (200):
-
-```json
-{
-  "categories": [
-    "accessories",
-    "clothing",
-    "shoes"
-  ]
-}
-```
-
-### POST /admin/products
-
-Protected endpoint (`admin` role).
-
-Request:
-
-```json
-{
-  "id": "prod_999",
-  "name": "New Performance Tee",
-  "description": "Lightweight breathable tee",
-  "category": "clothing",
-  "price": 39.99,
-  "currency": "USD",
-  "images": ["https://cdn.example.com/products/prod_999/main.jpg"],
-  "variants": [
-    {
-      "id": "var_999",
-      "size": "M",
-      "color": "black",
-      "inStock": true,
-      "inventory": {
-        "availableQuantity": 25
-      }
-    }
-  ]
-}
-```
-
-Response (201):
-
-```json
-{
-  "product": {
-    "id": "prod_999",
-    "name": "New Performance Tee"
+  "type": "session",
+  "payload": {
+    "sessionId": "session_000001",
+    "expiresAt": "2026-02-23T00:30:00+00:00"
   }
 }
 ```
 
-### PUT /admin/products/{productId}
+### Client -> Server Event Types
 
-Protected endpoint (`admin` role).
+- `message`
+- `typing`
+- `ping`
+- `pong`
 
-Response (200):
+`message` payload fields:
 
-```json
-{
-  "product": {
-    "id": "prod_999",
-    "name": "Updated Performance Tee"
-  }
-}
-```
+- `content` (required)
+- `typing` (optional boolean)
+- `stream` (optional boolean)
 
-### DELETE /admin/products/{productId}
+### Server -> Client Event Types
 
-Protected endpoint (`admin` role).
+- `session`
+- `response`
+- `typing`
+- `stream_start`
+- `stream_delta`
+- `stream_end`
+- `error`
+- `ping`
+- `pong`
 
-Response (204): no content
+## Contract Notes
 
-### GET /admin/inventory/{variantId}
-
-Protected endpoint (`admin` role).
-
-Response (200):
-
-```json
-{
-  "inventory": {
-    "variantId": "var_001",
-    "productId": "prod_001",
-    "totalQuantity": 20,
-    "reservedQuantity": 0,
-    "availableQuantity": 20,
-    "updatedAt": "2026-02-22T10:30:00Z"
-  }
-}
-```
-
-### PUT /admin/inventory/{variantId}
-
-Protected endpoint (`admin` role).
-
-Request:
-
-```json
-{
-  "totalQuantity": 25,
-  "availableQuantity": 18
-}
-```
-
-Response (200):
-
-```json
-{
-  "inventory": {
-    "variantId": "var_001",
-    "productId": "prod_001",
-    "totalQuantity": 25,
-    "reservedQuantity": 0,
-    "availableQuantity": 18,
-    "updatedAt": "2026-02-22T10:31:00Z"
-  }
-}
-```
-
-## Error Responses
-
-All errors follow:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "Invalid email format",
-    "details": [
-      {
-        "field": "email",
-        "message": "Must be a valid email"
-      }
-    ]
-  }
-}
-```
-
-### Common Error Codes
-
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| AUTH_REQUIRED | 401 | Missing or invalid auth |
-| FORBIDDEN | 403 | Insufficient permissions |
-| NOT_FOUND | 404 | Resource not found |
-| VALIDATION_ERROR | 400 | Invalid request data |
-| RATE_LIMITED | 429 | Too many requests |
-| INTERNAL_ERROR | 500 | Server error |
+- Checkout is blocked for unauthenticated users by design.
+- Cart is mergeable from guest session into authenticated user account.
+- Path parameter names in docs are aligned to actual router definitions.

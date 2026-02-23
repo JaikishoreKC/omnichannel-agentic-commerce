@@ -1,111 +1,164 @@
-# System Architecture Specification
+# System Architecture Specification (Current v1)
 
-## Overview
+## Purpose
 
-This document defines the high-level architecture for an omnichannel agentic commerce platform that provides personalized shopping assistance across multiple communication channels.
+This document describes the architecture currently implemented in this repository.
+It is implementation-first and avoids future-state assumptions.
 
-## Architectural Zones
+## Scope And Status
 
-### 1. Client Layer (Presentation Zone)
-- **Web Application**: Responsive SPA built with modern JavaScript framework
-- **Mobile Applications**: Native iOS/Android apps (future phase)
-- **Channel Adapters**: WebSocket handlers for real-time communication
-- **Session Manager**: Client-side state management for user sessions
+### Implemented In Current Web App
 
-### 2. API Gateway Layer (Orchestration Zone)
-- **REST Endpoints**: Standard CRUD operations for products, orders, cart
-- **WebSocket Server**: Real-time bidirectional communication
-- **Authentication Middleware**: JWT-based identity verification
-- **Rate Limiting**: Protection against abuse and DoS
+- Responsive React + Vite + Tailwind web client.
+- FastAPI backend with REST and WebSocket APIs.
+- Guest browsing and cart operations.
+- Authentication required before order creation.
+- Guest cart/session continuity into authenticated account.
+- Conversational orchestration pipeline (rule-first with optional LLM assist).
+- User preference memory and interaction-history fallback.
+- Admin APIs for catalog, inventory, support, and voice controls.
+- SuperU-based abandoned-cart outbound voice recovery pipeline (guardrailed).
+- Core security hardening and Prometheus metrics.
 
-### 3. Agent Orchestration Layer (Intelligence Zone)
-- **Intent Classifier**: Natural language understanding to determine user goals
-- **Context Builder**: Aggregates user history, session state, and preferences
-- **Agent Router**: Routes requests to appropriate specialized agents
-- **Action Extractor**: Converts semantic intents into concrete system actions
-- **Response Formatter**: Generates human-readable responses
+### Deferred
 
-### 4. Specialized Agent Layer (Domain Zone)
-- **Product Agent**: Handles product search, recommendations, details
-- **Cart Agent**: Manages shopping cart operations
-- **Order Agent**: Processes checkout and order management
-- **Support Agent**: Handles customer service inquiries
+- Native mobile app shell.
+- Native kiosk app shell.
+- Production payment gateway integration (current payment flow is token-stubbed).
+- Compliance and regulatory workflow automation.
 
-### 5. Data Layer (Persistence Zone)
-- **User Store**: Customer profiles and authentication data
-- **Session Store**: Active conversation and interaction state
-- **Product Catalog**: Inventory and product information
-- **Memory Store**: Long-term user preferences and history
+## Architecture Overview
 
-### 6. Infrastructure Layer (Cross-Cutting)
-- **LLM Client**: Abstraction for language model interactions
-- **Cache Service**: Performance optimization layer
-- **Rate Limiter**: Traffic management
-- **Logging Service**: Audit trails and debugging
-
-## Technology Stack
-
-### Backend
-- **Framework**: FastAPI (Python async framework)
-- **Database**: MongoDB (document store for flexible schemas)
-- **Cache**: Redis (session and query caching)
-- **LLM Integration**: OpenAI GPT-4 / Anthropic Claude (configurable)
-
-### Frontend
-- **Framework**: React with TypeScript
-- **Build Tool**: Vite
-- **Styling**: Tailwind CSS
-- **State Management**: React Context + hooks
-
-### Infrastructure
-- **Containerization**: Docker
-- **API Documentation**: OpenAPI/Swagger
-
-## Data Flow
-
-```
-User Input → Client → WebSocket/REST → API Gateway
-    → Agent Orchestrator → Intent Classification
-    → Context Builder (session + memory lookup)
-    → Agent Router → Specialized Agent
-    → Action Execution → Response Formatter
-    → Client Display
+```text
+[Web Client: React/Vite/Tailwind]
+           |
+           | HTTP (REST) + WebSocket
+           v
+[FastAPI Application Layer]
+  - Routes: auth/products/cart/orders/sessions/interactions/memory/admin/voice-callback
+  - WebSocket endpoint: /ws
+  - Middleware: hardening, rate-limit, security headers, metrics, persistence trigger
+           |
+           v
+[Orchestrator Layer]
+  - IntentClassifier (rules first, optional LLM refinement)
+  - ContextBuilder
+  - ActionExtractor
+  - AgentRouter
+  - ResponseFormatter
+           |
+           v
+[Agents]
+  - ProductAgent
+  - CartAgent
+  - OrderAgent
+  - SupportAgent
+  - MemoryAgent
+           |
+           v
+[Service + Repository Layer]
+  - Auth / Session / Cart / Order / Memory / Interaction / Support / Voice / Admin services
+  - Repositories with in-memory store + optional Mongo/Redis adapters
+           |
+           v
+[Infrastructure Integrations]
+  - LLM client (OpenAI or Anthropic)
+  - SuperU client
+  - Rate limiter
+  - Metrics collector
+  - State persistence manager
 ```
 
-## Design Principles
+## Layer Details
 
-### 1. Separation of Concerns
-Each layer operates independently with well-defined interfaces. Agents do not directly access databases; they invoke services.
+### 1) Client Layer
 
-### 2. Stateless Orchestration
-The orchestrator maintains no internal state between requests. All context is derived from session store and memory store.
+- Single responsive web experience (`frontend/src/App.tsx`).
+- Local persistence of access token and `sessionId` in browser storage.
+- Product catalog + product detail route (`/products/{id}`).
+- Chat UI over WebSocket with reconnect, typing events, and streaming deltas.
 
-### 3. Idempotent Operations
-All agent actions should be idempotent to support retry logic and session restoration.
+### 2) API Layer
 
-### 4. Graceful Degradation
-System should continue operating even if LLM services are temporarily unavailable.
+- REST namespace: `/v1/*`.
+- WebSocket endpoint: `/ws`.
+- Session resolution via `X-Session-Id` or `session_id` cookie.
+- Order creation requires authenticated user + `Idempotency-Key`.
 
-### 5. Auditability
-All significant actions should be logged with sufficient context for debugging and security auditing.
+### 3) Orchestration Layer
 
-## Security Considerations
+- Rule-first intent classification always runs.
+- Optional LLM classification may override when confidence is higher.
+- Context includes session, cart, and (for authenticated users) memory snapshot.
+- Agents execute extracted actions and return structured payloads.
 
-- Product browsing and cart endpoints support anonymous sessions
-- Order creation and all account-scoped endpoints require authentication
-- JWT tokens with short expiry and refresh token rotation
-- Input sanitization for all user-provided text
-- Rate limiting per user/IP to prevent abuse
+### 4) Domain/Agent Layer
 
-## Data Contract Naming
+- Product operations: search/filter/recommendation response building.
+- Cart operations: add/remove/update/clear, quantity adjustment, discount apply.
+- Order operations: checkout summary, status, cancel/refund/address update.
+- Support operations: ticket escalation/status/close flows.
+- Memory operations: save/show/forget/clear preference memory.
 
-- External API contracts use `camelCase` field names
-- Python domain/service models use `snake_case`
-- Persistence documents may use `camelCase`; explicit mapping is required at repository boundaries
+### 5) Data/Persistence Layer
 
-## Scalability Targets
+- In-memory store is the default runtime source of truth.
+- Optional external persistence (`ENABLE_EXTERNAL_SERVICES=true`) enables Mongo/Redis-backed repository and snapshot persistence behavior.
+- Session TTL: 30 minutes of inactivity.
+- Cart TTL: 24 hours (status transitions include `active`, `abandoned`, `converted`).
 
-- Support 10,000+ concurrent user sessions
-- Handle 100+ requests per second per instance
-- LLM response latency < 3 seconds (p95)
-- Database queries < 100ms (p95)
+## Core Runtime Flows
+
+### Guest Browse/Cart To Authenticated Checkout
+
+1. Guest session is created and cart operations are allowed.
+2. User registers/logs in.
+3. Guest cart merges into user cart (`productId + variantId` merge key).
+4. Session resolves to account-linked active session.
+5. Order creation is now allowed (auth + idempotency required).
+
+### Conversational Message Processing
+
+1. Message arrives from REST `/interactions/message` or WebSocket `/ws`.
+2. Intent is classified (rules first, optional LLM).
+3. Context is built from session + cart + memory.
+4. Actions are extracted and routed to target agent(s).
+5. Agent response is formatted for transport.
+6. Interaction is recorded; session conversation state is updated.
+7. Memory update runs asynchronously for authenticated users.
+
+### Cross-Channel Continuity (Current Behavior)
+
+- Session continuity is account-linked via `resolve_user_session(...)`.
+- On authenticated requests, backend can reuse latest active user session.
+- This supports continuity across channel surfaces that share backend contracts (current web and future channels).
+
+### Voice Recovery Processing
+
+1. Background scheduler and/or admin trigger scans abandoned carts.
+2. Jobs are queued and processed with retry backoff.
+3. Guardrails enforce quiet hours, per-user/day caps, and budget limits.
+4. Outbound call is initiated through SuperU when enabled/configured.
+5. Signed webhook callbacks update outcomes and trigger follow-up actions.
+
+## Cross-Cutting Controls
+
+### Security
+
+- JWT auth (HS256), role checks for admin routes.
+- Request hardening (size cap, JSON content-type enforcement, duplicate critical header rejection).
+- Per-tier rate limiting (anonymous/authenticated/admin).
+- WebSocket origin checks.
+- Signed SuperU callback verification.
+
+### Observability
+
+- `/health` exposes service and runtime subsystem status.
+- `/metrics` exports Prometheus counters/histograms.
+- Admin activity logging includes tamper-evident integrity verification endpoint.
+
+## Known Architectural Constraints
+
+- Native mobile and kiosk clients are not yet implemented.
+- Payment authorization is stubbed and not connected to an external processor.
+- Compliance requirements are explicitly out of current scope.

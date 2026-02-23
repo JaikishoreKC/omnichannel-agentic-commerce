@@ -1,227 +1,154 @@
-# Security Guidelines
+# Security Guidelines (v1 Current Implementation)
 
-This document defines the v1 security requirements for the omnichannel agentic commerce platform.
+This document describes security controls currently implemented in the codebase.
+It is implementation-first, not a policy wishlist.
 
 ## Scope
 
-- In scope: REST API and WebSocket API security controls for v1.
-- Out of scope: regulatory/compliance workflows and GraphQL-specific controls.
+- In scope: REST API, WebSocket API, admin operations, and voice callback ingress.
+- Out of scope: compliance frameworks and regulatory workflows.
 
-## Authentication and Authorization
+## Authentication
 
-### Authentication
+### Token Model
 
-- Protected endpoints require authentication.
-- Public endpoints:
-  - `GET /health`
-  - `POST /auth/register`
-  - `POST /auth/login`
-  - `POST /auth/refresh`
-  - Product browse/search endpoints
-  - Anonymous cart/session bootstrap endpoints
-- JWT uses `RS256` signing.
-- Access token TTL: 15 minutes.
-- Refresh token TTL: 7 days.
-- Refresh tokens must rotate on every successful refresh.
-- Admin accounts require MFA.
-- Session cookies must be `Secure`, `HttpOnly`, and `SameSite=Lax` (or stricter).
+- Access and refresh tokens are signed with `HS256`.
+- Access token default TTL: `900` seconds.
+- Refresh token default TTL: `604800` seconds.
+- Refresh token rotation is enforced on `/v1/auth/refresh`.
 
-### Authorization
+Implementation references:
 
-- Role-based access control (RBAC) roles: `customer`, `agent`, `admin`.
-- Default deny for all privileged actions.
-- Authorization checks must exist in both API layer and service layer.
+- `backend/app/core/security.py`
+- `backend/app/services/auth_service.py`
+- `backend/app/core/config.py`
 
-### Role Permissions
+### Password Security
 
-| Role | Cart | Orders | Products | Users | Admin | Analytics |
-|------|------|--------|----------|-------|-------|-----------|
-| Customer | Read/Write own | Read/Write own | Read | - | - | - |
-| Agent | Read/Write all | Read/Write all | Read | Read | - | - |
-| Admin | Full | Full | Full | Full | Full | Full |
+- Passwords are hashed with PBKDF2-HMAC-SHA256.
+- Iterations: `390000`.
+- Salt: random 16-byte salt per password.
 
-## Data Protection
+### Admin MFA
 
-### Data Classification
+- Admin MFA is configurable.
+- Default: `ADMIN_MFA_REQUIRED=false`.
+- If enabled, static OTP check is applied at login using
+  `ADMIN_MFA_STATIC_CODE`.
 
-- Public: product catalog and standard pricing.
-- Internal: preferences, interaction summaries, operational metadata.
-- Confidential: PII and payment-related artifacts.
-- Restricted: credentials, secrets, signing keys.
+## Authorization
 
-### PII Handling
+- Role-based checks are enforced for admin routes.
+- `require_admin` dependency blocks non-admin access.
+- Current roles used in runtime: `customer`, `admin`.
 
-- Encrypt PII at rest using AES-256-GCM or equivalent managed encryption.
-- Never log raw PII; mask sensitive values in logs.
-- Retention is environment-defined (dev/staging/prod) and managed by operations policy.
+Implementation references:
 
-### Data Transmission
+- `backend/app/api/deps.py`
+- `backend/app/api/routes/admin_routes.py`
 
-- TLS 1.3 required for client-facing endpoints.
-- HSTS enabled with one-year max age.
-- Certificate pinning for mobile clients when mobile clients are introduced.
+## Session Security
 
-## API Security
+- Anonymous and authenticated sessions are supported.
+- `session_id` cookie is set `HttpOnly` with configurable:
+  - `SESSION_COOKIE_SECURE` (default `true`)
+  - `SESSION_COOKIE_SAMESITE` (default `lax`)
 
-### Endpoint Protection
+## Request Hardening
 
-- Protected endpoints require valid access token.
-- REST request size limit: 10 MB.
-- WebSocket connections must validate origin and enforce heartbeat/ping-pong.
+Implemented HTTP hardening middleware includes:
 
-### REST API Guidelines
+- Duplicate critical header rejection (optional toggle).
+- Request body size cap enforcement.
+- Strict JSON content-type enforcement for mutating API requests.
+- Security event metric emission on violations.
 
-- Use consistent error shapes without leaking implementation details.
-- Implement pagination for list endpoints.
-- Validate `Content-Type` on mutation endpoints.
-- Reject malformed or duplicated critical headers.
+Config defaults:
 
-### GraphQL Security
-
-- Out of scope for v1 (REST + WebSocket only).
-
-## Input Validation
-
-### Validation Layers
-
-1. Client-side validation for UX only.
-2. API schema validation (Pydantic).
-3. Service-layer business rule validation.
-4. Database constraints and index validation.
-
-### Input Sanitization
-
-- Sanitize all user-controlled text.
-- Use parameterized database queries and safe drivers only.
-- Validate file type, extension, and size for uploads.
-- Prevent path traversal in file handling paths.
-
-### Validation Rules (Examples)
-
-```python
-email: RFC-compatible email format
-phone: E.164 format
-password: min 12 chars, upper/lower/number/symbol
-credit_card_token: provider-issued token (never raw PAN storage)
-url: RFC 3986 compatible URL
-```
+- `REQUEST_MAX_BODY_BYTES=10485760` (10 MB)
+- `ENFORCE_JSON_CONTENT_TYPE=true`
+- `REJECT_DUPLICATE_CRITICAL_HEADERS=true`
 
 ## Rate Limiting
 
-### Rate Limit Tiers (Per Minute)
+Profiles currently enforced:
 
-| Tier | Requests/Minute | Burst | Use Case |
-|------|------------------|-------|----------|
-| Anonymous | 60 | 10 | Unauthenticated browse/cart/session traffic |
-| Authenticated | 300 | 50 | Standard signed-in users |
-| Premium | 1000 | 200 | Paid tiers |
-| Admin | 2000 | 500 | Admin operations |
-| Critical | Unlimited | N/A | Internal payment callback lanes only |
+- Anonymous: `RATE_LIMIT_ANONYMOUS_PER_MINUTE` (default `120`)
+- Authenticated: `RATE_LIMIT_AUTHENTICATED_PER_MINUTE` (default `600`)
+- Admin: `RATE_LIMIT_ADMIN_PER_MINUTE` (default `2000`)
 
-### Rate Limit Headers
+Rate limit headers returned:
 
 - `X-RateLimit-Limit`
 - `X-RateLimit-Remaining`
 - `X-RateLimit-Reset`
-- `Retry-After`
+- `Retry-After` (for 429)
 
-### Rate Limit Implementation
+Behavior:
 
-- Use sliding window or token bucket.
-- Apply limits by user ID, IP, and endpoint group.
-- Progressive abuse penalties:
-  - 1st violation: warning
-  - 2nd violation: 1-hour block
-  - 3rd violation: 24-hour block
-  - 4th violation: manual review
+- Scope-aware keys (`/v1/<group>` + subject).
+- Progressive penalties are supported by limiter state.
 
-## Encryption Requirements
+## Security Response Headers
 
-### Encryption at Rest
+Middleware sets the following headers:
 
-- Database encryption for sensitive fields.
-- Encrypted backups with separate key policies.
-- Secrets and keys stored in a dedicated secret manager.
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY`
+- `Referrer-Policy: strict-origin-when-cross-origin`
+- `Permissions-Policy: camera=(), microphone=(), geolocation=()`
+- `Content-Security-Policy: default-src 'self'; frame-ancestors 'none'; object-src 'none'`
+- `Strict-Transport-Security` is set on HTTPS requests.
 
-### Encryption in Transit
+## CORS And WebSocket Origin Control
 
-- TLS 1.3 minimum.
-- Perfect forward secrecy required.
-- Allow only strong modern cipher suites.
+- CORS allowlist is driven by `CORS_ORIGINS`.
+- WebSocket origin is validated against configured origins.
+- WebSocket heartbeat ping/pong and timeout enforcement are enabled.
 
-### Key Management
+## Voice Callback Security
 
-- Signing/encryption keys must not be stored in source control.
-- Rotate signing keys every 30 days.
-- Rotate data-encryption keys every 90 days.
+`POST /v1/voice/superu/callback` is protected with:
 
-## Security Headers
+- HMAC signature verification.
+- Timestamp tolerance validation.
+- Required secret: `SUPERU_WEBHOOK_SECRET`.
 
-### Required HTTP Headers
+Accepted signature headers:
 
-```http
-Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
-Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-{random}'; style-src 'self' 'unsafe-inline'
-X-Content-Type-Options: nosniff
-X-Frame-Options: DENY
-Referrer-Policy: strict-origin-when-cross-origin
-Permissions-Policy: geolocation=(), microphone=(), camera=()
-Cache-Control: no-store, no-cache, must-revalidate, private
-Pragma: no-cache
-```
+- `X-SuperU-Signature` or `X-Signature`
+- `X-SuperU-Timestamp` or `X-Timestamp`
 
-### CORS Configuration
+## Audit And Integrity
 
-- Use explicit origin allowlists (no wildcard with credentials).
-- Restrict methods and headers to required sets.
-- Validate `Origin` for browser requests.
+- Admin actions are recorded with before/after snapshots.
+- Tamper-evident hash chaining is implemented.
+- Integrity verification endpoint:
+  - `GET /v1/admin/activity/integrity`
 
-## Audit Logging
+## Error Handling And Information Exposure
 
-### Logged Events
+- API returns normalized error envelopes.
+- Validation errors expose field-level issues only.
+- Unhandled exceptions return generic internal error messages.
 
-- Authentication attempts and token refresh events.
-- Authorization failures and role changes.
-- Sensitive data read/write/delete actions.
-- Admin actions and configuration changes.
-- Security events (rate-limit violations, suspicious patterns).
-- Business events (orders, payments, refunds).
+## Data Protection Notes
 
-### Log Retention
+Current implementation status:
 
-- Application logs: 30 days.
-- Security/audit logs: 1 year.
-- Long-term archival retention is environment policy driven.
+- In-transit protection depends on deployment TLS configuration.
+- Data-at-rest encryption is delegated to infrastructure/database layer.
+- Secret rotation and enterprise key management are operational concerns and
+  are not automated by this codebase.
 
-### Log Protection
+## Operational Security Checklist
 
-- Append-only where supported.
-- Integrity checks (hash/chaining) for security logs.
-- Least-privilege access to log stores.
-- Alerting on anomalous authentication, authorization, and admin activity.
+Before production deployment:
 
-## Incident Response
-
-### Severity Levels
-
-| Level | Description | Response Time |
-|-------|-------------|---------------|
-| P1 - Critical | Active breach, data exposure | Immediate |
-| P2 - High | Potential breach, system compromise | 1 hour |
-| P3 - Medium | Policy/security control violation | 4 hours |
-| P4 - Low | Minor security issue | 24 hours |
-
-### Response Procedure
-
-1. Detection
-2. Analysis
-3. Containment
-4. Eradication
-5. Recovery
-6. Post-incident review
-
-### Communication Plan
-
-- Internal: Security team -> CTO -> CEO escalation path.
-- External: Legal -> PR when customer communication is required.
-- Regulatory communication is out of scope for current v1 planning.
+1. Set a strong `TOKEN_SECRET`.
+1. Enable TLS termination and HSTS at edge/proxy.
+1. Restrict `CORS_ORIGINS` to trusted origins.
+1. Enable `ADMIN_MFA_REQUIRED` and set `ADMIN_MFA_STATIC_CODE`.
+1. Configure and protect all SuperU webhook secrets if voice callbacks are used.
+1. Tune rate-limit values for expected traffic.
+1. Replace default admin credentials seeded in in-memory store.

@@ -1,431 +1,188 @@
-# Implementation Blueprint
+# Implementation Blueprint (Current Codebase)
 
 ## Overview
 
-This document provides a comprehensive blueprint for building the omnichannel agentic commerce system, including folder structure, module responsibilities, and recommended build order.
+This blueprint reflects the current implementation structure and how to build,
+run, and extend it.
 
----
+## Repository Structure
 
-## Project Structure
-
-```
+```text
 omnichannel-agentic-commerce/
-├── backend/                    # Python FastAPI backend
-│   ├── app/
-│   │   ├── __init__.py
-│   │   ├── main.py            # Application entry point
-│   │   │
-│   │   ├── api/              # API layer
-│   │   │   ├── routes/       # Route handlers
-│   │   │   │   ├── auth_routes.py
-│   │   │   │   ├── product_routes.py
-│   │   │   │   ├── cart_routes.py
-│   │   │   │   ├── order_routes.py
-│   │   │   │   ├── session_routes.py
-│   │   │   │   ├── interaction_routes.py
-│   │   │   │   ├── memory_routes.py
-│   │   │   │   └── admin_routes.py
-│   │   │   ├── dependencies/ # Shared route dependencies
-│   │   │   │   ├── auth_deps.py
-│   │   │   │   ├── session_deps.py
-│   │   │   │   └── interaction_deps.py
-│   │   │   └── websockets.py # WebSocket handlers
-│   │   │
-│   │   ├── agents/           # Agent implementations
-│   │   │   ├── base_agent.py # Base agent class
-│   │   │   └── specialized_agents.py
-│   │   │
-│   │   ├── orchestrator/     # Agent orchestration
-│   │   │   ├── orchestrator_core.py
-│   │   │   ├── intent_classifier.py
-│   │   │   ├── context_builder.py
-│   │   │   ├── agent_router.py
-│   │   │   ├── action_extractor.py
-│   │   │   └── response_formatter.py
-│   │   │
-│   │   ├── services/         # Business logic
-│   │   │   ├── auth_service.py
-│   │   │   ├── product_service.py
-│   │   │   ├── cart_service.py
-│   │   │   ├── order_service.py
-│   │   │   ├── session_service.py
-│   │   │   ├── inventory_service.py
-│   │   │   └── interaction_service.py
-│   │   │
-│   │   ├── models/           # Data models
-│   │   │   ├── user_model.py
-│   │   │   ├── product_model.py
-│   │   │   ├── cart_model.py
-│   │   │   ├── order_model.py
-│   │   │   ├── session_model.py
-│   │   │   ├── message_model.py
-│   │   │   └── memory_model.py
-│   │   │
-│   │   ├── schemas/          # Pydantic schemas
-│   │   │   ├── auth_schemas.py
-│   │   │   ├── product_schemas.py
-│   │   │   ├── cart_schemas.py
-│   │   │   ├── order_schemas.py
-│   │   │   ├── session_schemas.py
-│   │   │   └── interaction_schemas.py
-│   │   │
-│   │   ├── identity/        # Authentication
-│   │   │   ├── identity_service.py
-│   │   │   ├── auth_service.py
-│   │   │   ├── token_manager.py
-│   │   │   └── identity_resolver.py
-│   │   │
-│   │   ├── memory/           # User memory
-│   │   │   ├── memory_service.py
-│   │   │   └── signal_extractor.py
-│   │   │
-│   │   ├── sessions/         # Session management
-│   │   │   ├── session_service.py
-│   │   │   ├── session_restorer.py
-│   │   │   └── session_promoter.py
-│   │   │
-│   │   ├── infrastructure/   # Cross-cutting concerns
-│   │   │   ├── llm_client.py
-│   │   │   ├── cache_service.py
-│   │   │   ├── rate_limiter.py
-│   │   │   └── logger.py
-│   │   │
-│   │   ├── config/           # Configuration
-│   │   │   ├── settings.py
-│   │   │   └── database.py
-│   │   │
-│   │   ├── middleware/       # HTTP middleware
-│   │   │   ├── logging_middleware.py
-│   │   │   └── rate_limit_middleware.py
-│   │   │
-│   │   ├── utils/            # Utilities
-│   │   │   └── security.py
-│   │   │
-│   │   ├── knowledge/       # Knowledge base
-│   │   │   └── __init__.py
-│   │   │
-│   │   └── scripts/         # Utility scripts
-│   │       ├── bootstrap_db.py
-│   │       ├── create_indexes.py
-│   │       └── performance_audit.py
-│   │
-│   ├── tests/                # Test suite
-│   │   ├── unit/
-│   │   ├── integration/
-│   │   ├── e2e/
-│   │   ├── agents/
-│   │   └── ai/
-│   │
-│   ├── requirements.txt
-│   └── pytest.ini
-│
-├── frontend/                  # React TypeScript frontend
-│   ├── src/
-│   │   ├── components/      # Reusable UI components
-│   │   ├── pages/           # Page components
-│   │   ├── hooks/           # Custom React hooks
-│   │   ├── contexts/        # React contexts
-│   │   ├── services/        # API client
-│   │   ├── types/           # TypeScript types
-│   │   ├── utils/           # Utilities
-│   │   ├── App.tsx
-│   │   └── main.tsx
-│   ├── public/
-│   ├── package.json
-│   └── vite.config.ts
-│
-└── docker-compose.yml         # Local development
+  backend/
+    app/
+      api/
+        routes/
+      agents/
+      orchestrator/
+      services/
+      repositories/
+      infrastructure/
+      core/
+      models/
+      scripts/
+      store/
+      container.py
+      main.py
+    tests/
+    requirements.txt
+    requirements-perf.txt
+    pytest.ini
+
+  frontend/
+    src/
+      App.tsx
+      api.ts
+      styles.css
+      types.ts
+    tests/e2e/
+    package.json
+    vite.config.ts
+    playwright.config.ts
+
+  docs/
+  monitoring/
+  scripts/
+  docker-compose.yml
+  README.md
 ```
 
----
-
-## Module Responsibilities
-
-### Backend Modules
-
-| Module | Responsibility | Public API |
-|--------|----------------|------------|
-| `api/routes/*` | HTTP endpoint handling | Route handlers |
-| `orchestrator/*` | Intent processing, routing | `process_message()` |
-| | Domain `agents/*`-specific logic | Agent classes |
-| `services/*` | Business operations | Service methods |
-| `models/*` | Data structures | Pydantic models |
-| `identity/*` | Authentication | `authenticate()`, `verify_token()` |
-| `memory/*` | User memory | `get_memory()`, `update_memory()` |
-| `sessions/*` | Session lifecycle | `create_session()`, `restore_session()` |
-| `infrastructure/*` | LLM, cache, logging | Client classes |
-
-### Frontend Modules
+## Backend Module Responsibilities
 
 | Module | Responsibility |
-|--------|----------------|
-| `components/*` | Reusable UI widgets |
-| `pages/*` | Full page components |
-| `hooks/*` | Custom state/logic hooks |
-| `contexts/*` | Global state providers |
-| `services/*` | API communication |
-
----
-
-## Build Order
-
-### Phase 1: Foundation (Weeks 1-2)
-
-**Goal**: Core infrastructure and data layer
-
-1. **Setup Project**
-   - Initialize Python project with FastAPI
-   - Set up React frontend with Vite
-   - Configure Docker Compose
-
-2. **Database Layer**
-   - Implement MongoDB models
-   - Create database schemas
-   - Set up indexes
-   - Bootstrap initial data
-
-3. **Configuration**
-   - Environment configuration
-   - Database connection
-   - Redis connection
-
-**Deliverables:**
-- Working API server
-- Database connection
-- Basic frontend scaffolding
-
----
-
-### Phase 2: Authentication & Identity (Week 3)
-
-**Goal**: User authentication system
-
-1. **Identity Service**
-   - User registration
-   - Password hashing
-   - JWT token generation
-
-2. **Token Management**
-   - Access token / refresh token
-   - Token validation middleware
-
-3. **Session Management**
-   - Create session on login
-   - Session persistence
-
-**Deliverables:**
-- Registration endpoint
-- Login endpoint
-- Protected routes
-- Frontend auth flow
-
----
-
-### Phase 3: Core Commerce (Weeks 4-5)
-
-**Goal**: Product, Cart, Order functionality
-
-1. **Product Service**
-   - Product CRUD
-   - Search and filtering
-   - Category management
-
-2. **Cart Service**
-   - Add/remove items
-   - Quantity updates
-   - Discount codes
-
-3. **Order Service**
-   - Checkout process
-   - Order creation
-   - Order history
-
-**Deliverables:**
-- Full product catalog API
-- Shopping cart functionality
-- Order management
-
----
-
-### Phase 4: Agent Core (Weeks 6-7)
-
-**Goal**: Intelligent agent orchestration
-
-1. **LLM Integration**
-   - LLM client abstraction
-   - Prompt management
-   - Response parsing
-
-2. **Intent Classification**
-   - Intent classifier
-   - Entity extraction
-   - Confidence scoring
-
-3. **Context Building**
-   - Session context
-   - User history
-   - Memory retrieval
-
-4. **Agent Routing**
-   - Route to appropriate agent
-   - Fallback handling
-   - Response formatting
-
-**Deliverables:**
-- Working intent classifier
-- Context builder
-- Agent router
-- Response formatter
-
----
-
-### Phase 5: Specialized Agents (Week 8)
-
-**Goal**: Domain-specific agents
-
-1. **Product Agent**
-   - Product search
-   - Recommendations
-   - Details lookup
-
-2. **Cart Agent**
-   - Add/update/remove
-   - Pricing calculations
-
-3. **Order Agent**
-   - Status tracking
-   - Checkout guidance
-
-4. **Support Agent**
-   - FAQ handling
-   - Issue routing
-
-**Deliverables:**
-- All specialized agents
-- Agent coordination
-
----
-
-### Phase 6: Real-time Communication (Week 9)
-
-**Goal**: WebSocket support
-
-1. **WebSocket Server**
-   - Connection handling
-   - Message routing
-
-2. **Real-time Features**
-   - Typing indicators
-   - Streaming responses
-
-3. **Frontend Integration**
-   - WebSocket client
-   - Real-time updates
-
-**Deliverables:**
-- Real-time chat interface
-- Live response streaming
-
----
-
-### Phase 7: Memory & Personalization (Week 10)
-
-**Goal**: Long-term user memory
-
-1. **Memory Service**
-   - Preference storage
-   - History tracking
-   - Affinity calculation
-
-2. **Signal Extraction**
-   - Interaction patterns
-   - Implicit preferences
-
-3. **Personalization**
-   - Recommendation enhancement
-   - Context enrichment
-
-**Deliverables:**
-- User memory system
-- Personalized responses
-
----
-
-### Phase 8: Polish & Deploy (Week 11-12)
-
-**Goal**: Production readiness
-
-1. **Testing**
-   - Unit tests
-   - Integration tests
-   - E2E tests
-
-2. **Performance**
-   - Caching strategy
-   - Query optimization
-   - Rate limiting
-
-3. **Monitoring**
-   - Logging
-   - Error tracking
-   - Metrics
-
-4. **Deployment**
-   - Docker images
-   - CI/CD pipeline
-   - Production configuration
-
-**Deliverables:**
-- Deployed system
-- Test coverage > 80%
-- Monitoring setup
-
----
-
-## Development Guidelines
-
-### Code Organization
-- Keep routes thin; move logic to services
-- Agents should be stateless
-- Use dependency injection for testability
-
-### API Design
-- REST for CRUD operations
-- WebSocket for real-time
-- Consistent error responses
-- Versioned API (/v1/)
-
-### Database
-- Use transactions for multi-document operations
-- Implement soft deletes where appropriate
-- Index based on query patterns
-
-### Testing Strategy
-- Unit tests for utilities and services
-- Integration tests for API endpoints
-- E2E tests for critical user journeys
-
----
-
-## Environment Variables
-
-### Backend (.env)
-```
-MONGODB_URI=mongodb://localhost:27017/commerce
-REDIS_URL=redis://localhost:6379
-JWT_PRIVATE_KEY_PATH=./keys/jwt_private.pem
-JWT_PUBLIC_KEY_PATH=./keys/jwt_public.pem
-JWT_ALGORITHM=RS256
-JWT_EXPIRATION_MINUTES=15
-JWT_REFRESH_EXPIRY_DAYS=7
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...
-LOG_LEVEL=INFO
-RATE_LIMIT_PER_MINUTE=60
+| --- | --- |
+| `api/routes/*` | REST endpoints and webhook ingress |
+| `api/deps.py` | Auth/session dependency resolution |
+| `main.py` | FastAPI app setup, middleware, websocket endpoint |
+| `agents/*` | Domain-specific execution units (product/cart/order/support/memory) |
+| `orchestrator/*` | Intent classification, action extraction, routing, response formatting |
+| `services/*` | Business logic (auth, cart, order, memory, voice, admin, etc.) |
+| `repositories/*` | Storage abstraction over in-memory and optional Mongo/Redis |
+| `infrastructure/*` | LLM client, SuperU client, rate limiter, metrics, persistence adapters |
+| `store/in_memory.py` | Primary in-memory state model and seed data |
+| `scripts/*` | Index creation, DB bootstrap, performance smoke |
+| `container.py` | Dependency wiring and singleton initialization |
+
+## Frontend Module Responsibilities
+
+| Module | Responsibility |
+| --- | --- |
+| `src/App.tsx` | Main UI, routing behavior, chat panel, auth/cart/catalog rendering |
+| `src/api.ts` | REST and WebSocket client wrappers |
+| `src/styles.css` | Tailwind layers and shared style tokens |
+| `src/types.ts` | API-facing TypeScript contracts |
+| `tests/e2e/*` | Playwright P0 user-journey coverage |
+
+## Runtime Data Flow
+
+1. Client sends REST request or WebSocket message.
+1. API dependencies resolve identity and session context.
+1. Middleware applies request hardening, rate limits, and metrics.
+1. Orchestrator classifies intent, extracts actions, routes to agents.
+1. Agent/service executes business logic using repositories.
+1. Interaction and session context are recorded.
+1. Memory is updated asynchronously for authenticated users.
+1. Mutating requests trigger state persistence snapshot when external
+   persistence is enabled.
+
+## Persistence Modes
+
+### Mode A: In-Memory (default)
+
+- `ENABLE_EXTERNAL_SERVICES=false`
+- Runtime state lives in process memory.
+
+### Mode B: External Services
+
+- `ENABLE_EXTERNAL_SERVICES=true`
+- Mongo and Redis managers are initialized.
+- Repository adapters and state persistence are active.
+
+## Build And Run Order
+
+## 1) Backend
+
+```bash
+cd backend
+python -m venv .venv
+# activate env
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
 ```
 
-### Frontend (.env)
+## 2) Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
 ```
-VITE_API_URL=http://localhost:8000/v1
-VITE_WS_URL=ws://localhost:8000/ws
+
+## 3) Optional Mongo Index + Bootstrap
+
+```bash
+cd backend
+python -m app.scripts.create_indexes
+python -m app.scripts.bootstrap_db
 ```
+
+## 4) Optional Docker Compose
+
+```bash
+docker compose up --build
+```
+
+## Test And Validation Pipeline
+
+### Backend
+
+```bash
+cd backend
+pytest tests -q --cov=app --cov-fail-under=80
+```
+
+### Frontend
+
+```bash
+cd frontend
+npm run lint
+npm run build
+npm run test:e2e
+```
+
+### Full Local Validation (PowerShell)
+
+```powershell
+./scripts/validate_local.ps1
+```
+
+## Extension Blueprint
+
+### Adding A New Agent Capability
+
+1. Add or extend intent rules in `orchestrator/intent_classifier.py`.
+1. Map intent to action in `orchestrator/action_extractor.py`.
+1. Map intent to target agent in `orchestrator/agent_router.py`.
+1. Implement agent behavior in `agents/*` and supporting service methods.
+1. Add integration and unit tests under `backend/tests`.
+
+### Adding A New REST Endpoint
+
+1. Define request schema in `models/schemas.py` if needed.
+1. Add route handler in `api/routes/*`.
+1. Reuse or add service/repository functions.
+1. Add auth dependency (`get_current_user`, `require_admin`, etc.) as needed.
+1. Add tests and update docs.
+
+### Adding A New Channel (future mobile/kiosk)
+
+1. Reuse existing API + websocket contracts.
+1. Pass channel metadata (`X-Channel` or interaction payload channel field).
+1. Reuse session resolution and identity linking flow.
+1. Build channel-specific UI shell; keep orchestration/business logic shared.
+
+## Current Deferred Areas
+
+- Native mobile shell and native kiosk shell.
+- Production payment gateway integration.
+- Compliance and regulatory workflow automation.

@@ -1,343 +1,207 @@
-# Product Requirements Document
+# Product Requirements Document (Current Baseline + Next Iterations)
 
-## Overview
+## Product Statement
 
-This document defines the product requirements for an omnichannel agentic commerce platform that provides AI-powered shopping assistance.
+Build an agentic commerce platform for persistent omnichannel conversational
+sales and autonomous retail task orchestration.
 
----
-
-## Product Vision
-
-An intelligent commerce platform where AI agents serve as knowledgeable shopping companions, enabling customers to browse, discover, and purchase products through natural conversation across multiple channels.
-
----
-
-## Target Audience
-
-### Primary Users
-
-| Segment | Description | Needs |
-|---------|-------------|-------|
-| Online Shoppers | Adults 25-55 who shop regularly | Personalized recommendations, easy navigation |
-| Mobile Users | Younger users 18-35 who prefer mobile | Fast, intuitive mobile experience |
-| Support Seekers | All demographics | Quick answers, problem resolution |
-| Returning Customers | Loyal shoppers | Recognition, saved preferences |
-
-### User Personas
-
-**Persona 1: The Browser**
-- Sarah, 32, marketing professional
-- Shops on lunch breaks
-- Wants quick, relevant suggestions
-- Gets overwhelmed by too many options
-
-**Persona 2: The Researcher**
-- Michael, 45, detail-oriented
-- Compares products extensively
-- Needs detailed specifications
-- Values informed decision-making
-
-**Persona 3: The Mobile Shopper**
-- Emma, 24, student
-- Shops primarily on phone
-- Wants seamless checkout
-- Likes visual content
-
----
+Current release is a responsive web implementation that shares backend
+contracts intended for future mobile and kiosk channels.
 
 ## Problem Statement
 
-Current e-commerce platforms suffer from:
+Traditional ecommerce flows create friction:
 
-1. **Information Overload**: Users struggle to find relevant products among vast catalogs
-2. **Impersonal Experience**: Generic recommendations that don't account for individual preferences
-3. **Friction in Purchase**: Complex navigation and checkout processes
-4. **Poor Support**: Slow response times for customer inquiries
-5. **Channel Fragmentation**: Inconsistent experience across web, mobile, and other channels
+- Users must navigate many pages for simple shopping tasks.
+- Cart and conversation context are often lost across sessions/devices.
+- Support and order operations are fragmented.
+- Cart abandonment is high and follow-up is inconsistent.
 
----
+## Target Users
+
+| Segment | Primary Need |
+| --- | --- |
+| Guest shoppers | Browse and build cart quickly before account creation |
+| Registered shoppers | Continue prior context and checkout efficiently |
+| Returning shoppers | Receive personalized recommendations and memory-aware assistance |
+| Operations/admin users | Manage catalog, inventory, support, and recovery workflows |
 
 ## Product Goals
 
 ### Primary Goals
 
-| Goal | Success Metric | Target |
-|------|----------------|--------|
-| Increase Conversion | Orders / Unique Visitors | 3.5% |
-| Improve Engagement | Session Duration | 5 minutes |
-| Reduce Support Load | Issues resolved by AI | 80% |
-| Enhance Personalization | Recommendation Click Rate | 15% |
-| Improve Satisfaction | CSAT Score | 4.5/5 |
+- Enable natural-language shopping operations end-to-end.
+- Preserve session/cart/conversation continuity through guest -> authenticated transition.
+- Require authentication before order creation without losing guest progress.
+- Improve cart recovery using outbound voice orchestration guardrails.
 
 ### Secondary Goals
 
-- Reduce cart abandonment rate
-- Increase average order value
-- Improve page load times
-- Enable seamless omnichannel transitions
+- Provide operational visibility (health, metrics, admin activity integrity).
+- Keep architecture channel-ready for future mobile and kiosk clients.
 
----
+## Scope
 
-## Features
+### In Scope (Current v1)
 
-### Core Features
+- Responsive web app (desktop and mobile browser form factors).
+- Catalog browsing and product detail page.
+- Guest session and cart management.
+- Register/login with guest cart merge.
+- Auth-required order creation with idempotency enforcement.
+- Conversational assistant over WebSocket/REST for product/cart/order/support/memory intents.
+- User preference memory and history-aware responses.
+- Admin management APIs for categories/products/inventory/support/voice settings.
+- SuperU-based voice recovery pipeline with callback ingestion and controls.
 
-#### F1: AI-Powered Product Search
-- Natural language search queries
-- Semantic understanding of product intent
-- Contextual results based on session
+### Out Of Scope (Current v1)
 
-#### F2: Personalized Recommendations
-- Based on browsing history
-- Based on purchase history
-- Based on explicit preferences
-- "Customers also bought" suggestions
-
-#### F3: Conversational Shopping Assistant
-- Natural language interaction
-- Real-time responses via WebSocket
-- Multi-turn conversation support
-- Context-aware follow-ups
-
-#### F4: Smart Cart Management
-- Add/remove/update items via conversation
-- Price calculations with tax/shipping
-- Discount code application
-- Cart persistence across sessions
-
-#### F5: Order Management
-- Checkout via conversation
-- Order status tracking
-- Order history access
-- Cancellation/modification (when allowed)
-
-#### F6: User Memory
-- Preference storage (size, brands, categories)
-- Interaction history
-- Product affinities
-- Seamless account linking
-
-#### F7: Session Continuity
-- Resume shopping across channels
-- Maintain context during session
-- Anonymous to authenticated transition
-
-### Authentication Features
-
-#### F8: User Registration & Login
-- Email/password registration
-- Social login (future)
-- JWT-based authentication
-- Refresh token rotation
-
-#### F9: Anonymous Shopping
-- Browse without account
-- Cart persistence via session
-- Checkout requires login
-- Seamless cart transfer after login
-
-### Admin Features
-
-#### F10: Product Management
-- Product CRUD operations
-- Inventory management
-- Category management
-
-#### F11: Analytics Dashboard
-- Sales metrics
-- User engagement
-- Agent performance
-
----
+- Native iOS/Android app shell.
+- Native kiosk app shell.
+- Real payment processor integration.
+- Compliance/regulatory workflows.
 
 ## Functional Requirements
 
-### FR-1: Product Search
-**Requirement**: Users can search for products using natural language queries
+### FR-1 Guest Shopping
 
-**Acceptance Criteria**:
-- Search returns relevant results within 500ms
-- Results include product name, price, image, rating
-- Filters can be applied (category, price, brand)
-- Pagination works correctly
+Requirement:
+Guests can browse products and manage cart without authentication.
 
-### FR-2: Conversational Interface
-**Requirement**: Users can interact with AI agents through natural language
+Acceptance:
 
-**Acceptance Criteria**:
-- Agents understand common shopping intents
-- Context is maintained across messages
-- Responses are natural and helpful
-- Errors are handled gracefully
+- Session auto-creation via API/WS flow.
+- Add/update/remove cart items as guest.
+- Cart totals recalculate in real time.
 
-### FR-3: Shopping Cart
-**Requirement**: Users can manage their shopping cart
+Status: Implemented.
 
-**Acceptance Criteria**:
-- Add items with single command
-- Update quantities
-- Remove items
-- Apply discount codes
-- See real-time price calculations
+### FR-2 Authentication And Transition
 
-### FR-4: Checkout Process
-**Requirement**: Users can complete purchases
+Requirement:
+User can register/login and retain guest progress.
 
-**Acceptance Criteria**:
-- Checkout flow completes in under 3 minutes
-- User must be authenticated before order creation
-- Unauthenticated checkout attempts prompt login and preserve cart state
-- Address and payment validation
-- Order confirmation displayed
-- Confirmation email sent
+Acceptance:
 
-### FR-5: Personalization
-**Requirement**: System learns and adapts to user preferences
+- Register/login returns auth tokens and resolved `sessionId`.
+- Guest cart merges into authenticated cart.
+- Session is linked to authenticated identity.
 
-**Acceptance Criteria**:
-- Preferences saved and retrieved correctly
-- Recommendations improve over time
-- Session context informs responses
+Status: Implemented.
 
-### FR-6: Real-time Communication
-**Requirement**: WebSocket-based instant messaging
+### FR-3 Checkout Gate
 
-**Acceptance Criteria**:
-- Connection established within 1 second
-- Messages delivered in real-time
-- Reconnection works after disconnect
-- Typing indicators display
+Requirement:
+Order creation requires authenticated user.
 
----
+Acceptance:
+
+- `POST /v1/orders` rejects unauthenticated requests.
+- `Idempotency-Key` required on order creation.
+- Guest checkout attempts preserve cart and prompt login.
+
+Status: Implemented.
+
+### FR-4 Conversational Orchestration
+
+Requirement:
+Assistant handles natural-language shopping/support tasks.
+
+Acceptance:
+
+- Supports product discovery and cart actions (add/update/remove/clear/view).
+- Supports order actions (checkout summary/status/address change/cancel/refund).
+- Supports support-ticket escalation/status/close.
+- Returns structured suggested actions for UI quick actions.
+
+Status: Implemented.
+
+### FR-5 Preference Memory
+
+Requirement:
+System stores and uses account-level memory.
+
+Acceptance:
+
+- Save/show/forget/clear preference commands are supported.
+- Memory updates on authenticated interactions.
+- Interaction history fallback is used when session history is sparse.
+
+Status: Implemented.
+
+### FR-6 Product Detail Experience
+
+Requirement:
+Each product has a detail view with variant and quantity selection.
+
+Acceptance:
+
+- Route `/products/{id}` displays product fields and variants.
+- Variant selection validates stock before add-to-cart.
+
+Status: Implemented.
+
+### FR-7 Voice Recovery For Abandoned Carts
+
+Requirement:
+Abandoned carts can trigger outbound recovery calls.
+
+Acceptance:
+
+- Queue/retry/dead-letter lifecycle is implemented.
+- Quiet hours, caps, budget, suppressions, kill switch are enforced.
+- Signed SuperU callback updates call outcomes.
+
+Status: Implemented (requires SuperU credentials/config).
+
+## Natural Language User Stories (Current)
+
+Users can ask the assistant to:
+
+- Find products with constraints (price/category/color/brand).
+- Add one or multiple products to cart.
+- Increase/decrease/set/remove cart quantities.
+- Apply discount code.
+- View/clear cart.
+- Checkout (with auth gate).
+- Track/cancel/refund orders and change shipping address.
+- Open/check/close support tickets.
+- Save and manage preference memory.
 
 ## Non-Functional Requirements
 
-### Performance
-
 | Metric | Target |
-|--------|--------|
-| API Response Time (p95) | < 500ms |
-| LLM Response Time (p95) | < 3 seconds |
-| Page Load Time | < 2 seconds |
-| WebSocket Latency | < 200ms |
-| Database Query (p95) | < 100ms |
+| --- | --- |
+| API latency (p95) | < 500ms |
+| LLM latency (p95, when enabled) | < 3s |
+| WebSocket delivery latency | < 200ms |
+| DB query latency (p95) | < 100ms |
+| Availability target | 99.9% |
 
-### Scalability
+Notes:
 
-| Metric | Target |
-|--------|--------|
-| Concurrent Users | 10,000+ |
-| Requests per Second | 100+ |
-| Session Capacity | 50,000 active |
+- Targets are design goals; final production SLOs require load testing in deployed infra.
 
-### Reliability
+## Security And Operational Requirements
 
-| Metric | Target |
-|--------|--------|
-| Uptime | 99.9% |
-| Error Rate | < 0.1% |
-| Recovery Time | < 5 minutes |
+- JWT auth with refresh rotation.
+- Role-based access for admin APIs.
+- Per-tier rate limiting and request hardening.
+- WebSocket origin validation.
+- Prometheus metrics and health checks.
+- Admin activity integrity verification endpoint.
 
-### Security
+## Release Criteria For Current Web v1
 
-- All data encrypted in transit (TLS 1.3)
-- Passwords hashed with bcrypt
-- JWT tokens with short expiry
-- Rate limiting on all endpoints
-- Input sanitization
+- End-to-end guest -> auth -> checkout path passes.
+- Conversational flows cover product/cart/order/support/memory baseline intents.
+- Product detail route and cart UI flows are stable.
+- Voice recovery endpoints and controls function with valid provider configuration.
+- CI pipeline passes backend tests, frontend lint/build, and e2e suite.
 
----
+## Post-v1 Priorities
 
-## User Flows
-
-### Flow 1: New User Shopping
-
-```
-1. User visits website
-2. System creates anonymous session
-3. User types: "I need running shoes"
-4. Product Agent searches and returns options
-5. User asks: "Show me blue ones under $150"
-6. Agent filters results
-7. User says: "Add these to cart"
-8. Cart Agent adds items
-9. User says: "Checkout"
-10. System prompts user to log in or register
-11. User authenticates and cart is restored
-12. Order Agent guides through checkout
-13. Order confirmed
-```
-
-### Flow 2: Returning User
-
-```
-1. User logs in
-2. System restores session with preferences
-3. Agent greets: "Welcome back! Looking for running shoes again?"
-4. User confirms or asks for something new
-5. Personalized recommendations displayed
-6. User adds items and checks out
-7. Preferences updated based on interaction
-```
-
-### Flow 3: Support Request
-
-```
-1. User says: "My order hasn't arrived"
-2. Support Agent identifies order
-3. Checks status, provides update
-4. User asks: "Can I change the delivery address?"
-5. Agent processes change if allowed
-6. Confirmation provided
-```
-
----
-
-## Success Criteria
-
-### Product Launch Success
-
-| Criteria | Metric | Target |
-|----------|--------|--------|
-| User Adoption | Weekly Active Users | 5,000 |
-| Engagement | Daily Messages | 50,000 |
-| Conversion | Purchase Rate | 2% |
-| Satisfaction | CSAT | 4.0+ |
-| Performance | Uptime | 99.5% |
-
-### Phase 2 Expansion (6 months)
-
-| Criteria | Metric | Target |
-|----------|--------|--------|
-| User Growth | Monthly Active Users | 25,000 |
-| Engagement | Avg Session Duration | 5 min |
-| Conversion | Purchase Rate | 3.5% |
-| Automation | Self-service Rate | 80% |
-| Satisfaction | CSAT | 4.5+ |
-
----
-
-## Out of Scope (v1)
-
-The following features are deferred to future phases:
-
-- Mobile native applications
-- Voice commerce
-- AR/VR product visualization
-- Multi-vendor marketplace
-- Social commerce features
-- Advanced analytics (beyond basic dashboard)
-- Loyalty program
-- Subscription services
-- Multi-language support
-- International shipping
-
----
-
-## Assumptions
-
-1. Product catalog contains 10,000+ SKUs
-2. Users have stable internet connection
-3. LLM APIs (OpenAI/Anthropic) are available
-4. MongoDB and Redis are hosted on cloud infrastructure
-5. Development team has experience with Python and React
+1. Native mobile shell using existing APIs/WebSocket contracts.
+2. Native kiosk shell using same orchestration backend.
+3. External payment processor integration.
+4. Compliance and regulatory controls.
