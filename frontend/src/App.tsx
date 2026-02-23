@@ -130,22 +130,24 @@ export default function App(): JSX.Element {
   async function reloadChatHistory(targetSessionId: string): Promise<void> {
     try {
       const payload = await fetchChatHistory({ sessionId: targetSessionId, limit: 80 });
+      let resolvedSessionId = payload.sessionId || targetSessionId;
       if (payload.sessionId && payload.sessionId !== targetSessionId) {
         setStoredSessionId(payload.sessionId);
         setSessionId(payload.sessionId);
       }
       let resolvedMessages = payload.messages ?? [];
-      if (resolvedMessages.length === 0) {
+      for (let attempt = 0; resolvedMessages.length === 0 && attempt < 4; attempt += 1) {
         try {
-          await new Promise((resolve) => window.setTimeout(resolve, 250));
-          const retryPayload = await fetchChatHistory({ sessionId: payload.sessionId || targetSessionId, limit: 80 });
-          if (retryPayload.sessionId && retryPayload.sessionId !== targetSessionId) {
+          await new Promise((resolve) => window.setTimeout(resolve, 200 * (attempt + 1)));
+          const retryPayload = await fetchChatHistory({ sessionId: resolvedSessionId, limit: 80 });
+          if (retryPayload.sessionId && retryPayload.sessionId !== resolvedSessionId) {
+            resolvedSessionId = retryPayload.sessionId;
             setStoredSessionId(retryPayload.sessionId);
             setSessionId(retryPayload.sessionId);
           }
           resolvedMessages = retryPayload.messages ?? resolvedMessages;
         } catch {
-          // Keep initial empty state if retry fails.
+          // Keep retrying with backoff for eventual consistency.
         }
       }
       setChatMessages(historyToChatEntries(resolvedMessages));
