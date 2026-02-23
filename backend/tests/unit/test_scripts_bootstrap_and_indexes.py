@@ -159,6 +159,7 @@ def test_bootstrap_run_seeds_state_and_runtime_snapshot(monkeypatch: pytest.Monk
     assert summary["seedRuntimeState"] is True
     assert summary["seeded"]["users"] >= 1
     assert summary["seeded"]["products"] >= 1
+    assert summary["seeded"]["categories"] >= 1
     assert summary["seeded"]["inventory"] >= 1
     assert summary["seeded"]["sessions"] >= 0
     assert summary["seeded"]["refresh_tokens"] >= 0
@@ -166,6 +167,7 @@ def test_bootstrap_run_seeds_state_and_runtime_snapshot(monkeypatch: pytest.Monk
     assert summary["seeded"]["interactions"] >= 0
     assert summary["seeded"]["support_tickets"] >= 0
     assert summary["seeded"]["notifications"] >= 0
+    assert summary["seeded"]["admin_activity_logs"] >= 0
     assert fake_client.closed is True
 
     runtime_state_rows = fake_client.db["runtime_state"].rows

@@ -18,8 +18,10 @@ from app.infrastructure.observability import MetricsCollector
 from app.infrastructure.llm_client import LLMClient
 from app.infrastructure.rate_limiter import SlidingWindowRateLimiter
 from app.infrastructure.state_persistence import StatePersistence
+from app.repositories.admin_activity_repository import AdminActivityRepository
 from app.repositories.auth_repository import AuthRepository
 from app.repositories.cart_repository import CartRepository
+from app.repositories.category_repository import CategoryRepository
 from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.interaction_repository import InteractionRepository
 from app.repositories.memory_repository import MemoryRepository
@@ -29,8 +31,10 @@ from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
 from app.repositories.support_repository import SupportRepository
 from app.services.admin_service import AdminService
+from app.services.admin_activity_service import AdminActivityService
 from app.services.auth_service import AuthService
 from app.services.cart_service import CartService
+from app.services.category_service import CategoryService
 from app.services.inventory_service import InventoryService
 from app.services.interaction_service import InteractionService
 from app.services.memory_service import MemoryService
@@ -73,6 +77,11 @@ product_repository = ProductRepository(
     mongo_manager=mongo_manager,
     redis_manager=redis_manager,
 )
+category_repository = CategoryRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+    redis_manager=redis_manager,
+)
 inventory_repository = InventoryRepository(
     store=store,
     mongo_manager=mongo_manager,
@@ -85,7 +94,13 @@ notification_repository = NotificationRepository(
 product_service = ProductService(
     store=store,
     product_repository=product_repository,
+    category_repository=category_repository,
     inventory_repository=inventory_repository,
+)
+category_service = CategoryService(
+    store=store,
+    category_repository=category_repository,
+    product_repository=product_repository,
 )
 session_repository = SessionRepository(
     store=store,
@@ -119,6 +134,10 @@ support_repository = SupportRepository(
     store=store,
     mongo_manager=mongo_manager,
 )
+admin_activity_repository = AdminActivityRepository(
+    store=store,
+    mongo_manager=mongo_manager,
+)
 inventory_service = InventoryService(
     store=store,
     inventory_repository=inventory_repository,
@@ -146,6 +165,10 @@ interaction_service = InteractionService(
 support_service = SupportService(
     store=store,
     support_repository=support_repository,
+)
+admin_activity_service = AdminActivityService(
+    store=store,
+    admin_activity_repository=admin_activity_repository,
 )
 voice_recovery_service = VoiceRecoveryService(
     store=store,

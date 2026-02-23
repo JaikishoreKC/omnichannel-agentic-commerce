@@ -1,5 +1,7 @@
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.category_repository import CategoryRepository
+from app.repositories.admin_activity_repository import AdminActivityRepository
 from app.repositories.cart_repository import CartRepository
 from app.repositories.interaction_repository import InteractionRepository
 from app.repositories.inventory_repository import InventoryRepository
@@ -379,3 +381,64 @@ def test_notification_repository_roundtrip_in_memory() -> None:
     for_user = repo.list_for_user("user_test_7", limit=20)
     assert len(for_user) == 1
     assert for_user[0]["id"] == "notif_test_1"
+
+
+def test_category_repository_roundtrip_in_memory() -> None:
+    store = InMemoryStore()
+    mongo_manager, redis_manager = _disabled_managers()
+    repo = CategoryRepository(
+        store=store,
+        mongo_manager=mongo_manager,
+        redis_manager=redis_manager,
+    )
+
+    category = {
+        "id": "fitness",
+        "slug": "fitness",
+        "name": "Fitness",
+        "description": "Fitness products",
+        "status": "active",
+        "createdAt": store.iso_now(),
+        "updatedAt": store.iso_now(),
+    }
+    repo.create(category)
+
+    by_id = repo.get("fitness")
+    assert by_id is not None
+    assert by_id["name"] == "Fitness"
+
+    listed = repo.list_all()
+    slugs = [row["slug"] for row in listed]
+    assert "fitness" in slugs
+    assert "fitness" in repo.active_slugs()
+
+    category["status"] = "archived"
+    repo.update(category)
+    assert "fitness" not in repo.active_slugs()
+
+    repo.delete("fitness")
+    assert repo.get("fitness") is None
+
+
+def test_admin_activity_repository_roundtrip_in_memory() -> None:
+    store = InMemoryStore()
+    mongo_manager, _redis_manager = _disabled_managers()
+    repo = AdminActivityRepository(store=store, mongo_manager=mongo_manager)
+
+    payload = {
+        "id": "admin_log_test_1",
+        "adminId": "user_1",
+        "adminEmail": "admin@example.com",
+        "action": "product_update",
+        "resource": "product",
+        "resourceId": "prod_1",
+        "changes": {"before": {"name": "A"}, "after": {"name": "B"}},
+        "ipAddress": "127.0.0.1",
+        "userAgent": "pytest",
+        "timestamp": store.iso_now(),
+    }
+    repo.create(payload)
+
+    rows = repo.list_recent(limit=10)
+    assert len(rows) == 1
+    assert rows[0]["action"] == "product_update"

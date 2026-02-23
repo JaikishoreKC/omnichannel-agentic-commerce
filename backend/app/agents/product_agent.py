@@ -21,11 +21,15 @@ class ProductAgent(BaseAgent):
         if self._should_browse_without_query(raw_query=raw_query, normalized_query=query):
             query = ""
         inferred_category = self._infer_category(query)
+        inferred_brand = self._infer_brand(query=query)
         preferred_category, preference_reason = self._preferred_category(context=context, query=query)
+        preferred_brand, brand_reason = self._preferred_brand(context=context, query=query)
         category = inferred_category or preferred_category
+        brand = inferred_brand or preferred_brand
         results = self.product_service.list_products(
             query=query or None,
             category=category,
+            brand=brand,
             min_price=params.get("minPrice"),
             max_price=params.get("maxPrice"),
             page=1,
@@ -45,9 +49,14 @@ class ProductAgent(BaseAgent):
 
         products = self._sort_with_affinity(results["products"], context=context)
         results["products"] = products
-        reason_snippet = ""
+        reasons: list[str] = []
         if preference_reason:
-            reason_snippet = f" Based on your saved preference for {preference_reason}."
+            reasons.append(preference_reason)
+        if brand_reason:
+            reasons.append(brand_reason)
+        reason_snippet = ""
+        if reasons:
+            reason_snippet = " Based on your saved preference for " + " and ".join(reasons) + "."
         if not products:
             return AgentExecutionResult(
                 success=True,
@@ -90,6 +99,21 @@ class ProductAgent(BaseAgent):
             return "accessories"
         return None
 
+    def _infer_brand(self, *, query: str) -> str | None:
+        lower = query.lower()
+        if not lower:
+            return None
+        known = {
+            "strideforge": "StrideForge",
+            "peakroute": "PeakRoute",
+            "aerothread": "AeroThread",
+            "carryworks": "CarryWorks",
+        }
+        for token, canonical in known.items():
+            if token in lower:
+                return canonical
+        return None
+
     def _normalize_query(self, query: str) -> str:
         lowered = query.lower()
         lowered = re.sub(
@@ -99,6 +123,7 @@ class ProductAgent(BaseAgent):
         )
         lowered = re.sub(r"\b(under|below|over|above)\s*\$?\d+\b", " ", lowered)
         lowered = re.sub(r"\b(something|anything|options)\b", " ", lowered)
+        lowered = re.sub(r"\b(products?|items?)\b", " ", lowered)
         lowered = re.sub(r"\s+", " ", lowered).strip()
         return lowered
 
@@ -136,6 +161,24 @@ class ProductAgent(BaseAgent):
             return candidate or None
         return None
 
+    def _preferred_brand(self, *, context: AgentContext, query: str) -> tuple[str | None, str]:
+        preferences = context.preferences or {}
+        brands = preferences.get("brandPreferences") if isinstance(preferences, dict) else None
+        if isinstance(brands, list) and brands and not query:
+            candidate = str(brands[0]).strip()
+            if candidate:
+                return candidate, f"brand {candidate}"
+
+        memory = context.memory or {}
+        affinities = memory.get("productAffinities") if isinstance(memory, dict) else None
+        brand_scores = affinities.get("brands", {}) if isinstance(affinities, dict) else {}
+        if isinstance(brand_scores, dict) and brand_scores:
+            top_brand = max(brand_scores.items(), key=lambda item: int(item[1]))[0]
+            candidate = str(top_brand).strip()
+            if candidate:
+                return candidate, f"your past interest in {candidate}"
+        return None, ""
+
     def _sort_with_affinity(
         self, products: list[dict[str, Any]], *, context: AgentContext
     ) -> list[dict[str, Any]]:
@@ -146,15 +189,18 @@ class ProductAgent(BaseAgent):
 
         product_scores = affinities.get("products", {})
         category_scores = affinities.get("categories", {})
+        brand_scores = affinities.get("brands", {})
         if not isinstance(product_scores, dict) or not isinstance(category_scores, dict):
             return products
 
-        def rank(item: dict[str, Any]) -> tuple[int, int, float]:
+        def rank(item: dict[str, Any]) -> tuple[int, int, int, float]:
             product_id = str(item.get("id", ""))
             category = str(item.get("category", "")).strip().lower()
+            brand = str(item.get("brand", "")).strip().lower()
             direct = int(product_scores.get(product_id, 0))
             by_category = int(category_scores.get(category, 0))
+            by_brand = int(brand_scores.get(brand, 0)) if isinstance(brand_scores, dict) else 0
             rating = float(item.get("rating", 0.0))
-            return (direct, by_category, rating)
+            return (direct, by_category, by_brand, rating)
 
         return sorted(products, key=rank, reverse=True)

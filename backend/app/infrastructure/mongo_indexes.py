@@ -22,11 +22,15 @@ MONGO_INDEX_SPECS: dict[str, list[IndexSpec]] = {
     "sessions": [
         ([("sessionId", ASCENDING)], {"name": "sessions_session_id_unique", "unique": True}),
         ([("userId", ASCENDING), ("lastActivity", DESCENDING)], {"name": "sessions_user_last_activity_desc"}),
+        ([("anonymousId", ASCENDING)], {"name": "sessions_anonymous_id_asc"}),
+        ([("expiresAt", ASCENDING)], {"name": "sessions_expires_at_asc"}),
     ],
     "carts": [
         ([("cartId", ASCENDING)], {"name": "carts_cart_id_unique", "unique": True}),
         ([("userId", ASCENDING), ("updatedAt", DESCENDING)], {"name": "carts_user_updated_desc"}),
         ([("sessionId", ASCENDING), ("userId", ASCENDING), ("updatedAt", DESCENDING)], {"name": "carts_session_user_updated_desc"}),
+        ([("status", ASCENDING), ("updatedAt", DESCENDING)], {"name": "carts_status_updated_desc"}),
+        ([("expiresAt", ASCENDING)], {"name": "carts_expires_at_asc"}),
     ],
     "orders": [
         ([("orderId", ASCENDING)], {"name": "orders_order_id_unique", "unique": True}),
@@ -52,6 +56,13 @@ MONGO_INDEX_SPECS: dict[str, list[IndexSpec]] = {
         ([("productId", ASCENDING)], {"name": "products_product_id_unique", "unique": True}),
         ([("name", ASCENDING)], {"name": "products_name_asc"}),
         ([("category", ASCENDING), ("price", ASCENDING)], {"name": "products_category_price_asc"}),
+        ([("brand", ASCENDING), ("price", ASCENDING)], {"name": "products_brand_price_asc"}),
+        ([("status", ASCENDING), ("updatedAt", DESCENDING)], {"name": "products_status_updated_desc"}),
+    ],
+    "categories": [
+        ([("categoryId", ASCENDING)], {"name": "categories_category_id_unique", "unique": True}),
+        ([("slug", ASCENDING)], {"name": "categories_slug_unique", "unique": True}),
+        ([("status", ASCENDING), ("name", ASCENDING)], {"name": "categories_status_name_asc"}),
     ],
     "inventory": [
         ([("variantId", ASCENDING)], {"name": "inventory_variant_id_unique", "unique": True}),
@@ -60,6 +71,12 @@ MONGO_INDEX_SPECS: dict[str, list[IndexSpec]] = {
     "notifications": [
         ([("notificationId", ASCENDING)], {"name": "notifications_notification_id_unique", "unique": True}),
         ([("userId", ASCENDING), ("createdAt", DESCENDING)], {"name": "notifications_user_created_desc"}),
+    ],
+    "admin_activity_logs": [
+        ([("id", ASCENDING)], {"name": "admin_activity_logs_id_unique", "unique": True}),
+        ([("adminId", ASCENDING), ("timestamp", DESCENDING)], {"name": "admin_activity_logs_admin_time_desc"}),
+        ([("resource", ASCENDING), ("resourceId", ASCENDING)], {"name": "admin_activity_logs_resource_resource_id"}),
+        ([("timestamp", DESCENDING)], {"name": "admin_activity_logs_timestamp_desc"}),
     ],
 }
 

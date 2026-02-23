@@ -10,6 +10,7 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/register", status_code=201)
 def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
+    channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
     result = auth_service.register(
         email=payload.email,
         password=payload.password,
@@ -18,28 +19,71 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
         timezone=payload.timezone,
     )
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
+    anonymous_id = None
+    if session_id:
+        try:
+            guest_session = session_service.get_session(session_id)
+            anonymous_id = guest_session.get("anonymousId")
+        except Exception:
+            anonymous_id = None
     if session_id:
         cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
     resolved = session_service.resolve_user_session(
         user_id=str(result["user"]["id"]),
         preferred_session_id=session_id,
-        channel="web",
+        channel=channel,
+        anonymous_id=str(anonymous_id) if anonymous_id else None,
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "source": "auth_register",
+            "referrer": request.headers.get("referer", ""),
+        },
     )
+    linked_user = auth_service.link_identity(
+        user_id=str(result["user"]["id"]),
+        channel=channel,
+        external_id=str(resolved["id"]),
+        anonymous_id=str(resolved.get("anonymousId", "")) or None,
+    )
+    result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
     return result
 
 
 @router.post("/login")
 def login(payload: LoginRequest, request: Request) -> dict[str, object]:
+    channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
     result = auth_service.login(email=payload.email, password=payload.password)
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
+    anonymous_id = None
+    if session_id:
+        try:
+            guest_session = session_service.get_session(session_id)
+            anonymous_id = guest_session.get("anonymousId")
+        except Exception:
+            anonymous_id = None
     if session_id:
         cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
     resolved = session_service.resolve_user_session(
         user_id=str(result["user"]["id"]),
         preferred_session_id=session_id,
-        channel="web",
+        channel=channel,
+        anonymous_id=str(anonymous_id) if anonymous_id else None,
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "source": "auth_login",
+            "referrer": request.headers.get("referer", ""),
+        },
     )
+    linked_user = auth_service.link_identity(
+        user_id=str(result["user"]["id"]),
+        channel=channel,
+        external_id=str(resolved["id"]),
+        anonymous_id=str(resolved.get("anonymousId", "")) or None,
+    )
+    result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
     return result
 

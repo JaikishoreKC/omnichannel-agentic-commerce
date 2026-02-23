@@ -52,7 +52,17 @@ def resolve_session_id(
         except HTTPException:
             pass
 
-    created = session_service.create_session(channel="web", initial_context={})
+    created = session_service.create_session(
+        channel="web",
+        initial_context={},
+        anonymous_id=request.headers.get("X-Anonymous-Id"),
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "source": "http_dependency",
+            "referrer": request.headers.get("referer", ""),
+        },
+    )
     session_id = created["id"]
     response.set_cookie(
         key="session_id",

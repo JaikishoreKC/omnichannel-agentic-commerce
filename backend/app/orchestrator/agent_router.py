@@ -28,4 +28,6 @@ class AgentRouter:
             return "order"
         if intent.name in {"show_memory", "save_preference", "forget_preference", "clear_memory"}:
             return "memory"
+        if intent.name in {"support_escalation", "support_status", "support_close"}:
+            return "support"
         return "support"

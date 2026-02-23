@@ -1,10 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
 
 from app.api.deps import get_optional_user
-from app.container import cart_service, interaction_service, memory_service, orchestrator, session_service
+from app.container import (
+    auth_service,
+    cart_service,
+    interaction_service,
+    memory_service,
+    orchestrator,
+    session_service,
+)
 from app.models.schemas import InteractionMessageRequest
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
@@ -13,22 +20,50 @@ router = APIRouter(prefix="/interactions", tags=["interactions"])
 @router.post("/message")
 async def process_message(
     payload: InteractionMessageRequest,
+    request: Request,
     user: dict[str, object] | None = Depends(get_optional_user),
 ) -> dict[str, object]:
     try:
         session = session_service.get_session(payload.sessionId)
     except HTTPException:
-        session = session_service.create_session(channel=payload.channel, initial_context={})
+        session = session_service.create_session(
+            channel=payload.channel,
+            initial_context={},
+            anonymous_id=request.headers.get("X-Anonymous-Id"),
+            user_agent=request.headers.get("User-Agent"),
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "source": "interactions_message",
+                "referrer": request.headers.get("referer", ""),
+            },
+        )
 
     user_id = str(user["id"]) if user else session.get("userId")
     if user_id:
+        anonymous_id = str(session.get("anonymousId", "")).strip() or None
         if payload.sessionId:
             cart_service.merge_guest_cart_into_user(session_id=payload.sessionId, user_id=str(user_id))
         session = session_service.resolve_user_session(
             user_id=str(user_id),
             preferred_session_id=session.get("id"),
             channel=payload.channel,
+            anonymous_id=anonymous_id,
+            user_agent=request.headers.get("User-Agent"),
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "source": "interactions_message",
+                "referrer": request.headers.get("referer", ""),
+            },
         )
+        try:
+            auth_service.link_identity(
+                user_id=str(user_id),
+                channel=payload.channel,
+                external_id=str(session["id"]),
+                anonymous_id=str(session.get("anonymousId", "")) or None,
+            )
+        except Exception:
+            pass
     response = await orchestrator.process_message(
         message=payload.content,
         session_id=session["id"],
@@ -40,6 +75,7 @@ async def process_message(
 
 @router.get("/history")
 def get_history(
+    request: Request,
     session_id: str | None = Query(default=None, alias="sessionId"),
     limit: int = Query(default=40, ge=1, le=200),
     user: dict[str, object] | None = Depends(get_optional_user),
@@ -50,7 +86,22 @@ def get_history(
             user_id=user_id,
             preferred_session_id=session_id,
             channel="web",
+            user_agent=request.headers.get("User-Agent"),
+            ip_address=request.client.host if request.client else None,
+            metadata={
+                "source": "interactions_history",
+                "referrer": request.headers.get("referer", ""),
+            },
         )
+        try:
+            auth_service.link_identity(
+                user_id=user_id,
+                channel="web",
+                external_id=str(resolved["id"]),
+                anonymous_id=str(resolved.get("anonymousId", "")) or None,
+            )
+        except Exception:
+            pass
         history = interaction_service.history_for_session(session_id=str(resolved["id"]), limit=limit)
         if not history:
             fallback = memory_service.get_history(user_id=user_id, limit=limit).get("history", [])

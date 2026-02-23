@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import HTTPException
@@ -23,6 +24,7 @@ class CartService:
         self.settings = settings
         self.cart_repository = cart_repository
         self.product_repository = product_repository
+        self._cart_ttl_hours = 24
 
     def get_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
@@ -61,6 +63,7 @@ class CartService:
                     "price": product["price"],
                     "quantity": quantity,
                     "image": product["images"][0] if product.get("images") else "",
+                    "metadata": {"brand": product.get("brand", "")},
                 }
                 cart["items"].append(item)
             self._recalculate_cart(cart)
@@ -121,6 +124,8 @@ class CartService:
         if not session_cart:
             return
         session_cart["userId"] = user_id
+        session_cart["status"] = "active"
+        session_cart["expiresAt"] = self._next_cart_expiry()
         self._recalculate_cart(session_cart)
         self.cart_repository.update(session_cart)
 
@@ -132,6 +137,8 @@ class CartService:
         user_cart = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id="")
         if not user_cart:
             guest_cart["userId"] = user_id
+            guest_cart["status"] = "active"
+            guest_cart["expiresAt"] = self._next_cart_expiry()
             self._recalculate_cart(guest_cart)
             self.cart_repository.update(guest_cart)
             return deepcopy(guest_cart)
@@ -157,10 +164,13 @@ class CartService:
                     "price": float(source.get("price", 0.0)),
                     "quantity": quantity,
                     "image": str(source.get("image", "")),
+                    "metadata": deepcopy(source.get("metadata", {})),
                 }
             )
         if not user_cart.get("appliedDiscount") and guest_cart.get("appliedDiscount"):
             user_cart["appliedDiscount"] = deepcopy(guest_cart["appliedDiscount"])
+        user_cart["status"] = "active"
+        user_cart["expiresAt"] = self._next_cart_expiry()
         self._recalculate_cart(user_cart)
         self.cart_repository.update(user_cart)
         self.cart_repository.delete(str(guest_cart["id"]))
@@ -172,21 +182,43 @@ class CartService:
             return None
         cart["items"] = []
         cart["appliedDiscount"] = None
+        cart["status"] = "active"
+        cart["expiresAt"] = self._next_cart_expiry()
         self._recalculate_cart(cart)
+        self.cart_repository.update(cart)
+        return deepcopy(cart)
+
+    def mark_cart_converted_for_user(self, user_id: str) -> dict[str, Any] | None:
+        cart = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id="")
+        if not cart:
+            return None
+        cart["status"] = "converted"
+        cart["updatedAt"] = self.store.iso_now()
+        cart["expiresAt"] = self._next_cart_expiry()
         self.cart_repository.update(cart)
         return deepcopy(cart)
 
     def _get_or_create_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         existing = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id=session_id)
         if existing:
-            return existing
+            if self._is_cart_expired(existing):
+                existing["status"] = "abandoned"
+                existing["updatedAt"] = self.store.iso_now()
+                self.cart_repository.update(existing)
+            else:
+                existing["status"] = "active"
+                existing["expiresAt"] = self._next_cart_expiry()
+                self.cart_repository.update(existing)
+                return existing
 
         with self.store.lock:
             cart_id = self.store.next_id("cart")
+            now = self.store.iso_now()
             cart = {
                 "id": cart_id,
                 "userId": user_id,
                 "sessionId": session_id,
+                "anonymousId": self._resolve_anonymous_id(session_id=session_id),
                 "items": [],
                 "subtotal": 0.0,
                 "tax": 0.0,
@@ -196,8 +228,10 @@ class CartService:
                 "itemCount": 0,
                 "currency": "USD",
                 "appliedDiscount": None,
-                "createdAt": self.store.iso_now(),
-                "updatedAt": self.store.iso_now(),
+                "status": "active",
+                "createdAt": now,
+                "updatedAt": now,
+                "expiresAt": self._next_cart_expiry(),
             }
         return self.cart_repository.create(cart)
 
@@ -211,6 +245,29 @@ class CartService:
         if not variant:
             raise HTTPException(status_code=404, detail="Variant not found")
         return product, variant
+
+    def _resolve_anonymous_id(self, *, session_id: str) -> str | None:
+        with self.store.lock:
+            session = self.store.sessions_by_id.get(session_id)
+            if not isinstance(session, dict):
+                return None
+            value = str(session.get("anonymousId", "")).strip()
+            return value or None
+
+    def _next_cart_expiry(self) -> str:
+        return (self.store.utc_now() + timedelta(hours=self._cart_ttl_hours)).isoformat()
+
+    def _is_cart_expired(self, cart: dict[str, Any]) -> bool:
+        expires_at = str(cart.get("expiresAt", "")).strip()
+        if not expires_at:
+            return False
+        try:
+            parsed = datetime.fromisoformat(expires_at)
+        except ValueError:
+            return False
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed <= self.store.utc_now()
 
     def _recalculate_cart(self, cart: dict[str, Any]) -> None:
         subtotal = sum(item["price"] * item["quantity"] for item in cart["items"])
@@ -230,4 +287,7 @@ class CartService:
         cart["discount"] = discount
         cart["total"] = total
         cart["itemCount"] = sum(item["quantity"] for item in cart["items"])
+        if str(cart.get("status", "active")).strip().lower() != "converted":
+            cart["status"] = "active"
+        cart["expiresAt"] = self._next_cart_expiry()
         cart["updatedAt"] = self.store.iso_now()

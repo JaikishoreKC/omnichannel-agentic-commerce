@@ -20,27 +20,58 @@ class SessionService:
         channel: str = "web",
         initial_context: dict[str, Any] | None = None,
         user_id: str | None = None,
+        anonymous_id: str | None = None,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         with self.store.lock:
             session_id = self.store.next_id("session")
             now = self.store.utc_now()
+            resolved_anonymous_id = (anonymous_id or f"anon_{session_id}").strip()
+            conversation_context = {
+                "lastIntent": None,
+                "lastAgent": None,
+                "lastMessage": None,
+                "pendingAction": None,
+                "entities": {},
+            }
+            shopping_context = {
+                "cartId": None,
+                "viewedProducts": [],
+                "searchHistory": [],
+                "currentCategory": None,
+            }
+            context_payload = {
+                "conversation": conversation_context,
+                "shopping": shopping_context,
+                **(initial_context or {}),
+            }
             session = {
                 "id": session_id,
                 "userId": user_id,
+                "anonymousId": resolved_anonymous_id,
                 "channel": channel,
+                "userAgent": user_agent or "",
+                "ipAddress": ip_address or "",
                 "createdAt": now.isoformat(),
                 "lastActivity": now.isoformat(),
+                "lastActivityAt": now.isoformat(),
                 "expiresAt": self._next_expiry(now=now),
-                "context": {
-                    "conversation": {
-                        "lastIntent": None,
+                "state": {
+                    "currentIntent": None,
+                    "conversationContext": {
                         "lastAgent": None,
                         "lastMessage": None,
+                        "pendingAction": None,
                         "entities": {},
                     },
-                    "shopping": {"cartId": None, "viewedProducts": [], "searchHistory": []},
-                    **(initial_context or {}),
+                    "cartId": None,
+                    "viewedProducts": [],
+                    "searchHistory": [],
                 },
+                "context": context_payload,
+                "metadata": metadata or {},
             }
             return self.session_repository.create(session)
 
@@ -77,6 +108,10 @@ class SessionService:
         user_id: str,
         preferred_session_id: str | None,
         channel: str,
+        anonymous_id: str | None = None,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         self.cleanup_expired()
         existing = self.session_repository.find_latest_for_user(user_id)
@@ -86,6 +121,18 @@ class SessionService:
                 self.session_repository.delete(str(existing["id"]))
                 existing = None
         if existing:
+            existing["channel"] = channel or existing.get("channel", "web")
+            if anonymous_id and not existing.get("anonymousId"):
+                existing["anonymousId"] = anonymous_id
+            if user_agent:
+                existing["userAgent"] = user_agent
+            if ip_address:
+                existing["ipAddress"] = ip_address
+            if metadata:
+                merged_metadata = existing.get("metadata", {})
+                if not isinstance(merged_metadata, dict):
+                    merged_metadata = {}
+                existing["metadata"] = {**merged_metadata, **metadata}
             self._mark_active(existing)
             self.session_repository.update(existing)
             return existing
@@ -99,11 +146,31 @@ class SessionService:
                     preferred = None
             if preferred:
                 preferred["userId"] = user_id
+                preferred["channel"] = channel or preferred.get("channel", "web")
+                if anonymous_id and not preferred.get("anonymousId"):
+                    preferred["anonymousId"] = anonymous_id
+                if user_agent:
+                    preferred["userAgent"] = user_agent
+                if ip_address:
+                    preferred["ipAddress"] = ip_address
+                if metadata:
+                    merged_metadata = preferred.get("metadata", {})
+                    if not isinstance(merged_metadata, dict):
+                        merged_metadata = {}
+                    preferred["metadata"] = {**merged_metadata, **metadata}
                 self._mark_active(preferred)
                 self.session_repository.update(preferred)
                 return preferred
 
-        return self.create_session(channel=channel, initial_context={}, user_id=user_id)
+        return self.create_session(
+            channel=channel,
+            initial_context={},
+            user_id=user_id,
+            anonymous_id=anonymous_id,
+            user_agent=user_agent,
+            ip_address=ip_address,
+            metadata=metadata,
+        )
 
     def update_conversation(
         self,
@@ -122,6 +189,13 @@ class SessionService:
         conversation["lastAgent"] = last_agent
         conversation["lastMessage"] = last_message
         conversation["entities"] = entities or {}
+        state = session.setdefault("state", {})
+        state["currentIntent"] = last_intent
+        conversation_state = state.setdefault("conversationContext", {})
+        if isinstance(conversation_state, dict):
+            conversation_state["lastAgent"] = last_agent
+            conversation_state["lastMessage"] = last_message
+            conversation_state["entities"] = entities or {}
         self._mark_active(session)
         self.session_repository.update(session)
 
@@ -152,6 +226,7 @@ class SessionService:
     def _mark_active(self, session: dict[str, Any]) -> None:
         now = self.store.utc_now()
         session["lastActivity"] = now.isoformat()
+        session["lastActivityAt"] = now.isoformat()
         session["expiresAt"] = self._next_expiry(now=now)
 
     def _next_expiry(self, *, now: datetime) -> str:

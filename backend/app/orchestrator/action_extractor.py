@@ -21,6 +21,8 @@ class ActionExtractor:
             product_params = {"query": entities.get("query", "")}
             if entities.get("color") is not None:
                 product_params["color"] = entities["color"]
+            if entities.get("brand") is not None:
+                product_params["brand"] = entities["brand"]
             if entities.get("minPrice") is not None:
                 product_params["minPrice"] = entities["minPrice"]
             if entities.get("maxPrice") is not None:
@@ -75,4 +77,10 @@ class ActionExtractor:
             return [AgentAction(name="forget_preference", params=entities)]
         if name == "clear_memory":
             return [AgentAction(name="clear_memory", params={})]
+        if name == "support_escalation":
+            return [AgentAction(name="create_ticket", params=entities, target_agent="support")]
+        if name == "support_status":
+            return [AgentAction(name="ticket_status", params=entities, target_agent="support")]
+        if name == "support_close":
+            return [AgentAction(name="close_ticket", params=entities, target_agent="support")]
         return [AgentAction(name="answer_question", params=entities)]

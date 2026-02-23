@@ -68,6 +68,7 @@ class SessionRepository:
         if matching:
             matching.sort(
                 key=lambda session: (
+                    str(session.get("lastActivityAt", "")),
                     str(session.get("lastActivity", "")),
                     str(session.get("createdAt", "")),
                 ),
@@ -165,7 +166,10 @@ class SessionRepository:
         collection = self._mongo_collection()
         if collection is None:
             return None
-        payload = collection.find_one({"userId": user_id}, sort=[("lastActivity", -1)])
+        payload = collection.find_one(
+            {"userId": user_id},
+            sort=[("lastActivityAt", -1), ("lastActivity", -1)],
+        )
         if not payload:
             return None
         payload.pop("_id", None)

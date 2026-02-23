@@ -319,7 +319,17 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     session_service.cleanup_expired()
     session_id = websocket.query_params.get("sessionId")
     if not session_id:
-        session = session_service.create_session(channel="websocket", initial_context={})
+        session = session_service.create_session(
+            channel="websocket",
+            initial_context={},
+            anonymous_id=websocket.headers.get("x-anonymous-id"),
+            user_agent=websocket.headers.get("user-agent"),
+            ip_address=websocket.client.host if websocket.client else None,
+            metadata={
+                "source": "websocket_connect",
+                "referrer": websocket.headers.get("origin", ""),
+            },
+        )
         session_id = session["id"]
         await asyncio.to_thread(state_persistence.save, store)
         await websocket.send_json(
@@ -344,13 +354,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         except Exception:
             user_id = None
     if user_id:
+        anonymous_id = None
+        try:
+            active_session = session_service.get_session(session_id)
+            anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
+        except Exception:
+            anonymous_id = None
         if session_id:
             cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
         resolved_session = session_service.resolve_user_session(
             user_id=user_id,
             preferred_session_id=session_id,
             channel="websocket",
+            anonymous_id=anonymous_id,
+            user_agent=websocket.headers.get("user-agent"),
+            ip_address=websocket.client.host if websocket.client else None,
+            metadata={
+                "source": "websocket_connect",
+                "referrer": websocket.headers.get("origin", ""),
+            },
         )
+        with suppress(Exception):
+            auth_service.link_identity(
+                user_id=user_id,
+                channel="websocket",
+                external_id=str(resolved_session["id"]),
+                anonymous_id=str(resolved_session.get("anonymousId", "")) or None,
+            )
         if str(resolved_session["id"]) != session_id:
             session_id = str(resolved_session["id"])
             await asyncio.to_thread(state_persistence.save, store)
@@ -440,13 +470,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 except Exception:
                     user_id = None
             if user_id:
+                anonymous_id = None
+                try:
+                    active_session = session_service.get_session(session_id)
+                    anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
+                except Exception:
+                    anonymous_id = None
                 if session_id:
                     cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
                 resolved_session = session_service.resolve_user_session(
                     user_id=user_id,
                     preferred_session_id=session_id,
                     channel="websocket",
+                    anonymous_id=anonymous_id,
+                    user_agent=websocket.headers.get("user-agent"),
+                    ip_address=websocket.client.host if websocket.client else None,
+                    metadata={
+                        "source": "websocket_message",
+                        "referrer": websocket.headers.get("origin", ""),
+                    },
                 )
+                with suppress(Exception):
+                    auth_service.link_identity(
+                        user_id=user_id,
+                        channel="websocket",
+                        external_id=str(resolved_session["id"]),
+                        anonymous_id=str(resolved_session.get("anonymousId", "")) or None,
+                    )
                 if str(resolved_session["id"]) != session_id:
                     session_id = str(resolved_session["id"])
                     await asyncio.to_thread(state_persistence.save, store)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone as dt_timezone
 from typing import Any
 
@@ -43,6 +44,8 @@ class AuthService:
                 "name": name.strip(),
                 "passwordHash": hash_password(password),
                 "role": "customer",
+                "status": "active",
+                "identity": {"anonymousId": None, "linkedChannels": []},
                 "createdAt": now,
                 "updatedAt": now,
                 "lastLoginAt": now,
@@ -106,6 +109,48 @@ class AuthService:
             raise HTTPException(status_code=401, detail="User not found")
         return user
 
+    def link_identity(
+        self,
+        *,
+        user_id: str,
+        channel: str,
+        external_id: str,
+        anonymous_id: str | None = None,
+    ) -> dict[str, Any]:
+        with self.store.lock:
+            user = self.auth_repository.get_user_by_id(user_id)
+            if user is None:
+                raise HTTPException(status_code=404, detail="User not found")
+
+            identity = user.get("identity", {})
+            if not isinstance(identity, dict):
+                identity = {}
+            linked_channels = identity.get("linkedChannels")
+            if not isinstance(linked_channels, list):
+                linked_channels = []
+
+            provider = channel.strip().lower() if channel else "web"
+            ext_id = external_id.strip()
+            if ext_id:
+                already = any(
+                    isinstance(item, dict)
+                    and str(item.get("provider", "")).strip().lower() == provider
+                    and str(item.get("externalId", "")).strip() == ext_id
+                    for item in linked_channels
+                )
+                if not already:
+                    linked_channels.append({"provider": provider, "externalId": ext_id})
+
+            if anonymous_id and str(anonymous_id).strip():
+                identity["anonymousId"] = str(anonymous_id).strip()
+            elif identity.get("anonymousId") is None:
+                identity["anonymousId"] = None
+            identity["linkedChannels"] = linked_channels
+            user["identity"] = identity
+            user["updatedAt"] = datetime.now(dt_timezone.utc).isoformat()
+            self.auth_repository.update_user(user)
+            return user
+
     def _issue_tokens(self, user: dict[str, Any]) -> dict[str, Any]:
         access_token = create_token(
             subject=user["id"],
@@ -134,9 +179,11 @@ class AuthService:
             "email": user["email"],
             "name": user["name"],
             "role": user["role"],
+            "status": user.get("status", "active"),
             "createdAt": user["createdAt"],
             "phone": user.get("phone"),
             "timezone": user.get("timezone"),
+            "identity": deepcopy(user.get("identity")) if isinstance(user.get("identity"), dict) else None,
         }
         return {
             "user": public_user,

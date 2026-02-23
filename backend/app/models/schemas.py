@@ -27,9 +27,11 @@ class AuthUser(BaseModel):
     email: str
     name: str
     role: str
+    status: str | None = None
     createdAt: str
     phone: str | None = None
     timezone: str | None = None
+    identity: dict[str, Any] | None = None
 
 
 class AuthResponse(BaseModel):
@@ -43,6 +45,7 @@ class AuthResponse(BaseModel):
 class ProductListQuery(BaseModel):
     query: str | None = None
     category: str | None = None
+    brand: str | None = None
     minPrice: float | None = None
     maxPrice: float | None = None
     page: int = 1
@@ -128,12 +131,39 @@ class ProductWriteRequest(BaseModel):
     name: str
     description: str = ""
     category: str
+    subcategory: str = ""
+    brand: str = "Generic"
     price: float = Field(gt=0)
     currency: str = "USD"
     images: list[str] = Field(default_factory=list)
     variants: list[ProductVariantWrite] = Field(default_factory=list)
     rating: float = 0
     reviewCount: int = 0
+    tags: list[str] = Field(default_factory=list)
+    features: list[str] = Field(default_factory=list)
+    specifications: dict[str, Any] = Field(default_factory=dict)
+    status: str = "active"
+
+
+class CategoryWriteRequest(BaseModel):
+    id: str | None = None
+    slug: str | None = None
+    name: str = Field(min_length=1)
+    description: str = ""
+    status: str = "active"
+
+
+class CategoryUpdateRequest(BaseModel):
+    slug: str | None = None
+    name: str | None = None
+    description: str | None = None
+    status: str | None = None
+
+
+class SupportTicketUpdateRequest(BaseModel):
+    status: str | None = None
+    priority: str | None = None
+    note: str | None = None
 
 
 class InventoryUpdateRequest(BaseModel):

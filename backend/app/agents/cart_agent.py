@@ -282,6 +282,7 @@ class CartAgent(BaseAgent):
             resolved = self._resolve_variant_from_query(
                 query=query,
                 color=color,
+                brand=str(params.get("brand", "")).strip(),
                 min_price=params.get("minPrice"),
                 max_price=params.get("maxPrice"),
             )
@@ -300,12 +301,14 @@ class CartAgent(BaseAgent):
         *,
         query: str,
         color: str,
+        brand: str,
         min_price: Any,
         max_price: Any,
     ) -> tuple[str, str] | None:
         results = self.product_service.list_products(
             query=query,
             category=None,
+            brand=brand or None,
             min_price=float(min_price) if isinstance(min_price, (int, float)) else None,
             max_price=float(max_price) if isinstance(max_price, (int, float)) else None,
             page=1,

@@ -40,11 +40,18 @@ class CartRepository:
 
     def get_for_user_or_session(self, *, user_id: str | None, session_id: str) -> dict[str, Any] | None:
         with self.store.lock:
+            candidates: list[dict[str, Any]] = []
             for cart in self.store.carts_by_id.values():
+                status = str(cart.get("status", "active")).strip().lower()
+                if status != "active":
+                    continue
                 if user_id and cart.get("userId") == user_id:
-                    return deepcopy(cart)
+                    candidates.append(deepcopy(cart))
                 if not user_id and cart.get("sessionId") == session_id and not cart.get("userId"):
-                    return deepcopy(cart)
+                    candidates.append(deepcopy(cart))
+            if candidates:
+                candidates.sort(key=lambda row: str(row.get("updatedAt", "")), reverse=True)
+                return deepcopy(candidates[0])
 
         persisted = self._read_from_mongo(user_id=user_id, session_id=session_id)
         if persisted is not None:
@@ -60,6 +67,7 @@ class CartRepository:
             return None
         cart["items"] = []
         cart["appliedDiscount"] = None
+        cart["status"] = "active"
         with self.store.lock:
             self.store.carts_by_id[cart["id"]] = deepcopy(cart)
         self._write_through(cart)
@@ -118,10 +126,22 @@ class CartRepository:
             return None
 
         if user_id:
-            payload = collection.find_one({"userId": user_id}, sort=[("updatedAt", -1)])
+            payload = collection.find_one(
+                {
+                    "userId": user_id,
+                    "$or": [{"status": "active"}, {"status": {"$exists": False}}],
+                },
+                sort=[("updatedAt", -1)],
+            )
         else:
             payload = collection.find_one(
-                {"sessionId": session_id, "$or": [{"userId": None}, {"userId": {"$exists": False}}]},
+                {
+                    "sessionId": session_id,
+                    "$and": [
+                        {"$or": [{"userId": None}, {"userId": {"$exists": False}}]},
+                        {"$or": [{"status": "active"}, {"status": {"$exists": False}}]},
+                    ],
+                },
                 sort=[("updatedAt", -1)],
             )
         if not payload:

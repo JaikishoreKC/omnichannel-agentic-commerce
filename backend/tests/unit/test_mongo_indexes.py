@@ -14,8 +14,10 @@ def test_mongo_index_specs_cover_repository_collections() -> None:
         "interactions",
         "support_tickets",
         "products",
+        "categories",
         "inventory",
         "notifications",
+        "admin_activity_logs",
     }
     assert required.issubset(set(MONGO_INDEX_SPECS.keys()))
 

@@ -99,6 +99,11 @@ def run(
             key_field="productId",
             rows=state.get("products_by_id", {}),
         )
+        seeded["categories"] = _upsert_map(
+            collection=db["categories"],
+            key_field="categoryId",
+            rows=state.get("categories_by_id", {}),
+        )
         seeded["inventory"] = _upsert_map(
             collection=db["inventory"],
             key_field="variantId",
@@ -168,6 +173,14 @@ def run(
             collection=db["notifications"],
             unique_field="notificationId",
             rows=notification_rows if isinstance(notification_rows, list) else [],
+            key_mapper=lambda row: row.get("id"),
+        )
+
+        activity_rows = state.get("admin_activity_logs", [])
+        seeded["admin_activity_logs"] = _upsert_list(
+            collection=db["admin_activity_logs"],
+            unique_field="id",
+            rows=activity_rows if isinstance(activity_rows, list) else [],
             key_mapper=lambda row: row.get("id"),
         )
 

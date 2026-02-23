@@ -19,12 +19,15 @@ def test_login_reuses_existing_user_session_for_chat_continuity() -> None:
 
     register = client.post(
         "/v1/auth/register",
-        headers={"X-Session-Id": session_a},
+        headers={"X-Session-Id": session_a, "X-Channel": "web"},
         json={"email": email, "password": password, "name": "Continuity User"},
     )
     assert register.status_code == 201
     token = register.json()["accessToken"]
     assert register.json()["sessionId"] == session_a
+    identity = register.json()["user"]["identity"]
+    assert identity["anonymousId"] is not None
+    assert any(link["provider"] == "web" for link in identity["linkedChannels"])
 
     search = client.post(
         "/v1/interactions/message",
@@ -38,12 +41,14 @@ def test_login_reuses_existing_user_session_for_chat_continuity() -> None:
     session_b = _create_session(client, channel="mobile")
     login = client.post(
         "/v1/auth/login",
-        headers={"X-Session-Id": session_b},
+        headers={"X-Session-Id": session_b, "X-Channel": "mobile"},
         json={"email": email, "password": password},
     )
     assert login.status_code == 200
     assert login.json()["sessionId"] == session_a
     second_token = login.json()["accessToken"]
+    linked_channels = login.json()["user"]["identity"]["linkedChannels"]
+    assert any(link["provider"] == "mobile" for link in linked_channels)
 
     add = client.post(
         "/v1/interactions/message",
@@ -63,7 +68,7 @@ def test_websocket_switches_to_existing_user_session_when_authenticated() -> Non
 
     register = client.post(
         "/v1/auth/register",
-        headers={"X-Session-Id": session_a},
+        headers={"X-Session-Id": session_a, "X-Channel": "web"},
         json={"email": email, "password": password, "name": "WS Continuity User"},
     )
     assert register.status_code == 201

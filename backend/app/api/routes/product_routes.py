@@ -11,6 +11,7 @@ router = APIRouter(prefix="/products", tags=["products"])
 def list_products(
     query: str | None = Query(default=None),
     category: str | None = Query(default=None),
+    brand: str | None = Query(default=None),
     minPrice: float | None = Query(default=None),
     maxPrice: float | None = Query(default=None),
     page: int = Query(default=1, ge=1),
@@ -19,6 +20,7 @@ def list_products(
     return product_service.list_products(
         query=query,
         category=category,
+        brand=brand,
         min_price=minPrice,
         max_price=maxPrice,
         page=page,
@@ -29,4 +31,3 @@ def list_products(
 @router.get("/{product_id}")
 def get_product(product_id: str) -> dict[str, object]:
     return product_service.get_product(product_id=product_id)
-

@@ -99,7 +99,7 @@ class OrderService:
             }
             self.order_repository.create(order)
             self.order_repository.set_idempotent(key=key, order_id=order_id)
-            self.cart_service.clear_cart_for_user(user_id)
+            self.cart_service.mark_cart_converted_for_user(user_id)
 
             self.inventory_service.commit_reservation(order["items"])
             self.notification_service.send_order_confirmation(user_id=user_id, order=order)

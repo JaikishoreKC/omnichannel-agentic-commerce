@@ -22,7 +22,9 @@ class InMemoryStore:
         "support_tickets",
         "notifications",
         "products_by_id",
+        "categories_by_id",
         "inventory_by_variant",
+        "admin_activity_logs",
         "voice_settings",
         "voice_calls_by_id",
         "voice_jobs_by_id",
@@ -54,7 +56,9 @@ class InMemoryStore:
         self.support_tickets: list[dict[str, Any]] = []
         self.notifications: list[dict[str, Any]] = []
         self.products_by_id: dict[str, dict[str, Any]] = self._seed_products()
+        self.categories_by_id: dict[str, dict[str, Any]] = self._seed_categories()
         self.inventory_by_variant: dict[str, dict[str, Any]] = self._seed_inventory()
+        self.admin_activity_logs: list[dict[str, Any]] = []
         self.voice_settings: dict[str, Any] = self._seed_voice_settings()
         self.voice_calls_by_id: dict[str, dict[str, Any]] = {}
         self.voice_jobs_by_id: dict[str, dict[str, Any]] = {}
@@ -87,6 +91,8 @@ class InMemoryStore:
                 "name": "Running Shoes Pro",
                 "description": "High-performance running shoes for daily training.",
                 "category": "shoes",
+                "subcategory": "running",
+                "brand": "StrideForge",
                 "price": 129.99,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_001/main.jpg"],
@@ -96,12 +102,18 @@ class InMemoryStore:
                 ],
                 "rating": 4.5,
                 "reviewCount": 234,
+                "tags": ["running", "daily-trainer"],
+                "features": ["lightweight", "breathable", "shock-absorption"],
+                "specifications": {"material": "engineered mesh", "weightOz": 9.6},
+                "status": "active",
             },
             {
                 "id": "prod_002",
                 "name": "Trail Runner X",
                 "description": "Grip-focused trail shoes with reinforced toe box.",
                 "category": "shoes",
+                "subcategory": "trail",
+                "brand": "PeakRoute",
                 "price": 149.99,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_002/main.jpg"],
@@ -111,12 +123,18 @@ class InMemoryStore:
                 ],
                 "rating": 4.3,
                 "reviewCount": 157,
+                "tags": ["trail", "outdoor"],
+                "features": ["high-traction", "toe-protection"],
+                "specifications": {"material": "synthetic textile", "weightOz": 10.4},
+                "status": "active",
             },
             {
                 "id": "prod_003",
                 "name": "Performance Hoodie",
                 "description": "Lightweight hoodie built for active movement.",
                 "category": "clothing",
+                "subcategory": "tops",
+                "brand": "AeroThread",
                 "price": 79.99,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_003/main.jpg"],
@@ -126,12 +144,18 @@ class InMemoryStore:
                 ],
                 "rating": 4.2,
                 "reviewCount": 88,
+                "tags": ["hoodie", "training"],
+                "features": ["moisture-wicking", "four-way-stretch"],
+                "specifications": {"material": "poly-spandex blend"},
+                "status": "active",
             },
             {
                 "id": "prod_004",
                 "name": "Everyday Joggers",
                 "description": "Soft stretch joggers for training and recovery.",
                 "category": "clothing",
+                "subcategory": "bottoms",
+                "brand": "AeroThread",
                 "price": 64.5,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_004/main.jpg"],
@@ -141,12 +165,18 @@ class InMemoryStore:
                 ],
                 "rating": 4.1,
                 "reviewCount": 73,
+                "tags": ["joggers", "recovery"],
+                "features": ["soft-touch", "elastic-waist"],
+                "specifications": {"material": "cotton blend"},
+                "status": "active",
             },
             {
                 "id": "prod_005",
                 "name": "Support Socks Pack",
                 "description": "Compression support socks, 3-pack.",
                 "category": "accessories",
+                "subcategory": "socks",
+                "brand": "StrideForge",
                 "price": 24.99,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_005/main.jpg"],
@@ -156,12 +186,18 @@ class InMemoryStore:
                 ],
                 "rating": 4.0,
                 "reviewCount": 44,
+                "tags": ["compression", "recovery"],
+                "features": ["arch-support"],
+                "specifications": {"packSize": 3},
+                "status": "active",
             },
             {
                 "id": "prod_006",
                 "name": "Training Backpack",
                 "description": "Water-resistant backpack with shoe compartment.",
                 "category": "accessories",
+                "subcategory": "bags",
+                "brand": "CarryWorks",
                 "price": 89.0,
                 "currency": "USD",
                 "images": ["https://cdn.example.com/products/prod_006/main.jpg"],
@@ -170,9 +206,29 @@ class InMemoryStore:
                 ],
                 "rating": 4.6,
                 "reviewCount": 102,
+                "tags": ["backpack", "gym"],
+                "features": ["water-resistant", "shoe-compartment"],
+                "specifications": {"capacityLiters": 24},
+                "status": "active",
             },
         ]
         return {item["id"]: deepcopy(item) for item in raw}
+
+    def _seed_categories(self) -> dict[str, dict[str, Any]]:
+        names = sorted({str(row.get("category", "")).strip().lower() for row in self.products_by_id.values() if row.get("category")})
+        now = self.iso_now()
+        output: dict[str, dict[str, Any]] = {}
+        for name in names:
+            output[name] = {
+                "id": name,
+                "slug": name,
+                "name": name.replace("-", " ").title(),
+                "description": f"{name.replace('-', ' ').title()} category",
+                "status": "active",
+                "createdAt": now,
+                "updatedAt": now,
+            }
+        return output
 
     def _seed_inventory(self) -> dict[str, dict[str, Any]]:
         inventory: dict[str, dict[str, Any]] = {}
@@ -198,9 +254,13 @@ class InMemoryStore:
             "name": "Platform Admin",
             "passwordHash": hash_password("AdminPass123!"),
             "role": "admin",
+            "status": "active",
+            "identity": {"anonymousId": None, "linkedChannels": []},
             "createdAt": now,
             "updatedAt": now,
             "lastLoginAt": now,
+            "phone": None,
+            "timezone": None,
         }
         self.users_by_id[admin_id] = admin
         self.user_ids_by_email[admin["email"]] = admin_id

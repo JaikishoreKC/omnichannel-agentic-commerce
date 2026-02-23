@@ -24,8 +24,11 @@ class MemoryService:
             },
             "interactionHistory": [],
             "productAffinities": {
+                "brands": {},
                 "categories": {},
                 "products": {},
+                "priceRanges": {},
+                "features": {},
             },
             "updatedAt": self.store.iso_now(),
         }
@@ -130,9 +133,13 @@ class MemoryService:
         preferences = self._normalize_preferences(self._ensure_preferences(payload.get("preferences")))
         affinities = payload.get("productAffinities", {}) if isinstance(payload, dict) else {}
         category_scores = affinities.get("categories", {}) if isinstance(affinities, dict) else {}
+        brand_scores = affinities.get("brands", {}) if isinstance(affinities, dict) else {}
         top_category = None
+        top_brand = None
         if isinstance(category_scores, dict) and category_scores:
             top_category = max(category_scores.items(), key=lambda item: int(item[1]))[0]
+        if isinstance(brand_scores, dict) and brand_scores:
+            top_brand = max(brand_scores.items(), key=lambda item: int(item[1]))[0]
         recent = payload.get("interactionHistory", []) if isinstance(payload, dict) else []
 
         highlights: list[str] = []
@@ -140,12 +147,16 @@ class MemoryService:
             highlights.append(f"Saved size: {preferences['size']}")
         if preferences.get("categories"):
             highlights.append(f"Preferred categories: {', '.join(preferences['categories'])}")
+        if preferences.get("brandPreferences"):
+            highlights.append(f"Preferred brands: {', '.join(preferences['brandPreferences'])}")
         if preferences.get("stylePreferences"):
             highlights.append(f"Style preferences: {', '.join(preferences['stylePreferences'])}")
         if preferences.get("colorPreferences"):
             highlights.append(f"Color preferences: {', '.join(preferences['colorPreferences'])}")
         if top_category:
             highlights.append(f"Top affinity category: {top_category}")
+        if top_brand:
+            highlights.append(f"Top affinity brand: {top_brand}")
         if not highlights:
             highlights.append("No explicit preferences saved yet.")
 
@@ -180,7 +191,11 @@ class MemoryService:
             }
         )
         payload["interactionHistory"] = history[-200:]
-        affinities = payload.setdefault("productAffinities", {"categories": {}, "products": {}})
+        affinities = payload.setdefault(
+            "productAffinities",
+            {"brands": {}, "categories": {}, "products": {}, "priceRanges": {}, "features": {}},
+        )
+        brand_scores = affinities.setdefault("brands", {})
         category_scores = affinities.setdefault("categories", {})
         product_scores = affinities.setdefault("products", {})
 
@@ -206,10 +221,13 @@ class MemoryService:
         for product in products:
             product_id = str(product.get("id", ""))
             category = str(product.get("category", "")).strip().lower()
+            brand = str(product.get("brand", "")).strip().lower()
             if product_id:
                 product_scores[product_id] = int(product_scores.get(product_id, 0)) + 1
             if category:
                 category_scores[category] = int(category_scores.get(category, 0)) + 1
+            if brand:
+                brand_scores[brand] = int(brand_scores.get(brand, 0)) + 1
 
         payload["updatedAt"] = self.store.iso_now()
         self.memory_repository.upsert(user_id, payload)

@@ -10,11 +10,18 @@ export interface Product {
   name: string;
   description: string;
   category: string;
+  subcategory?: string;
+  brand?: string;
   price: number;
   currency: string;
   images: string[];
   variants: ProductVariant[];
   rating: number;
+  reviewCount?: number;
+  tags?: string[];
+  features?: string[];
+  specifications?: Record<string, unknown>;
+  status?: string;
 }
 
 export interface CartItem {
@@ -46,7 +53,12 @@ export interface AuthUser {
   email: string;
   name: string;
   role: string;
+  status?: string;
   createdAt: string;
+  identity?: {
+    anonymousId: string | null;
+    linkedChannels: Array<{ provider: string; externalId: string }>;
+  } | null;
 }
 
 export interface AuthResponse {

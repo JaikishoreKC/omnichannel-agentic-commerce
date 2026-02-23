@@ -79,6 +79,17 @@ class IntentClassifier:
         if "checkout" in text or "place order" in text or "buy now" in text:
             return IntentResult(name="checkout", confidence=0.95, entities={})
 
+        if self._is_support_status_request(text):
+            entities.update(self._extract_ticket_id(text))
+            return IntentResult(name="support_status", confidence=0.9, entities=entities)
+        if self._is_support_close_request(text):
+            entities.update(self._extract_ticket_id(text))
+            return IntentResult(name="support_close", confidence=0.9, entities=entities)
+        if self._is_support_escalation_request(text):
+            entities.update(self._extract_ticket_id(text))
+            entities["query"] = message.strip()
+            return IntentResult(name="support_escalation", confidence=0.88, entities=entities)
+
         if ("add" in text and "cart" in text) and any(
             token in text
             for token in (
@@ -97,6 +108,7 @@ class IntentClassifier:
             entities.update(self._extract_product_or_variant_id(text))
             entities.update(self._extract_price_range(text))
             entities.update(self._extract_color(text))
+            entities.update(self._extract_brand(message))
             entities["query"] = self._extract_search_query_for_combo(message)
             return IntentResult(name="search_and_add_to_cart", confidence=0.93, entities=entities)
 
@@ -136,6 +148,7 @@ class IntentClassifier:
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_variant_id(text))
             entities.update(self._extract_color(text))
+            entities.update(self._extract_brand(message))
             query = self._extract_add_query(message)
             if query:
                 entities["query"] = query
@@ -147,6 +160,7 @@ class IntentClassifier:
         if any(token in text for token in ["find", "search", "show me", "recommend", "looking for"]):
             entities.update(self._extract_price_range(text))
             entities.update(self._extract_color(text))
+            entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
             return IntentResult(name="product_search", confidence=0.84, entities=entities)
 
@@ -155,6 +169,12 @@ class IntentClassifier:
     def _extract_order_id(self, text: str) -> dict[str, Any]:
         match = re.search(r"(order[_\-]?\d+|ord[_\-]?\d+)", text)
         return {"orderId": match.group(1)} if match else {}
+
+    def _extract_ticket_id(self, text: str) -> dict[str, Any]:
+        match = re.search(r"(ticket[_\-]?(?:item[_\-]?)?\d+)", text)
+        if not match:
+            return {}
+        return {"ticketId": match.group(1).replace("-", "_")}
 
     def _extract_quantity(self, text: str) -> dict[str, Any]:
         match = re.search(r"\b(\d+)\b", text)
@@ -178,6 +198,23 @@ class IntentClassifier:
         if above:
             entities["minPrice"] = float(above.group(2))
         return entities
+
+    def _extract_brand(self, message: str) -> dict[str, Any]:
+        match = re.search(
+            r"(?:brand|from)\s*(?:is|=|:)?\s*([a-zA-Z0-9&\-\s]{2,80})",
+            message,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            raw = match.group(1).strip(" .,;")
+            if raw:
+                return {"brand": raw}
+        known = ("strideforge", "peakroute", "aerothread", "carryworks")
+        lowered = message.lower()
+        for token in known:
+            if token in lowered:
+                return {"brand": token}
+        return {}
 
     def _extract_product_or_variant_id(self, text: str) -> dict[str, Any]:
         product_match = re.search(r"(prod[_\-]?\d+)", text)
@@ -335,6 +372,39 @@ class IntentClassifier:
             token in text
             for token in ("increase", "decrease", "reduce", "minus", "plus", "one more", "one less", "another")
         )
+
+    def _is_support_escalation_request(self, text: str) -> bool:
+        phrases = (
+            "human agent",
+            "support agent",
+            "talk to support",
+            "talk to a person",
+            "connect me to support",
+            "open a ticket",
+            "escalate",
+            "need help with issue",
+        )
+        if any(phrase in text for phrase in phrases):
+            return True
+        return "help" in text and "order" in text and "agent" in text
+
+    def _is_support_status_request(self, text: str) -> bool:
+        phrases = (
+            "ticket status",
+            "support status",
+            "status of my ticket",
+            "my support ticket",
+            "any update on ticket",
+        )
+        return any(phrase in text for phrase in phrases)
+
+    def _is_support_close_request(self, text: str) -> bool:
+        phrases = (
+            "close ticket",
+            "resolve ticket",
+            "mark ticket resolved",
+        )
+        return any(phrase in text for phrase in phrases)
 
     def _extract_multi_add_items(self, message: str) -> list[dict[str, Any]]:
         lower = message.lower()
