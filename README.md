@@ -2,7 +2,7 @@
 
 Implementation repo for:
 
-**"An Agentic AI Framework for Persistent Omni-Channel Conversational Sales and Autonomous Retail Task Orchestration"**
+Project statement: "An Agentic AI Framework for Persistent Omni-Channel Conversational Sales and Autonomous Retail Task Orchestration"
 
 This repo currently delivers a production-style v1 web implementation with:
 
@@ -62,7 +62,7 @@ Native mobile and native kiosk apps are intentionally deferred. The web app is r
 ## Feature Coverage Matrix
 
 | Capability From Docs | Status | Notes |
-|---|---|---|
+| --- | --- | --- |
 | Guest browse/cart | Implemented | Guest session + cart supported through `session_id` and `X-Session-Id` |
 | Login required before order creation | Implemented | Order endpoints require auth; chat checkout blocks guest users |
 | Guest-to-auth cart continuity | Implemented | Guest cart merged into user cart on register/login |
@@ -220,8 +220,8 @@ npm run dev
 ## Option C: Local Dev With Mongo/Redis Persistence
 
 1. Run Mongo + Redis locally.
-2. Set `ENABLE_EXTERNAL_SERVICES=true` in `backend/.env`.
-3. Run index and seed scripts:
+1. Set `ENABLE_EXTERNAL_SERVICES=true` in `backend/.env`.
+1. Run index and seed scripts:
 
 ```bash
 cd backend
@@ -229,7 +229,7 @@ python -m app.scripts.create_indexes
 python -m app.scripts.bootstrap_db
 ```
 
-4. Start backend and frontend as in Option B.
+1. Start backend and frontend as in Option B.
 
 ## Environment Variables
 
@@ -250,7 +250,7 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 ### Frontend Variables
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `VITE_API_URL` | `http://localhost:8000/v1` | REST API base URL |
 | `VITE_WS_URL` | `ws://localhost:8000/ws` | WebSocket endpoint |
 
@@ -259,7 +259,7 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 #### Core App + Auth
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `APP_NAME` | `Omnichannel Agentic Commerce API` | FastAPI app title |
 | `API_PREFIX` | `/v1` | API namespace prefix |
 | `TOKEN_SECRET` | `replace-with-strong-secret` | JWT signing secret |
@@ -269,14 +269,14 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 #### Commerce Defaults
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `CART_TAX_RATE` | `0.08` | Tax multiplier for cart totals |
 | `DEFAULT_SHIPPING_FEE` | `5.99` | Flat shipping fee |
 
 #### Connectivity + Persistence
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `CORS_ORIGINS` | `http://localhost:5173` | Allowed CORS origins (comma-separated) |
 | `MONGODB_URI` | `mongodb://localhost:27017/commerce` | Mongo URI |
 | `REDIS_URL` | `redis://localhost:6379/0` | Redis URI |
@@ -285,7 +285,7 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 #### Rate Limits + Request Hardening
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `RATE_LIMIT_ANONYMOUS_PER_MINUTE` | `120` | Anonymous request/minute limit |
 | `RATE_LIMIT_AUTHENTICATED_PER_MINUTE` | `600` | Authenticated request/minute limit |
 | `RATE_LIMIT_ADMIN_PER_MINUTE` | `2000` | Admin request/minute limit |
@@ -300,7 +300,7 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 #### LLM
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `LLM_ENABLED` | `false` | Enable external LLM calls |
 | `LLM_PROVIDER` | `openai` | `openai` or `anthropic` |
 | `LLM_MODEL` | `gpt-4o-mini` | Model name sent to provider |
@@ -315,14 +315,14 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 #### WebSocket
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `WS_HEARTBEAT_INTERVAL_SECONDS` | `25` | Ping interval |
 | `WS_HEARTBEAT_TIMEOUT_SECONDS` | `70` | Disconnect threshold without pong |
 
 #### SuperU + Voice Recovery
 
 | Variable | Default | Description |
-|---|---|---|
+| --- | --- | --- |
 | `SUPERU_ENABLED` | `false` | Enable SuperU API usage |
 | `SUPERU_API_URL` | `https://api.superu.ai` | SuperU base URL |
 | `SUPERU_API_KEY` | `` | SuperU API key |
@@ -866,4 +866,3 @@ Primary docs in `docs/`:
 - `docs/SECURITY.txt`
 - `docs/TESTING_STRATEGY.txt`
 - `docs/RELEASE_CHECKLIST.txt`
-
