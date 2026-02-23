@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
 
@@ -15,6 +17,7 @@ from app.container import (
 from app.models.schemas import InteractionMessageRequest
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
+logger = logging.getLogger(__name__)
 
 
 @router.post("/message")
@@ -62,8 +65,8 @@ async def process_message(
                 external_id=str(session["id"]),
                 anonymous_id=str(session.get("anonymousId", "")) or None,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Identity link failed for interaction message", exc_info=exc)
     response = await orchestrator.process_message(
         message=payload.content,
         session_id=session["id"],
@@ -100,8 +103,8 @@ def get_history(
                 external_id=str(resolved["id"]),
                 anonymous_id=str(resolved.get("anonymousId", "")) or None,
             )
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("Identity link failed for interaction history", exc_info=exc)
         history = interaction_service.history_for_session(session_id=str(resolved["id"]), limit=limit)
         if not history:
             fallback = memory_service.get_history(user_id=user_id, limit=limit).get("history", [])

@@ -6,3 +6,4 @@ pytest-cov==6.2.1
 httpx==0.28.1
 pymongo==4.11.2
 redis==5.2.1
+websockets==13.1

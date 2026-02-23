@@ -1034,7 +1034,7 @@ class VoiceRecoveryService:
                 if value:
                     return value
             except Exception:
-                pass
+                value = ""
         try:
             canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         except Exception:
