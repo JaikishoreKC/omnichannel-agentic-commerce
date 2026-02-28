@@ -1,11 +1,13 @@
-import React, { createContext, useContext, useState, useEffect } from "react";
+import React, { createContext, useContext, useState } from "react";
 import { login as apiLogin, register as apiRegister, setToken, setSessionId } from "../api";
 import type { AuthUser } from "../types";
 
 interface AuthContextType {
     user: AuthUser | null;
     isAuthenticated: boolean;
+    isAdmin: boolean;
     login: (email: string, pass: string) => Promise<void>;
+    loginAdmin: (email: string, pass: string, otp: string) => Promise<void>;
     register: (name: string, email: string, pass: string) => Promise<void>;
     logout: () => void;
 }
@@ -19,21 +21,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     const isAuthenticated = !!user;
+    const isAdmin = user?.role === "admin";
 
-    const login = async (email: string, pass: string) => {
-        const res = await apiLogin({ email, password: pass });
+    const _applyAuth = (res: { user: AuthUser; accessToken: string; sessionId?: string }) => {
         setUser(res.user);
         setToken(res.accessToken);
         if (res.sessionId) setSessionId(res.sessionId);
         localStorage.setItem("commerce_user", JSON.stringify(res.user));
     };
 
+    const login = async (email: string, pass: string) => {
+        const res = await apiLogin({ email, password: pass });
+        if (res.user.role === "admin") {
+            throw new Error("Admin accounts must sign in via the admin portal.");
+        }
+        _applyAuth(res);
+    };
+
+    const loginAdmin = async (email: string, pass: string, otp: string) => {
+        const res = await apiLogin({ email, password: pass, otp });
+        if (res.user.role !== "admin") {
+            throw new Error("This portal is for admin accounts only.");
+        }
+        _applyAuth(res);
+    };
+
     const register = async (name: string, email: string, pass: string) => {
         const res = await apiRegister({ name, email, password: pass });
-        setUser(res.user);
-        setToken(res.accessToken);
-        if (res.sessionId) setSessionId(res.sessionId);
-        localStorage.setItem("commerce_user", JSON.stringify(res.user));
+        _applyAuth(res);
     };
 
     const logout = () => {
@@ -43,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, login, register, logout }}>
+        <AuthContext.Provider value={{ user, isAuthenticated, isAdmin, login, loginAdmin, register, logout }}>
             {children}
         </AuthContext.Provider>
     );

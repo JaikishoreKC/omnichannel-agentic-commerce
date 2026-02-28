@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ShoppingBag, User, Search, MessageSquare, Menu } from "lucide-react";
+import { ShoppingBag, User, Search, MessageSquare, Menu, Shield } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
@@ -68,12 +68,21 @@ const Navbar: React.FC = () => {
                     <div className="w-px h-6 bg-line mx-1" />
 
                     {user ? (
-                        <Link to="/account" data-testid="user-account-link">
-                            <Button variant="secondary" size="sm" className="gap-2 rounded-full px-4">
-                                <User size={16} />
-                                <span className="hidden sm:inline">{user.name.split(" ")[0]}</span>
-                            </Button>
-                        </Link>
+                        <div className="flex items-center gap-2">
+                            {user.role === "admin" && (
+                                <Link to="/admin" data-testid="admin-dashboard-link">
+                                    <Button variant="secondary" size="sm" className="gap-2 rounded-full px-4 bg-violet-100 text-violet-700 hover:bg-violet-200 border-violet-200">
+                                        <Shield size={14} /> Admin
+                                    </Button>
+                                </Link>
+                            )}
+                            <Link to="/account" data-testid="user-account-link">
+                                <Button variant="secondary" size="sm" className="gap-2 rounded-full px-4">
+                                    <User size={16} />
+                                    <span className="hidden sm:inline">{user.name.split(" ")[0]}</span>
+                                </Button>
+                            </Link>
+                        </div>
                     ) : (
                         <Link to="/login" data-testid="login-link">
                             <Button size="sm" className="rounded-full px-6">
