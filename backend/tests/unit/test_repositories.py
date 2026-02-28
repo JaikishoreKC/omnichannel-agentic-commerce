@@ -102,10 +102,15 @@ class _FakeMongoCollection:
                 else:
                     super().sort(**kwargs)
                 return self
+            def limit(self, n: int) -> "FakeCursor":
+                return FakeCursor(self[:n])
         return FakeCursor(results)
 
-    def find_one(self, filter: dict[str, Any], sort: list[tuple[str, int]] | None = None) -> dict[str, Any] | None:
+    def find_one(self, filter: dict[str, Any] | None = None, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        if filter is None:
+            filter = {}
         res = self.find(filter)
+        sort = kwargs.get("sort")
         if sort:
             # Very basic sort for the fake
             for field, direction in reversed(sort):
@@ -558,7 +563,7 @@ def test_product_and_inventory_repositories_roundtrip() -> None:
 
 def test_notification_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
-    mongo_manager, _ = _disabled_managers()
+    mongo_manager, _ = _fake_managers()
     repo = NotificationRepository(mongo_manager=mongo_manager)
 
     notification = {

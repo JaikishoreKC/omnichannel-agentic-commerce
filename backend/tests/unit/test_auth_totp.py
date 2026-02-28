@@ -21,8 +21,8 @@ def settings():
     )
 
 @pytest.fixture
-def auth_service(mock_store, settings, mock_repository):
-    return AuthService(mock_store, settings, mock_repository)
+def auth_service(settings, mock_repository):
+    return AuthService(settings=settings, auth_repository=mock_repository)
 
 def test_admin_login_with_valid_totp(auth_service, mock_repository, settings):
     user = {

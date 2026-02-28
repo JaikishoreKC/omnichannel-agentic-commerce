@@ -19,10 +19,28 @@ class _FakeMongoCollection:
                 if args:
                     field, direction = args[0] if isinstance(args[0], tuple) else (args[0], args[1])
                     super().sort(key=lambda x: x.get(str(field)), reverse=(direction == -1))
+                    super().sort(key=lambda x: x.get(str(field)), reverse=(direction == -1))
                 return self
+            def limit(self, n: int) -> "FakeCursor":
+                return FakeCursor(self[:n])
         return FakeCursor(results)
+    def find_one(self, filter: dict[str, Any] | None = None, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        if filter is None:
+            filter = {}
+        res = self.find(filter)
+        sort = kwargs.get("sort")
+        if sort:
+            for field, direction in reversed(sort):
+                res.sort(key=lambda x: x.get(field), reverse=(direction == -1))
+        return res[0] if res else None
     def insert_one(self, doc: dict[str, Any]) -> Any:
         self.docs.append(doc)
+    def update_one(self, filter: dict[str, Any], update: dict[str, Any], upsert: bool = False) -> Any:
+        # crude mock
+        self.docs.append(update.get("$set", update))
+        class Res:
+            pass
+        return Res()
     def count_documents(self, filter: dict[str, Any]) -> int:
         return len(self.docs)
 
@@ -35,8 +53,12 @@ class _FakeDatabase:
         return self.collections[name]
 
 class _FakeMongoClient:
+    def __init__(self):
+        self._db = _FakeDatabase()
     def get_default_database(self) -> _FakeDatabase:
-        return _FakeDatabase()
+        return self._db
+    def __getitem__(self, item: str) -> _FakeDatabase:
+        return self._db
 
 def _service() -> AdminActivityService:
     mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=True)

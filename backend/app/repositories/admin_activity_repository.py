@@ -28,6 +28,7 @@ class AdminActivityRepository:
             if not isinstance(row, dict):
                 continue
             output.append(row)
+        return output
     def get_latest(self) -> dict[str, Any] | None:
         collection = self._mongo_collection()
         if collection is None:

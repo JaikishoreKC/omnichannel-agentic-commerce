@@ -1,0 +1,47 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-8.4.1, pluggy-1.6.0 -- C:\Users\kcjai\AppData\Local\Programs\Python\Python310\python.exe
+cachedir: .pytest_cache
+rootdir: D:\Projects\omnichannel-agentic-commerce\backend
+configfile: pytest.ini
+plugins: anyio-4.9.0, asyncio-1.3.0, cov-6.2.1
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/unit/test_admin_activity_service.py::test_admin_activity_hash_chain_and_integrity WARNING: MongoClientManager is using a LOCALHOST URI: mongodb://localhost:27017/commerce_test
+WARNING: RedisClientManager is using a LOCALHOST URL: redis://localhost:6379/1
+PASSED
+tests/unit/test_admin_activity_service.py::test_admin_activity_integrity_detects_tampering PASSED
+tests/unit/test_admin_activity_service.py::test_admin_activity_integrity_detects_tampering ERROR
+
+=================================== ERRORS ====================================
+____ ERROR at teardown of test_admin_activity_integrity_detects_tampering _____
+
+    @pytest.fixture(scope="session", autouse=True)
+    def init_test_services():
+        mongodb_uri = os.environ.get("MONGODB_URI", "mongodb://localhost:27017/commerce_test")
+        redis_url = os.environ.get("REDIS_URL", "redis://localhost:6379/1")
+        container.mongo_manager.uri = mongodb_uri
+        container.mongo_manager.enabled = True
+        container.redis_manager.url = redis_url
+        container.redis_manager.enabled = True
+    
+        container.mongo_manager.connect()
+        container.redis_manager.connect()
+    
+        # Clean DB before tests
+        if container.mongo_manager.client:
+            container.mongo_manager.client.drop_database("commerce_test")
+        if container.redis_manager.client:
+            container.redis_manager.client.flushdb()
+    
+        yield
+        if getattr(container.mongo_manager, "client", None):
+            container.mongo_manager.client.close()
+        if getattr(container.redis_manager, "client", None):
+>           container.redis_manager.client.close()
+E           AttributeError: '_FakeRedisClient' object has no attribute 'close'
+
+tests\conftest.py:31: AttributeError
+=========================== short test summary info ===========================
+ERROR tests/unit/test_admin_activity_service.py::test_admin_activity_integrity_detects_tampering - AttributeError: '_FakeRedisClient' object has no attribute 'close'
+========================= 2 passed, 1 error in 0.31s ==========================

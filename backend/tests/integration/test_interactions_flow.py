@@ -572,7 +572,7 @@ def test_interaction_planner_atomic_mode_reports_step_errors(monkeypatch) -> Non
     planner_settings = replace(
         llm_client.settings,
         llm_enabled=True,
-        openai_api_key="test-key",
+        openrouter_api_key="test-key",
         llm_planner_enabled=True,
         planner_feature_enabled=True,
         planner_canary_percent=100,
@@ -630,7 +630,7 @@ def test_interaction_planner_canary_zero_disables_planner_attempt(monkeypatch) -
     planner_settings = replace(
         llm_client.settings,
         llm_enabled=True,
-        openai_api_key="test-key",
+        openrouter_api_key="test-key",
         llm_planner_enabled=True,
         planner_feature_enabled=True,
         planner_canary_percent=0,

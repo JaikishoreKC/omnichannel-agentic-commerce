@@ -41,7 +41,6 @@ class VoiceRecoveryService:
         self.user_repository = user_repository
         self.cart_repository = cart_repository
         self.order_repository = order_repository
-        voice_settings.ensure_defaults(self.voice_repository, self.settings)
 
     def process_due_work(self) -> dict[str, Any]:
         now = utc_now()

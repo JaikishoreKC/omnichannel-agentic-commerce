@@ -1,0 +1,91 @@
+﻿============================= test session starts =============================
+platform win32 -- Python 3.10.11, pytest-8.4.1, pluggy-1.6.0
+rootdir: D:\Projects\omnichannel-agentic-commerce\backend
+configfile: pytest.ini
+plugins: anyio-4.9.0, asyncio-1.3.0, cov-6.2.1
+asyncio: mode=strict, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collected 85 items
+
+tests\unit\test_admin_activity_service.py FF                             [  2%]
+tests\unit\test_auth_totp.py ...                                         [  5%]
+tests\unit\test_base_agent.py .                                          [  7%]
+tests\unit\test_circuit_breaker_and_classifier.py ...............        [ 24%]
+tests\unit\test_guest_cart_transfer_on_login.py F                        [ 25%]
+tests\unit\test_guest_checkout_guard.py F                                [ 27%]
+tests\unit\test_llm_client.py ................                           [ 45%]
+tests\unit\test_metrics_collector.py .                                   [ 47%]
+tests\unit\test_mongo_indexes.py ..                                      [ 49%]
+tests\unit\test_perf_smoke_script.py ...                                 [ 52%]
+tests\unit\test_rate_limiter.py ..                                       [ 55%]
+tests\unit\test_repositories.py .............                            [ 70%]
+tests\unit\test_repository_fallbacks.py ...                              [ 74%]
+tests\unit\test_scripts_bootstrap_and_indexes.py .....                   [ 80%]
+tests\unit\test_state_persistence_and_clients.py ....                    [ 84%]
+tests\unit\test_store_state_snapshot.py .                                [ 85%]
+tests\unit\test_superu_client.py .......                                 [ 94%]
+tests\unit\test_voice_recovery_service.py FFFFFE                         [100%]
+
+=================================== ERRORS ====================================
+_ ERROR at teardown of test_voice_recovery_ingests_provider_callback_idempotently _
+tests\conftest.py:29: in init_test_services
+    container.mongo_manager.disconnect()
+E   AttributeError: 'MongoClientManager' object has no attribute 'disconnect'. Did you mean: 'connect'?
+================================== FAILURES ===================================
+________________ test_admin_activity_hash_chain_and_integrity _________________
+tests\unit\test_admin_activity_service.py:96: in test_admin_activity_hash_chain_and_integrity
+    assert second["prevHash"] == first["entryHash"]
+E   AssertionError: assert '' == '874563da9580...78ffcbb6525b1'
+E     
+E     - 874563da9580ed4f40b1bb694e0d59df8a4a7791c680875a94f78ffcbb6525b1
+---------------------------- Captured stdout setup ----------------------------
+WARNING: MongoClientManager is using a LOCALHOST URI: mongodb://localhost:27017/commerce_test
+WARNING: RedisClientManager is using a LOCALHOST URL: redis://localhost:6379/1
+_______________ test_admin_activity_integrity_detects_tampering _______________
+tests\unit\test_admin_activity_service.py:120: in test_admin_activity_integrity_detects_tampering
+    docs[-1]["action"] = "tampered_action"
+E   IndexError: list index out of range
+___________________ test_guest_cart_is_attached_after_login ___________________
+D:\Projects\omnichannel-agentic-ai-commerce\backend\tests\unit\test_guest_cart_transfer_on_login.py:18: in test_guest_cart_is_attached_after_login
+    ???
+E   assert 404 == 201
+E    +  where 404 = <Response [404 Not Found]>.status_code
+_____________ test_guest_can_add_to_cart_but_cannot_create_order ______________
+D:\Projects\omnichannel-agentic-ai-commerce\backend\tests\unit\test_guest_checkout_guard.py:18: in test_guest_can_add_to_cart_but_cannot_create_order
+    ???
+E   assert 404 == 201
+E    +  where 404 = <Response [404 Not Found]>.status_code
+__________ test_voice_recovery_processes_abandoned_cart_successfully __________
+tests\unit\test_voice_recovery_service.py:254: in test_voice_recovery_processes_abandoned_cart_successfully
+    assert result["enqueued"] >= 1
+E   assert 0 >= 1
+_____________ test_voice_recovery_dead_letters_after_max_attempts _____________
+tests\unit\test_voice_recovery_service.py:266: in test_voice_recovery_dead_letters_after_max_attempts
+    assert int(result["processed"]["deadLetter"]) >= 1
+E   assert 0 >= 1
+E    +  where 0 = int(0)
+______________ test_voice_recovery_kill_switch_cancels_due_jobs _______________
+tests\unit\test_voice_recovery_service.py:279: in test_voice_recovery_kill_switch_cancels_due_jobs
+    assert int(result["processed"]["cancelled"]) >= 1
+E   assert 0 >= 1
+E    +  where 0 = int(0)
+__________________ test_voice_recovery_suppression_roundtrip __________________
+tests\unit\test_voice_recovery_service.py:288: in test_voice_recovery_suppression_roundtrip
+    user_id = next(row["id"] for row in users if row.get("role") == "customer")
+E   StopIteration
+_________ test_voice_recovery_ingests_provider_callback_idempotently __________
+tests\unit\test_voice_recovery_service.py:301: in test_voice_recovery_ingests_provider_callback_idempotently
+    assert int(processed["processed"]["completed"]) >= 1
+E   assert 0 >= 1
+E    +  where 0 = int(0)
+=========================== short test summary info ===========================
+FAILED tests/unit/test_admin_activity_service.py::test_admin_activity_hash_chain_and_integrity
+FAILED tests/unit/test_admin_activity_service.py::test_admin_activity_integrity_detects_tampering
+FAILED tests/unit/test_guest_cart_transfer_on_login.py::test_guest_cart_is_attached_after_login
+FAILED tests/unit/test_guest_checkout_guard.py::test_guest_can_add_to_cart_but_cannot_create_order
+FAILED tests/unit/test_voice_recovery_service.py::test_voice_recovery_processes_abandoned_cart_successfully
+FAILED tests/unit/test_voice_recovery_service.py::test_voice_recovery_dead_letters_after_max_attempts
+FAILED tests/unit/test_voice_recovery_service.py::test_voice_recovery_kill_switch_cancels_due_jobs
+FAILED tests/unit/test_voice_recovery_service.py::test_voice_recovery_suppression_roundtrip
+FAILED tests/unit/test_voice_recovery_service.py::test_voice_recovery_ingests_provider_callback_idempotently
+ERROR tests/unit/test_voice_recovery_service.py::test_voice_recovery_ingests_provider_callback_idempotently
+==================== 9 failed, 76 passed, 1 error in 4.15s ====================

@@ -197,7 +197,7 @@ def health() -> dict[str, object]:
             "voiceRecovery": {
                 "schedulerEnabled": settings.voice_recovery_scheduler_enabled,
                 "providerEnabled": voice_recovery_service.superu_client.enabled,
-                "runtimeEnabled": bool(voice_recovery_service.get_settings().get("enabled", False)),
+                "runtimeEnabled": bool(voice_recovery_service.get_settings().get("enabled", False)) if mongo_manager.status == "connected" else False,
             },
         },
     }

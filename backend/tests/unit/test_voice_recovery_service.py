@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 from datetime import timedelta
 from typing import Any
 
@@ -41,20 +42,59 @@ class _FakeMongoCollection:
             return True
         results = [deepcopy(doc) for doc in self.docs if match_doc(doc, filter)]
         class FakeCursor(list):
-            def sort(self, *args, **kwargs): return self
+            def sort(self, key_or_list, direction=1):
+                if isinstance(key_or_list, list):
+                    # Handle multiple sort keys, apply in reverse order
+                    for field, d in reversed(key_or_list):
+                        super().sort(key=lambda x: x.get(str(field)), reverse=(d == -1))
+                else:
+                    # Single sort key
+                    super().sort(key=lambda x: x.get(str(key_or_list)), reverse=(direction == -1))
+                return self
+            def limit(self, n: int) -> "FakeCursor":
+                return FakeCursor(self[:n])
         return FakeCursor(results)
-    def find_one(self, filter: dict[str, Any], sort=None) -> dict[str, Any] | None:
+
+    def find_one(self, filter: dict[str, Any] | None = None, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
+        if filter is None:
+            filter = {}
         res = self.find(filter)
+        sort = kwargs.get("sort")
+        if sort:
+            # Apply sort using the FakeCursor's sort method
+            res = res.sort(sort)
         return res[0] if res else None
-    def update_one(self, filter, update, upsert=False):
-        doc = self.find_one(filter)
-        if not doc and upsert:
-            doc = {**filter}
-            self.docs.append(doc)
-        if doc and "$set" in update:
-            doc.update(update["$set"])
-        class Res: matched_count = 1 if doc else 0; upserted_id = "new"
+
+    def insert_one(self, doc: dict[str, Any]) -> Any:
+        self.docs.append(doc)
+        class Res: inserted_id = doc.get("id", "new")
         return Res()
+
+    def update_one(self, filter, update, upsert=False):
+        found_idx = -1
+        def match_doc(d, f):
+            if not f: return True
+            for k, v in f.items():
+                if d.get(k) != v: return False
+            return True
+        for i, d in enumerate(self.docs):
+            if match_doc(d, filter):
+                found_idx = i
+                break
+        if found_idx == -1 and upsert:
+            new_doc = {**filter}
+            if "$set" in update:
+                new_doc.update(deepcopy(update["$set"]))
+            self.docs.append(new_doc)
+            class ResUpsert: matched_count = 0; upserted_id = "new"
+            return ResUpsert()
+        elif found_idx != -1:
+            if "$set" in update:
+                self.docs[found_idx].update(deepcopy(update["$set"]))
+            class ResMatch: matched_count = 1; upserted_id = None
+            return ResMatch()
+        class ResNoMatch: matched_count = 0; upserted_id = None
+        return ResNoMatch()
     def delete_one(self, filter):
         doc = self.find_one(filter)
         if doc: self.docs.remove(doc)
@@ -72,8 +112,12 @@ class _FakeDatabase:
         return self.collections[name]
 
 class _FakeMongoClient:
+    def __init__(self):
+        self._db = _FakeDatabase()
     def get_default_database(self) -> _FakeDatabase:
-        return _FakeDatabase()
+        return self._db
+    def __getitem__(self, item: str) -> _FakeDatabase:
+        return self._db
 
 def _fake_managers() -> tuple[MongoClientManager, RedisClientManager]:
     mongo = MongoClientManager(uri="mongodb://localhost", enabled=True)
