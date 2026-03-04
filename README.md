@@ -875,6 +875,7 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) includes:
 
 Primary docs in `docs/`:
 
+- `docs/REPOSITORY_INTELLIGENCE.md`
 - `docs/idea.txt`
 - `docs/prd.txt`
 - `docs/sdd.txt`
