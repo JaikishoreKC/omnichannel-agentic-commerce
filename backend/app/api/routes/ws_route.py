@@ -96,7 +96,7 @@ async def _resolve_and_sync_user_session(
                 if scheme.lower() == "bearer":
                     user = await asyncio.to_thread(auth_service.get_user_from_access_token, token)
                     user_id = str(user["id"])
-            except Exception:
+            except (ValueError, HTTPException):
                 user_id = None
                 
     if not user_id and active_session.get("userId"):

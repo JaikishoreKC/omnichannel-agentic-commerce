@@ -203,7 +203,7 @@ def health(request: Request) -> dict[str, object]:
 
     is_admin = False
     if token:
-        with suppress(Exception):
+        with suppress(HTTPException):
             user = auth_service.get_user_from_access_token(str(token))
             is_admin = str(user.get("role", "")).strip().lower() == "admin"
 

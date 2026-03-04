@@ -111,7 +111,7 @@ class ProductService:
         try:
             from sklearn.feature_extraction.text import TfidfVectorizer
             from sklearn.metrics.pairwise import cosine_similarity
-        except Exception:
+        except ImportError:
             return None
 
         index = self._build_or_get_search_index(products=products, vectorizer_cls=TfidfVectorizer)
@@ -159,7 +159,7 @@ class ProductService:
                     "matrix": matrix,
                     "enabled": True,
                 }
-            except Exception:
+            except (TypeError, ValueError):
                 self._search_index_cache = {
                     "key": key,
                     "products": products,

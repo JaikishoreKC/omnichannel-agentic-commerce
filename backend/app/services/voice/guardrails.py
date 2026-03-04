@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime, timezone, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 def in_quiet_hours(
     *,
@@ -12,7 +12,7 @@ def in_quiet_hours(
     tz_name = str(user.get("timezone", "")).strip() or str(settings.get("defaultTimezone", "UTC")).strip()
     try:
         zone = ZoneInfo(tz_name)
-    except Exception:
+    except ZoneInfoNotFoundError:
         zone = timezone.utc
     local_now = now.astimezone(zone)
     hour = local_now.hour
@@ -33,7 +33,7 @@ def next_non_quiet_time(
     tz_name = str(user.get("timezone", "")).strip() or str(settings.get("defaultTimezone", "UTC")).strip()
     try:
         zone = ZoneInfo(tz_name)
-    except Exception:
+    except ZoneInfoNotFoundError:
         zone = timezone.utc
     local_now = now.astimezone(zone)
     start = int(settings.get("quietHoursStart", 21))

@@ -1,9 +1,17 @@
 from __future__ import annotations
 
+from typing import Any
+
 from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 
 from app.api.deps import ACCESS_COOKIE_KEY, get_auth_service, get_cart_service, get_session_service, get_settings
-from app.models.schemas import LoginRequest, RefreshRequest, RegisterRequest
+from app.models.schemas import (
+    LoginRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    RefreshRequest,
+    RegisterRequest,
+)
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_service = get_auth_service()
@@ -45,6 +53,45 @@ def _clear_auth_cookies(response: Response) -> None:
     )
 
 
+def _resolve_user_session_context(
+    *,
+    request: Request,
+    user_id: str,
+    channel: str,
+    source: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
+    anonymous_id = None
+    if session_id:
+        try:
+            guest_session = session_service.get_session(session_id)
+            anonymous_id = guest_session.get("anonymousId")
+        except HTTPException:
+            anonymous_id = None
+    if session_id:
+        cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
+
+    resolved = session_service.resolve_user_session(
+        user_id=user_id,
+        preferred_session_id=session_id,
+        channel=channel,
+        anonymous_id=str(anonymous_id) if anonymous_id else None,
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+        metadata={
+            "source": source,
+            "referrer": request.headers.get("referer", ""),
+        },
+    )
+    linked_user = auth_service.link_identity(
+        user_id=user_id,
+        channel=channel,
+        external_id=str(resolved["id"]),
+        anonymous_id=str(resolved.get("anonymousId", "")) or None,
+    )
+    return resolved, linked_user
+
+
 @router.post("/register", status_code=201)
 def register(payload: RegisterRequest, request: Request, response: Response) -> dict[str, object]:
     channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
@@ -55,33 +102,11 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
         phone=payload.phone,
         timezone=payload.timezone,
     )
-    session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
-    anonymous_id = None
-    if session_id:
-        try:
-            guest_session = session_service.get_session(session_id)
-            anonymous_id = guest_session.get("anonymousId")
-        except Exception:
-            anonymous_id = None
-    if session_id:
-        cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
-    resolved = session_service.resolve_user_session(
-        user_id=str(result["user"]["id"]),
-        preferred_session_id=session_id,
-        channel=channel,
-        anonymous_id=str(anonymous_id) if anonymous_id else None,
-        user_agent=request.headers.get("User-Agent"),
-        ip_address=request.client.host if request.client else None,
-        metadata={
-            "source": "auth_register",
-            "referrer": request.headers.get("referer", ""),
-        },
-    )
-    linked_user = auth_service.link_identity(
+    resolved, linked_user = _resolve_user_session_context(
+        request=request,
         user_id=str(result["user"]["id"]),
         channel=channel,
-        external_id=str(resolved["id"]),
-        anonymous_id=str(resolved.get("anonymousId", "")) or None,
+        source="auth_register",
     )
     result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
@@ -97,33 +122,11 @@ def register(payload: RegisterRequest, request: Request, response: Response) -> 
 def login(payload: LoginRequest, request: Request, response: Response) -> dict[str, object]:
     channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
     result = auth_service.login(email=payload.email, password=payload.password, otp=payload.otp)
-    session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
-    anonymous_id = None
-    if session_id:
-        try:
-            guest_session = session_service.get_session(session_id)
-            anonymous_id = guest_session.get("anonymousId")
-        except Exception:
-            anonymous_id = None
-    if session_id:
-        cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=str(result["user"]["id"]))
-    resolved = session_service.resolve_user_session(
-        user_id=str(result["user"]["id"]),
-        preferred_session_id=session_id,
-        channel=channel,
-        anonymous_id=str(anonymous_id) if anonymous_id else None,
-        user_agent=request.headers.get("User-Agent"),
-        ip_address=request.client.host if request.client else None,
-        metadata={
-            "source": "auth_login",
-            "referrer": request.headers.get("referer", ""),
-        },
-    )
-    linked_user = auth_service.link_identity(
+    resolved, linked_user = _resolve_user_session_context(
+        request=request,
         user_id=str(result["user"]["id"]),
         channel=channel,
-        external_id=str(resolved["id"]),
-        anonymous_id=str(resolved.get("anonymousId", "")) or None,
+        source="auth_login",
     )
     result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
@@ -153,7 +156,7 @@ def refresh(
     return result
 
 
-@router.post("/logout", status_code=204)
+@router.post("/logout", status_code=204, response_class=Response)
 def logout(
     response: Response,
     refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE_KEY),
@@ -163,9 +166,6 @@ def logout(
     _clear_auth_cookies(response)
     response.status_code = 204
     return response
-
-
-from app.models.schemas import PasswordResetRequest, PasswordResetConfirmRequest
 
 @router.post("/reset-password-request", status_code=202)
 def request_password_reset(payload: PasswordResetRequest) -> dict[str, object]:

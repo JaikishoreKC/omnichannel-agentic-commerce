@@ -127,11 +127,11 @@ class SuperUClient:
                 timeout=12.0,
             )
             response.raise_for_status()
-        except Exception as exc:
+        except httpx.HTTPError as exc:
             raise RuntimeError(f"SuperU request failed: {exc}") from exc
         try:
             return response.json()
-        except Exception as exc:
+        except (json.JSONDecodeError, TypeError, ValueError) as exc:
             raise RuntimeError("SuperU response is not valid JSON") from exc
 
     def _extract_rows(self, payload: Any) -> list[dict[str, Any]]:
@@ -149,6 +149,6 @@ class SuperUClient:
     def payload_fingerprint(payload: dict[str, Any]) -> str:
         try:
             canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-        except Exception:
+        except (TypeError, ValueError):
             canonical = str(payload)
         return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

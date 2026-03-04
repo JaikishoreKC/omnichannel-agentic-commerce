@@ -104,9 +104,9 @@ Purpose: durable “repository brain” for safe future development.
 
 ## Frontend Modules
 - **`frontend/src/api/client.ts`**
-  - Auth/session token storage, request wrapper, silent refresh/retry, websocket connector
+  - Cookie-credentialed request wrapper, in-memory auth state, silent refresh/retry, websocket connector
 - **`frontend/src/context/*`**
-  - Session bootstrap, auth lifecycle, cart sync, websocket chat lifecycle
+  - Session bootstrap, server-backed auth lifecycle (login/logout), cart sync, websocket chat lifecycle
 - **`frontend/src/pages/*`**
   - Customer flows (home/products/detail/cart/account/auth)
   - Admin flows (login/dashboard)
@@ -117,7 +117,7 @@ Purpose: durable “repository brain” for safe future development.
 
 ## A. User Request Flow (REST)
 1. Client calls `/v1/...` via `request()` in frontend API client.
-2. API deps resolve auth user + session context (`Authorization`, `X-Session-Id`, cookie fallback).
+2. API deps resolve auth user + session context (cookie-first access token, optional `Authorization`, `X-Session-Id`, cookie fallback).
 3. Middleware enforces hardening/rate/security and records metrics.
 4. Route delegates to service layer.
 5. Service executes business rules and repository operations.
@@ -181,16 +181,16 @@ Purpose: durable “repository brain” for safe future development.
 - Layered architecture in docs matches implementation modules.
 - Session/cart continuity and auth-gated checkout are implemented.
 - Voice recovery subsystem exists with guardrails and callbacks.
-- Metrics and health endpoints match stated observability model.
+- Metrics and health endpoints match stated observability model, including admin-gated detailed health diagnostics.
 
 ## Notable Drift / Mismatches
 1. **LLM provider docs vs runtime config**
    - Docs emphasize OpenAI/Anthropic dual mode.
    - Runtime currently centers OpenRouter fields in config/client paths.
 
-2. **Admin MFA doc wording vs implementation**
-   - Security doc references static code semantics.
-   - Auth service uses TOTP secret validation path (with fallback behavior).
+2. **Admin MFA docs now mostly aligned (remediated on 2026-03-05)**
+  - Auth service now enforces TOTP-only verification when MFA is required.
+  - Missing MFA dependency path fails closed rather than allowing fallback OTP.
 
 3. **Frontend memory/admin contract drift (remediated on 2026-03-05)**
   - Memory API wrapper and `AiMemoryTab` now align with backend memory snapshot/history/delete contracts.
@@ -220,6 +220,7 @@ These are key risk zones for future feature work.
 
 ## Security / Transport / Contracts
 - `backend/app/api/deps.py`
+- `backend/app/api/routes/auth_routes.py`
 - `backend/app/middleware/request_hardening.py`
 - `backend/app/middleware/rate_limiting.py`
 - `backend/app/models/schemas.py`
@@ -244,7 +245,7 @@ These are key risk zones for future feature work.
 - Orchestrator/Agents: conversational intent/action execution
 - Services: domain policy and workflows
 - Repositories: storage interface and cache behavior
-- Frontend contexts/API modules: session/auth/chat/cart application state and backend coordination
+- Frontend contexts/API modules: cookie-first session/auth/chat/cart state and backend coordination
 
 ## Key Dependencies Summary
 - Container-driven dependency graph dominates backend coupling.
@@ -398,6 +399,81 @@ When implementation changes materially, update this file in the same PR under:
 - Added integration coverage for logout revocation and cookie clearing behavior: `backend/tests/integration/test_auth_refresh_rotation.py`.
 
 ### Final Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+---
+
+## 16) Change Log (2026-03-05, Technical Debt Cleanup Pass)
+
+### Implemented
+- Removed transitional auth repository compatibility paths and in-memory reset-token mirror to simplify persistence behavior around hashed tokens only: `backend/app/repositories/auth_repository.py`.
+- Refactored auth route session linking/merge duplication into a single helper for register/login flows: `backend/app/api/routes/auth_routes.py`.
+- Removed placeholder constructor and added minimal token sanity check in payment authorization stub: `backend/app/services/payment_service.py`.
+- Replaced silent baseline seeding exception swallow with warning-level structured logging in container startup: `backend/app/container.py`.
+- Narrowed broad exception handling in product semantic-search helper paths to explicit expected exception types: `backend/app/services/product_service.py`.
+- Removed tracked ad-hoc backend scratch scripts: `backend/test_scratch.py`, `backend/test_scratch2.py`.
+- Updated fallback repository tests to current hashed refresh-token storage shape (`tokenHash`): `backend/tests/unit/test_repository_fallbacks.py`.
+
+### Validation Snapshot
+- Backend tests (targeted): `21 passed`
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Follow-up Completion (2026-03-05)
+- Tightened parsing/normalization exception scopes to explicit conversion errors while preserving fallback behavior: `backend/app/services/memory_service.py`, `backend/app/agents/cart_agent.py`, `backend/app/infrastructure/llm_client.py`.
+- Replaced silent invalid-session dependency fallback with explicit reset path before new session issuance: `backend/app/api/deps.py`.
+- Narrowed timezone fallback handling to `ZoneInfoNotFoundError`: `backend/app/services/voice/guardrails.py`.
+- Removed remaining tracked ad-hoc tmp operational/debug scripts: `tmp/check_orders.py`, `tmp/check_products.py`, `tmp/seed_products.py`.
+
+### Follow-up Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Final Follow-up Completion (2026-03-05)
+- Tightened order payment rollback guard to expected failure types (`HTTPException`, conversion errors) while retaining rollback-on-failure semantics: `backend/app/services/order_service.py`.
+- Narrowed LLM classifier/planner/generate response exception handling and replaced generic retry exhaustion raises with `RuntimeError`: `backend/app/infrastructure/llm_client.py`.
+- Removed broad websocket auth-header parse catch in favor of explicit parse/auth failures: `backend/app/api/routes/ws_route.py`.
+
+### Final Follow-up Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Infrastructure Follow-up Completion (2026-03-05)
+- Narrowed SuperU client exception handling to transport/JSON serialization failure classes and kept explicit runtime wrapping semantics: `backend/app/infrastructure/superu_client.py`.
+- Removed redundant broad wrapper in general agent non-streaming path while preserving graceful fallback messaging: `backend/app/agents/general_agent.py`.
+- Tightened interaction identity-link fallback catches to explicit operational failures and retained compatibility with integration failure simulation (`RuntimeError`): `backend/app/api/routes/interaction_routes.py`.
+
+### Infrastructure Follow-up Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Infrastructure Follow-up II (2026-03-05)
+- Narrowed auth-token fallback suppression to explicit auth failures in rate limiting and health checks: `backend/app/middleware/rate_limiting.py`, `backend/app/main.py`.
+- Narrowed fallback monkeypatch suppression when attaching no-op `close()` handles in persistence managers: `backend/app/infrastructure/persistence_clients.py`.
+- Tightened Mongo index bootstrap retry error handling and retained runtime/test compatibility for retryable ping failures: `backend/app/scripts/create_indexes.py`.
+
+### Infrastructure Follow-up II Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Infrastructure Follow-up III (2026-03-05)
+- Narrowed Redis disconnect suppression to explicit close-operation failures (`AttributeError`, `TypeError`, `RuntimeError`) in persistence managers: `backend/app/infrastructure/persistence_clients.py`.
+- Evaluated and retained remaining broad catches in `persistence_clients.connect`, `circuit_breaker.call`, and `container.ensure_baseline_seed_data` as intentional resilience boundaries for startup/runtime fault tolerance.
+
+### Infrastructure Follow-up III Validation Snapshot
 - Backend tests (full suite): `172 passed`
 - Frontend tests: `5 passed`
 - Frontend lint: `passed`

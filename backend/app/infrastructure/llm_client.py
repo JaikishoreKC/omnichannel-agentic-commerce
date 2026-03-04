@@ -192,7 +192,7 @@ class LLMClient:
             raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=INTENT_CLASSIFICATION_PROMPT))
         except CircuitBreakerOpenError:
             return None
-        except Exception:
+        except (RuntimeError, ValueError, httpx.HTTPError):
             return None
 
         payload = self._try_parse_json(raw)
@@ -232,7 +232,7 @@ class LLMClient:
             raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=ACTION_PLANNING_PROMPT))
         except CircuitBreakerOpenError:
             return None
-        except Exception:
+        except (RuntimeError, ValueError, httpx.HTTPError):
             return None
 
         payload = self._try_parse_json(raw)
@@ -391,7 +391,7 @@ class LLMClient:
                         await asyncio.sleep(delay)
                         continue
                     else:
-                        raise Exception("Rate limited after all retries")
+                        raise RuntimeError("Rate limited after all retries")
                 
                 response.raise_for_status()
                 payload = response.json()
@@ -431,7 +431,7 @@ class LLMClient:
                 except json.JSONDecodeError:
                     return response
             return response
-        except Exception as e:
+        except (RuntimeError, ValueError, httpx.HTTPError) as e:
             logger.error(f"LLM generate_response failed: {e}")
             return None
 
@@ -476,7 +476,7 @@ class LLMClient:
                                 await asyncio.sleep(delay)
                                 continue
                             else:
-                                raise Exception("Rate limited after all retries")
+                                raise RuntimeError("Rate limited after all retries")
 
                         response.raise_for_status()
                         async for line in response.aiter_lines():
@@ -508,7 +508,7 @@ class LLMClient:
             try:
                 return float(retry_after)
             except ValueError:
-                pass
+                return float(base_delay * (2 ** attempt))
         return float(base_delay * (2 ** attempt))
 
     def _build_classification_prompt(self, *, message: str, recent_messages: list[dict[str, Any]]) -> str:
@@ -556,7 +556,7 @@ class LLMClient:
     def _planner_max_actions(self) -> int:
         try:
             value = int(self.settings.llm_planner_max_actions)
-        except Exception:
+        except (TypeError, ValueError):
             value = 5
         return max(1, min(10, value))
 
@@ -567,7 +567,7 @@ class LLMClient:
     def _normalize_confidence(value: Any) -> float:
         try:
             number = float(value)
-        except Exception:
+        except (TypeError, ValueError):
             number = 0.0
         return max(0.0, min(1.0, number))
 
@@ -581,13 +581,11 @@ class LLMClient:
             parsed = json.loads(text)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
-            pass
-
-        match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-        if not match:
-            return None
-        try:
-            parsed = json.loads(match.group(0))
-        except json.JSONDecodeError:
-            return None
-        return parsed if isinstance(parsed, dict) else None
+            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+            if not match:
+                return None
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                return None
+            return parsed if isinstance(parsed, dict) else None

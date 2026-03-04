@@ -57,7 +57,7 @@ class OrderService:
                 amount=float(cart["total"]),
                 payment_method=payment_method,
             )
-        except Exception:
+        except (HTTPException, TypeError, ValueError):
             self.inventory_service.rollback_reservation(reservations)
             raise
 

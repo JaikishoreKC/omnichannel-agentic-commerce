@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from threading import Lock
+from app.infrastructure.logging import get_logger
 
 from app.core.config import Settings
 from app.agents.cart_agent import CartAgent
@@ -55,6 +56,7 @@ from app.store.in_memory import InMemoryStore
 
 class Container:
     def __init__(self) -> None:
+        self.logger = get_logger(__name__)
         self.settings = Settings.from_env()
         self.settings.validate_security()
         self.store = InMemoryStore()
@@ -273,8 +275,8 @@ class Container:
 
                 voice_settings.ensure_defaults(self.voice_repository, self.settings)
                 self._baseline_seeded = True
-            except Exception:
-                pass
+            except Exception as exc:
+                self.logger.warning("baseline_seed_failed", error=str(exc))
 
 container = Container()
 

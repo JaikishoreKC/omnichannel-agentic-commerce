@@ -283,5 +283,5 @@ class MemoryService:
     def _coerce_float(value: Any, *, default: float) -> float:
         try:
             return float(value)
-        except Exception:
+        except (TypeError, ValueError):
             return float(default)

@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from pymongo import MongoClient
+from pymongo.errors import PyMongoError
 
 from app.core.config import Settings
 from app.infrastructure.mongo_indexes import ensure_mongo_indexes
@@ -28,7 +29,7 @@ def _connect_with_retry(*, uri: str, retries: int, retry_delay: float, timeout_m
         try:
             client.admin.command("ping")
             return client
-        except Exception as exc:  # pragma: no cover - exercised in runtime environments
+        except (PyMongoError, RuntimeError) as exc:  # pragma: no cover - exercised in runtime environments
             last_error = exc
             client.close()
             if attempt >= retries:

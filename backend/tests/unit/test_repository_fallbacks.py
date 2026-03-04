@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from copy import deepcopy
 from typing import Any
@@ -138,9 +139,10 @@ def test_auth_repository_external_fallbacks_and_revocation() -> None:
     assert by_email["id"] == "user_ext_2"
 
     # Invalid redis JSON should fall through to mongo for refresh tokens.
-    redis.client.set("refresh:tok_1", "{bad-json", ex=3600)
+    token_hash = hashlib.sha256("tok_1".encode("utf-8")).hexdigest()
+    redis.client.set(f"refresh:{token_hash}", "{bad-json", ex=3600)
     mongo.client.get_default_database()["refresh_tokens"].rows.append(
-        {"token": "tok_1", "userId": "user_ext_2", "createdAt": iso_now(), "_id": "oid2"}
+        {"tokenHash": token_hash, "userId": "user_ext_2", "createdAt": iso_now(), "_id": "oid2"}
     )
     refresh = repo.get_refresh_token("tok_1")
     assert refresh is not None
@@ -148,7 +150,7 @@ def test_auth_repository_external_fallbacks_and_revocation() -> None:
 
     repo.revoke_refresh_token("tok_1")
     assert repo.get_refresh_token("tok_1") is None
-    assert mongo.client.get_default_database()["refresh_tokens"].find_one({"token": "tok_1"}) is None
+    assert mongo.client.get_default_database()["refresh_tokens"].find_one({"tokenHash": token_hash}) is None
 
 
 def test_session_repository_external_fallbacks_delete_and_count() -> None:

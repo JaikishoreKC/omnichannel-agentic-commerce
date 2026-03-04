@@ -3,6 +3,7 @@ import hashlib
 from time import time
 from contextlib import suppress
 from fastapi import Request
+from fastapi import HTTPException
 from fastapi.responses import JSONResponse
 from app.api.deps import (
     get_auth_service,
@@ -24,7 +25,7 @@ def _rate_limit_profile(request: Request) -> tuple[str, int]:
             digest = hashlib.sha256(raw_token.encode("utf-8")).hexdigest()[:24]
             limit = settings.rate_limit_authenticated_per_minute
             subject_prefix = "auth"
-            with suppress(Exception):
+            with suppress(HTTPException):
                 user = auth_service.get_user_from_access_token(raw_token)
                 if str(user.get("role", "")).strip().lower() == "admin":
                     subject_prefix = "admin"

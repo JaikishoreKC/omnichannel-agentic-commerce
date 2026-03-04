@@ -152,7 +152,7 @@ def resolve_session_id(
             session_service.get_session(session_id)
             return session_id
         except HTTPException:
-            pass
+            session_id = None
 
     created = session_service.create_session(
         channel="web",

@@ -301,7 +301,7 @@ class CartAgent(BaseAgent):
     def _safe_quantity(self, value: Any) -> int:
         try:
             parsed = int(value)
-        except Exception:
+        except (TypeError, ValueError):
             parsed = 1
         return max(1, min(50, parsed))
 
@@ -521,7 +521,7 @@ class CartAgent(BaseAgent):
             if name:
                 return name
         except HTTPException:
-            pass
+            return "item"
         return "item"
 
     def _infer_from_recent(self, recent: list[dict[str, Any]]) -> dict[str, Any]:
