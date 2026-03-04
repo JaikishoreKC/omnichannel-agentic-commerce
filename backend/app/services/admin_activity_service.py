@@ -56,62 +56,124 @@ class AdminActivityService:
             "hashVersion": "v1",
         }
         payload["entryHash"] = self._compute_entry_hash(payload)
-        return self.admin_activity_repository.create(payload)
+        created = self.admin_activity_repository.create(payload)
+        self._mirror_to_in_memory_log(created)
+        return created
 
     def list_recent(self, *, limit: int = 100) -> dict[str, Any]:
-        return {"logs": self.admin_activity_repository.list_recent(limit=limit)}
+        logs = self._list_recent_logs(limit=limit)
+        return {"logs": logs}
 
     def verify_integrity(self, *, limit: int = 5000) -> dict[str, Any]:
         safe_limit = max(1, min(limit, 10000))
-        logs = self.admin_activity_repository.list_recent(limit=safe_limit)
-        # list_recent returns them sorted DESC by timestamp. 
-        # For verification, we likely want them ASC if we're chaining hashes.
-        logs.reverse()
+        logs = self._list_recent_logs(limit=safe_limit)
 
         if not logs:
             return {"ok": True, "total": 0, "issues": []}
 
         issues: list[dict[str, Any]] = []
-        expected_prev = ""
-        # Note: If we only have the last N logs, we can't verify the very first one's prevHash if it was non-empty.
-        # But for now let's assume if it's the start of our check, we might not know the exact expected_prev.
-        # However, if we start from the very beginning of the collection, expected_prev = "".
-        # For a partial list, this check might fail on the first element.
-        for i, row in enumerate(logs):
+        by_entry_hash = {
+            str(row.get("entryHash", "")).strip(): row
+            for row in logs
+            if isinstance(row, dict) and str(row.get("entryHash", "")).strip()
+        }
+        prev_hash_claims: dict[str, int] = {}
+
+        for row in logs:
             row_id = str(row.get("id", "")).strip()
             prev_hash = str(row.get("prevHash", "")).strip()
             entry_hash = str(row.get("entryHash", "")).strip()
-            
-            if i == 0 and prev_hash != "":
-                 # If it's a sliding window check, we might need to skip prevHash check for the first element
-                 # OR fetch the one before it.
-                 pass
-            elif prev_hash != expected_prev:
+
+            if prev_hash:
+                prev_hash_claims[prev_hash] = prev_hash_claims.get(prev_hash, 0) + 1
+                if prev_hash not in by_entry_hash:
+                    # Could be due to window truncation; still report as mismatch for visibility.
+                    # Callers can increase limit for full-chain verification.
+                    issues.append(
+                        {
+                            "id": row_id,
+                            "error": "prev_hash_mismatch",
+                            "expectedPrevHash": "existing_entry_hash",
+                            "actualPrevHash": prev_hash,
+                        }
+                    )
+
+            if not entry_hash:
                 issues.append(
                     {
                         "id": row_id,
-                        "error": "prev_hash_mismatch",
-                        "expectedPrevHash": expected_prev,
-                        "actualPrevHash": prev_hash,
+                        "error": "missing_entry_hash",
                     }
                 )
             expected_entry = self._compute_entry_hash(row)
-            if not entry_hash:
-                issues.append({"id": row_id, "error": "missing_entry_hash"})
-            elif entry_hash != expected_entry:
+            if entry_hash and entry_hash != expected_entry:
                 issues.append(
                     {
                         "id": row_id,
                         "error": "entry_hash_mismatch",
                     }
                 )
-            expected_prev = entry_hash
+
+        for parent_hash, claim_count in prev_hash_claims.items():
+            if claim_count > 1:
+                issues.append(
+                    {
+                        "id": parent_hash,
+                        "error": "hash_chain_fork",
+                    }
+                )
 
         return {
             "ok": len(issues) == 0,
             "total": len(logs),
             "issues": issues,
         }
+
+    def _list_recent_logs(self, *, limit: int) -> list[dict[str, Any]]:
+        safe_limit = max(1, min(limit, 5000))
+        repo_logs = self.admin_activity_repository.list_recent(limit=safe_limit)
+        if repo_logs:
+            memory_logs = self._read_in_memory_logs(limit=safe_limit)
+            if memory_logs and self._should_use_memory_mirror():
+                return memory_logs
+            return repo_logs
+        memory_logs = self._read_in_memory_logs(limit=safe_limit)
+        if memory_logs and self._should_use_memory_mirror():
+            return memory_logs
+        return repo_logs
+
+    def _mirror_to_in_memory_log(self, payload: dict[str, Any]) -> None:
+        if not self._should_use_memory_mirror():
+            return
+        try:
+            from app.container import store
+
+            logs = getattr(store, "admin_activity_logs", None)
+            if isinstance(logs, list):
+                logs.append(deepcopy(payload))
+        except Exception:
+            return
+
+    def _read_in_memory_logs(self, *, limit: int) -> list[dict[str, Any]]:
+        try:
+            from app.container import store
+
+            logs = getattr(store, "admin_activity_logs", None)
+            if not isinstance(logs, list) or not logs:
+                return []
+            safe_limit = max(1, min(limit, 5000))
+            slice_logs = logs[-safe_limit:]
+            return [deepcopy(row) for row in reversed(slice_logs) if isinstance(row, dict)]
+        except Exception:
+            return []
+
+    def _should_use_memory_mirror(self) -> bool:
+        try:
+            from app.container import admin_activity_repository as container_admin_activity_repository
+
+            return self.admin_activity_repository is container_admin_activity_repository
+        except Exception:
+            return False
 
     def _compute_entry_hash(self, payload: dict[str, Any]) -> str:
         canonical = json.dumps(

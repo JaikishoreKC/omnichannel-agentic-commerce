@@ -7,6 +7,7 @@ from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 from app.container import (
     auth_service,
     cart_service,
+    container,
     metrics_collector,
     orchestrator,
     session_service,
@@ -145,6 +146,7 @@ async def _resolve_and_sync_user_session(
     return session_id, active_session, user_id
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
+    container.ensure_external_baseline()
     origin = str(websocket.headers.get("origin", "")).strip()
     logger.info(f"WebSocket connection attempt from origin: {origin}")
     logger.info(f"Allowed origins: {settings.cors_origin_list}")

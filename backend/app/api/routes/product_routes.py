@@ -30,7 +30,11 @@ def list_products(
 
 @router.get("/{product_id}")
 def get_product(product_id: str) -> dict[str, object]:
-    return product_service.get_product(product_id=product_id)
+    result = product_service.get_product(product_id=product_id)
+    product = result.get("product") if isinstance(result, dict) else None
+    if isinstance(product, dict):
+        return product
+    return result
 
 
 from app.models.schemas import AddProductReviewRequest

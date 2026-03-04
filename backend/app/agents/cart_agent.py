@@ -309,6 +309,8 @@ class CartAgent(BaseAgent):
                 product = self.product_service.get_product(product_id)
             except HTTPException:
                 product = None
+            if isinstance(product, dict) and isinstance(product.get("product"), dict):
+                product = product["product"]
             if isinstance(product, dict):
                 variants = self._matching_in_stock_variants(product=product, color=color, size=size)
                 if len(variants) == 1:
@@ -497,6 +499,8 @@ class CartAgent(BaseAgent):
     def _product_name(self, product_id: str) -> str:
         try:
             product = self.product_service.get_product(product_id)
+            if isinstance(product, dict) and isinstance(product.get("product"), dict):
+                product = product["product"]
             name = str(product.get("name", "")).strip()
             if name:
                 return name

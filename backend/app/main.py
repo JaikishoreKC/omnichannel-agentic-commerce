@@ -37,6 +37,10 @@ from app.container import (
     voice_recovery_service,
 )
 
+async def ensure_runtime_baseline_data(request: Request, call_next):
+    container.ensure_external_baseline()
+    return await call_next(request)
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize structured logging
@@ -78,6 +82,7 @@ app.add_middleware(
 )
 
 # Register custom middlewares
+app.middleware("http")(ensure_runtime_baseline_data)
 app.middleware("http")(apply_response_security_headers)
 app.middleware("http")(enforce_request_hardening)
 app.middleware("http")(enforce_rate_limits)

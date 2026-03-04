@@ -103,13 +103,13 @@ class SupportService:
                     {
                         "actor": actor,
                         "message": str(note).strip(),
-                        "timestamp": self.store.iso_now(),
+                        "timestamp": iso_now(),
                     }
                 )
 
         if ticket.get("status") in {"resolved", "closed"}:
             ticket["resolution"] = (note or ticket.get("resolution") or "").strip() or "Resolved by support"
-        ticket["updatedAt"] = self.store.iso_now()
+        ticket["updatedAt"] = iso_now()
         return self.support_repository.update(ticket)
 
     def ensure_open_ticket(

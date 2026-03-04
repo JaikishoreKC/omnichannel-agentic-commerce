@@ -62,7 +62,7 @@ class CategoryRepository:
         # We need the slug to properly clear Redis cache
         collection = self._mongo_collection()
         slug_value = ""
-        if collection:
+        if collection is not None:
             row = collection.find_one({"$or": [{"categoryId": category_id}, {"slug": category_id}]})
             if row:
                 slug_value = str(row.get("slug", ""))

@@ -193,11 +193,11 @@ class IntentClassifier:
         return IntentResult(name="general_question", confidence=0.6, entities={"query": message.strip()})
 
     def _extract_order_id(self, text: str) -> dict[str, Any]:
-        match = re.search(r"(order[_\-]?\d+|ord[_\-]?\d+)", text)
+        match = re.search(r"\b(order[_\-][a-z0-9]+|ord[_\-][a-z0-9]+)\b", text)
         return {"orderId": match.group(1)} if match else {}
 
     def _extract_ticket_id(self, text: str) -> dict[str, Any]:
-        match = re.search(r"(ticket[_\-]?(?:item[_\-]?)?\d+)", text)
+        match = re.search(r"\b(ticket[_\-][a-z0-9]+)\b", text)
         if not match:
             return {}
         return {"ticketId": match.group(1).replace("-", "_")}

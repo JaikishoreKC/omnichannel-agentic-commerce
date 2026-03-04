@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+
 from app.core.config import Settings
 from app.agents.cart_agent import CartAgent
 from app.agents.memory_agent import MemoryAgent
@@ -47,6 +49,7 @@ from app.services.product_service import ProductService
 from app.services.session_service import SessionService
 from app.services.support_service import SupportService
 from app.services.voice_recovery_service import VoiceRecoveryService
+from app.services.voice import settings as voice_settings
 from app.store.in_memory import InMemoryStore
 
 class Container:
@@ -222,10 +225,40 @@ class Container:
     async def start(self) -> None:
         self.mongo_manager.connect()
         self.redis_manager.connect()
+        self._seed_external_baseline_if_empty()
 
     async def stop(self) -> None:
         self.mongo_manager.disconnect()
         self.redis_manager.disconnect()
+
+    def ensure_external_baseline(self) -> None:
+        self._seed_external_baseline_if_empty()
+
+    def _seed_external_baseline_if_empty(self) -> None:
+        if not (self.mongo_manager.enabled or self.redis_manager.enabled):
+            return
+        if self.mongo_manager.client is None:
+            return
+
+        try:
+            if not self.auth_repository.list_all_users(limit=1):
+                for user in self.store.users_by_id.values():
+                    self.auth_repository.create_user(deepcopy(user))
+
+            if not self.product_repository.list_all():
+                for product in self.store.products_by_id.values():
+                    self.product_repository.create(deepcopy(product))
+
+            if not self.category_repository.list_all():
+                for category in self.store.categories_by_id.values():
+                    self.category_repository.create(deepcopy(category))
+
+            for stock in self.store.inventory_by_variant.values():
+                self.inventory_repository.upsert(deepcopy(stock))
+
+            voice_settings.ensure_defaults(self.voice_repository, self.settings)
+        except Exception:
+            pass
 
 container = Container()
 
