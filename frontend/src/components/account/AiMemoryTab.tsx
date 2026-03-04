@@ -89,6 +89,8 @@ export const AiMemoryTab: React.FC = () => {
                             </div>
                             <button
                                 onClick={() => handleDelete(m.key)}
+                                aria-label={`Delete memory ${m.key.replace(/_/g, " ")}`}
+                                title="Delete memory"
                                 className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"
                             >
                                 <Trash2 size={16} />

@@ -74,7 +74,13 @@ const ProductsPage: React.FC = () => {
                             className="pl-12 bg-white"
                         />
                     </div>
-                    <Button variant="secondary" size="icon" className="shrink-0 rounded-xl">
+                    <Button
+                        variant="secondary"
+                        size="icon"
+                        className="shrink-0 rounded-xl"
+                        aria-label="Open filters"
+                        title="Filters"
+                    >
                         <SlidersHorizontal size={18} />
                     </Button>
                 </div>
@@ -103,12 +109,16 @@ const ProductsPage: React.FC = () => {
                     <button
                         onClick={() => setViewMode("grid")}
                         className={cn("p-2 rounded-lg transition-all", viewMode === "grid" ? "bg-white shadow-sm text-brand" : "text-slate-400 hover:text-slate-600")}
+                        aria-label="Grid view"
+                        title="Grid view"
                     >
                         <Grid3X3 size={18} />
                     </button>
                     <button
                         onClick={() => setViewMode("list")}
                         className={cn("p-2 rounded-lg transition-all", viewMode === "list" ? "bg-white shadow-sm text-brand" : "text-slate-400 hover:text-slate-600")}
+                        aria-label="List view"
+                        title="List view"
                     >
                         <List size={18} />
                     </button>

@@ -182,6 +182,8 @@ const AdminLoginPage: React.FC = () => {
                                             value={digit}
                                             onChange={(e) => handleOtpChange(i, e.target.value)}
                                             onKeyDown={(e) => handleOtpKeyDown(i, e)}
+                                            aria-label={`One-time passcode digit ${i + 1}`}
+                                            title={`OTP digit ${i + 1}`}
                                             className={`w-12 h-14 text-center text-xl font-bold rounded-2xl border transition-all duration-150 bg-slate-900/60 text-white focus:outline-none
                                                 ${digit
                                                     ? "border-violet-500 bg-violet-500/10 text-violet-300"

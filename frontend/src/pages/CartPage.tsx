@@ -131,6 +131,8 @@ const CartPage: React.FC = () => {
                                 <button
                                     className="p-2 hover:text-brand transition-colors"
                                     onClick={() => updateItemQuantity(item.itemId, item.quantity - 1)}
+                                    aria-label={`Decrease quantity for ${item.name}`}
+                                    title="Decrease quantity"
                                 >
                                     <Minus size={16} />
                                 </button>
@@ -138,6 +140,8 @@ const CartPage: React.FC = () => {
                                 <button
                                     className="p-2 hover:text-brand transition-colors"
                                     onClick={() => updateItemQuantity(item.itemId, item.quantity + 1)}
+                                    aria-label={`Increase quantity for ${item.name}`}
+                                    title="Increase quantity"
                                 >
                                     <Plus size={16} />
                                 </button>
@@ -146,6 +150,8 @@ const CartPage: React.FC = () => {
                             <button
                                 className="p-2 text-slate-300 hover:text-red-500 transition-colors"
                                 onClick={() => removeItem(item.itemId)}
+                                aria-label={`Remove ${item.name} from cart`}
+                                title="Remove item"
                             >
                                 <Trash2 size={20} />
                             </button>
@@ -241,6 +247,8 @@ const CartPage: React.FC = () => {
                         <button
                             onClick={() => setShowCheckoutModal(false)}
                             className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
+                            aria-label="Close checkout modal"
+                            title="Close"
                         >
                             <X size={20} />
                         </button>
