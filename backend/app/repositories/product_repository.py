@@ -47,6 +47,10 @@ class ProductRepository:
         self._write_to_redis(payload)
         return payload
 
+    # Alias for get_by_id - used by product_service
+    def get_by_id(self, product_id: str) -> dict[str, Any] | None:
+        return self.get(product_id)
+
     def create(self, product: dict[str, Any]) -> dict[str, Any]:
         self._write_to_redis(product)
         self._write_to_mongo(product)
