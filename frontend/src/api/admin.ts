@@ -49,6 +49,27 @@ export interface ActivityLog {
     ipAddress?: string;
 }
 
+export interface HealthStatus {
+    status: string;
+    services: {
+        llm: {
+            enabled: boolean;
+            provider: string;
+            circuit_breaker: string;
+        };
+        [key: string]: any;
+    };
+    [key: string]: any;
+}
+
+export async function getHealth(): Promise<HealthStatus> {
+    const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
+    const healthUrl = API_BASE.replace("/v1", "/health");
+    const res = await fetch(healthUrl);
+    if (!res.ok) throw new Error("Failed to fetch health");
+    return res.json();
+}
+
 export async function getAdminStats(): Promise<AdminStats> {
     const res = await request<{
         users: { total: number };

@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import { fetchCart as apiFetchCart, addToCart as apiAddToCart, updateCartItem as apiUpdateCartItem, removeFromCart as apiRemoveFromCart } from "../api";
 import { useSession } from "./SessionContext";
 import { useAuth } from "./AuthContext";
+import { useToast } from "./ToastContext";
 import type { Cart, CartItem } from "../types";
 
 interface CartContextType {
@@ -21,6 +22,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { user } = useAuth();
     const [cart, setCart] = useState<Cart | null>(null);
     const [isLoading, setIsLoading] = useState(false);
+    const { addToast } = useToast();
 
     const refreshCart = useCallback(async () => {
         if (!sessionId) return;
@@ -39,23 +41,47 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         refreshCart();
     }, [sessionId, user, refreshCart]);
 
+    useEffect(() => {
+        const handleRefresh = () => refreshCart();
+        window.addEventListener("cart:refresh", handleRefresh);
+        return () => window.removeEventListener("cart:refresh", handleRefresh);
+    }, [refreshCart]);
+
     const addItem = async (productId: string, variantId: string, quantity: number) => {
-        await apiAddToCart({ productId, variantId, quantity });
-        await refreshCart();
+        try {
+            await apiAddToCart({ productId, variantId, quantity });
+            await refreshCart();
+            addToast("Added to cart", "success");
+        } catch (err) {
+            addToast("Failed to add to cart", "error");
+            throw err;
+        }
     };
 
     const updateItemQuantity = async (itemId: string, quantity: number) => {
-        if (quantity < 1) {
-            await apiRemoveFromCart(itemId);
-        } else {
-            await apiUpdateCartItem(itemId, quantity);
+        try {
+            if (quantity < 1) {
+                await apiRemoveFromCart(itemId);
+                addToast("Item removed from cart", "info");
+            } else {
+                await apiUpdateCartItem(itemId, quantity);
+            }
+            await refreshCart();
+        } catch (err) {
+            addToast("Failed to update cart", "error");
+            throw err;
         }
-        await refreshCart();
     };
 
     const removeItem = async (itemId: string) => {
-        await apiRemoveFromCart(itemId);
-        await refreshCart();
+        try {
+            await apiRemoveFromCart(itemId);
+            await refreshCart();
+            addToast("Item removed from cart", "info");
+        } catch (err) {
+            addToast("Failed to remove item", "error");
+            throw err;
+        }
     };
 
     return (

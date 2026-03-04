@@ -3,10 +3,11 @@ import { Link, useNavigate } from "react-router-dom";
 import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, CreditCard, Truck, ShieldCheck, X } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Input } from "../components/ui/Input";
-import { checkout } from "../api";
+import { checkout, applyDiscount } from "../api";
 import { cn } from "../utils/cn";
 
 interface CheckoutFormData {
@@ -21,13 +22,31 @@ interface CheckoutFormData {
 const CartPage: React.FC = () => {
     const { cart, refreshCart, updateItemQuantity, removeItem, isLoading: isCartLoading } = useCart();
     const { isAuthenticated } = useAuth();
+    const { addToast } = useToast();
     const navigate = useNavigate();
     const [isCheckingOut, setIsCheckingOut] = useState(false);
     const [showCheckoutModal, setShowCheckoutModal] = useState(false);
     const [checkoutError, setCheckoutError] = useState<string | null>(null);
+    const [discountCode, setDiscountCode] = useState("");
+    const [isApplyingDiscount, setIsApplyingDiscount] = useState(false);
     const [form, setForm] = useState<CheckoutFormData>({
         name: "", line1: "", city: "", state: "", postalCode: "", country: "US"
     });
+
+    const handleApplyDiscount = async () => {
+        if (!discountCode.trim()) return;
+        setIsApplyingDiscount(true);
+        try {
+            await applyDiscount(discountCode.trim());
+            await refreshCart();
+            addToast("Discount applied successfully!", "success");
+            setDiscountCode("");
+        } catch (err: any) {
+            addToast(err.message || "Invalid or expired discount code", "error");
+        } finally {
+            setIsApplyingDiscount(false);
+        }
+    };
 
     const handleCheckout = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -44,9 +63,11 @@ const CartPage: React.FC = () => {
             });
             await refreshCart();
             setShowCheckoutModal(false);
+            addToast("Order placed successfully! Redirecting...", "success");
             navigate("/account");
         } catch (err) {
             setCheckoutError(err instanceof Error ? err.message : "Checkout failed. Please try again.");
+            addToast("Checkout failed. Please try again.", "error");
         } finally {
             setIsCheckingOut(false);
         }
@@ -181,6 +202,27 @@ const CartPage: React.FC = () => {
                             <div className="flex items-center gap-3 text-xs opacity-60">
                                 <CreditCard size={14} /> All major cards accepted
                             </div>
+                        </div>
+                    </div>
+
+                    <div className="premium-card bg-surface-50">
+                        <h4 className="font-bold text-sm mb-4">Promo Code</h4>
+                        <div className="flex gap-2 text-sm text-slate-500">
+                            <Input
+                                placeholder="Enter code (e.g. SAVE20)"
+                                value={discountCode}
+                                onChange={(e) => setDiscountCode(e.target.value)}
+                                className="flex-1"
+                                disabled={isApplyingDiscount}
+                                onKeyDown={(e) => e.key === "Enter" && handleApplyDiscount()}
+                            />
+                            <Button
+                                onClick={handleApplyDiscount}
+                                disabled={isApplyingDiscount || !discountCode.trim()}
+                                className="whitespace-nowrap px-6 rounded-xl"
+                            >
+                                Apply
+                            </Button>
                         </div>
                     </div>
 

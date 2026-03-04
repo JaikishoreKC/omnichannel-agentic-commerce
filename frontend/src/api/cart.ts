@@ -23,3 +23,7 @@ export async function updateCartItem(
 export async function removeFromCart(itemId: string): Promise<void> {
     await request("DELETE", `/cart/items/${encodeURIComponent(itemId)}`);
 }
+
+export async function applyDiscount(code: string): Promise<void> {
+    await request("POST", `/cart/apply-discount`, { code });
+}

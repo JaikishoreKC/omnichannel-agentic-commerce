@@ -140,6 +140,19 @@ const ChatPanel: React.FC = () => {
                                             <span className="text-[10px] text-slate-400 mt-1 px-1">
                                                 {msg.agent ? `${msg.agent} • ` : ""}{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
+                                            {msg.suggestedActions && msg.suggestedActions.length > 0 && (
+                                                <div className="flex flex-wrap gap-2 mt-2 px-1">
+                                                    {msg.suggestedActions.map((action, i) => (
+                                                        <button
+                                                            key={i}
+                                                            onClick={() => sendMessage(action.label)}
+                                                            className="text-xs px-3 py-1.5 bg-brand/10 text-brand font-medium rounded-full hover:bg-brand hover:text-white transition-colors border border-brand/20 whitespace-nowrap"
+                                                        >
+                                                            {action.label}
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            )}
                                         </div>
                                     ))}
                                     {isTyping && (

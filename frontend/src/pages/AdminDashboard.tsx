@@ -3,11 +3,11 @@ import { useNavigate } from "react-router-dom";
 import {
     Users, Package, ShoppingCart, TrendingUp, Plus, Activity,
     Shield, LogOut, RefreshCw, CheckCircle2, AlertCircle,
-    Clock, ChevronRight, Boxes, BarChart3, List
+    Clock, ChevronRight, Boxes, BarChart3, List, Sparkles
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { getAdminStats, getAdminOrders, getAdminProducts, getAdminUsers, getActivityLogs } from "../api/admin";
-import type { AdminStats, AdminOrder, AdminProduct, AdminUser, ActivityLog } from "../api/admin";
+import { getAdminStats, getAdminOrders, getAdminProducts, getAdminUsers, getActivityLogs, getHealth } from "../api/admin";
+import type { AdminStats, AdminOrder, AdminProduct, AdminUser, ActivityLog, HealthStatus } from "../api/admin";
 
 // ─── Sub-nav tabs ────────────────────────────────────────────────────────────
 type Tab = "overview" | "orders" | "products" | "users" | "activity";
@@ -45,6 +45,7 @@ const AdminDashboard: React.FC = () => {
     const [products, setProducts] = useState<AdminProduct[]>([]);
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [logs, setLogs] = useState<ActivityLog[]>([]);
+    const [health, setHealth] = useState<HealthStatus | null>(null);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -61,18 +62,20 @@ const AdminDashboard: React.FC = () => {
         else setRefreshing(true);
         setError(null);
         try {
-            const [s, o, p, u, l] = await Promise.allSettled([
+            const [s, o, p, u, l, h] = await Promise.allSettled([
                 getAdminStats(),
                 getAdminOrders(10),
                 getAdminProducts(20),
                 getAdminUsers(20),
                 getActivityLogs(20),
+                getHealth(),
             ]);
             if (s.status === "fulfilled") setStats(s.value);
             if (o.status === "fulfilled") setOrders(o.value);
             if (p.status === "fulfilled") setProducts(p.value);
             if (u.status === "fulfilled") setUsers(u.value);
             if (l.status === "fulfilled") setLogs(l.value);
+            if (h.status === "fulfilled") setHealth(h.value);
         } catch {
             setError("Failed to load admin data. Check your connection.");
         } finally {
@@ -253,8 +256,40 @@ const AdminDashboard: React.FC = () => {
                                 </div>
                             </div>
 
-                            {/* Integrity check */}
+                            {/* Right column items */}
                             <div className="space-y-5">
+                                {/* AI Engine Status */}
+                                <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-4">
+                                    <div className="flex items-center justify-between">
+                                        <h2 className="font-bold text-slate-900 flex items-center gap-2">
+                                            <Sparkles size={16} className="text-violet-600" /> AI Engine
+                                        </h2>
+                                        {health?.services?.llm?.enabled ? (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-100 text-emerald-700 uppercase tracking-widest">Active</span>
+                                        ) : (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-slate-100 text-slate-500 uppercase tracking-widest">Offline</span>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2 text-xs">
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500">Provider</span>
+                                            <span className="font-medium text-slate-900 capitalize">{health?.services?.llm?.provider || "—"}</span>
+                                        </div>
+                                        <div className="flex justify-between">
+                                            <span className="text-slate-500">Circuit Breaker</span>
+                                            <span className={`font-medium ${health?.services?.llm?.circuit_breaker === 'closed' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {health?.services?.llm?.circuit_breaker || "—"}
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <div className="pt-2 border-t border-slate-100">
+                                        <p className="text-[10px] text-slate-400 text-center">
+                                            Configure AI models and agents via .env variables.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* Activity Integrity check */}
                                 <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-6 space-y-4">
                                     <h2 className="font-bold text-slate-900">Activity Integrity</h2>
                                     <p className="text-xs text-slate-500">Hash-chain tamper verification on admin action logs.</p>

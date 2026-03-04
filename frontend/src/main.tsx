@@ -8,20 +8,23 @@ import { AuthProvider } from "./context/AuthContext";
 import { CartProvider } from "./context/CartContext";
 import { ChatProvider } from "./context/ChatContext";
 import { ThemeProvider } from "./context/ThemeContext";
+import { ToastProvider } from "./context/ToastContext";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <BrowserRouter>
       <ThemeProvider>
-        <SessionProvider>
-          <AuthProvider>
-            <CartProvider>
-              <ChatProvider>
-                <App />
-              </ChatProvider>
-            </CartProvider>
-          </AuthProvider>
-        </SessionProvider>
+        <ToastProvider>
+          <SessionProvider>
+            <AuthProvider>
+              <CartProvider>
+                <ChatProvider>
+                  <App />
+                </ChatProvider>
+              </CartProvider>
+            </AuthProvider>
+          </SessionProvider>
+        </ToastProvider>
       </ThemeProvider>
     </BrowserRouter>
   </React.StrictMode>

@@ -10,6 +10,7 @@ export type Message = {
     agent?: string;
     timestamp: string;
     isStreaming?: boolean;
+    suggestedActions?: Array<{ label: string; action: string }>;
 };
 
 interface ChatContextType {
@@ -33,9 +34,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!sessionId) return;
         try {
             const history = await fetchChatHistory({ sessionId });
-            const mapped: Message[] = history.messages.map((m) => ({
+            const mapped: Message[] = history.messages.map((m: any) => ({
                 id: m.id,
-                role: m.userId ? "user" : "assistant", // Approximation if role not explicit
+                role: m.role || (m.userId ? "user" : "assistant"),
                 content: m.message,
                 timestamp: m.timestamp,
                 agent: m.agent,
@@ -67,8 +68,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         content: payload.message,
                         agent: payload.agent,
                         timestamp: new Date().toISOString(),
+                        suggestedActions: payload.suggestedActions,
                     },
                 ]);
+                window.dispatchEvent(new CustomEvent("cart:refresh"));
             },
             onStreamStart: ({ streamId, agent }) => {
                 setMessages((prev) => [
