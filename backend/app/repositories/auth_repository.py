@@ -36,6 +36,9 @@ class AuthRepository:
             return deepcopy(persisted)
         return None
 
+    def get_by_id(self, user_id: str) -> dict[str, Any] | None:
+        return self.get_user_by_id(user_id)
+
     def get_user_by_email(self, email: str) -> dict[str, Any] | None:
         normalized = email.strip().lower()
         cached = self._read_user_from_redis_by_email(normalized)

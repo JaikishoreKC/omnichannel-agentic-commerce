@@ -1,6 +1,6 @@
 import React from "react";
 import { Link, useLocation } from "react-router-dom";
-import { ShoppingBag, User, Search, MessageSquare, Menu, Shield } from "lucide-react";
+import { ShoppingBag, User, Search, Menu, Shield } from "lucide-react";
 import { cn } from "../../utils/cn";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";

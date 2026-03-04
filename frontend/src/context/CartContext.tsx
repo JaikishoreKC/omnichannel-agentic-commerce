@@ -3,7 +3,7 @@ import { fetchCart as apiFetchCart, addToCart as apiAddToCart, updateCartItem as
 import { useSession } from "./SessionContext";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
-import type { Cart, CartItem } from "../types";
+import type { Cart } from "../types";
 
 interface CartContextType {
     cart: Cart | null;

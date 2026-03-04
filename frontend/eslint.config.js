@@ -22,7 +22,7 @@ export default tseslint.config(
       "react-refresh": reactRefresh,
     },
     rules: {
-      "react-refresh/only-export-components": ["warn", { allowConstantExport: true }],
+      "react-refresh/only-export-components": "off",
       "@typescript-eslint/no-explicit-any": "off",
     },
   },

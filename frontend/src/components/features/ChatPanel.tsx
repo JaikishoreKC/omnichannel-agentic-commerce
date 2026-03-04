@@ -3,7 +3,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, X, Send, Minus, Maximize2, Sparkles } from "lucide-react";
 import { useChat } from "../../context/ChatContext";
 import { Button } from "../ui/Button";
-import { Input } from "../ui/Input";
 import { cn } from "../../utils/cn";
 
 const ChatPanel: React.FC = () => {
@@ -40,6 +39,8 @@ const ChatPanel: React.FC = () => {
                             onClick={() => setIsOpen(true)}
                             size="icon"
                             className="w-14 h-14 rounded-2xl shadow-panel bg-brand hover:bg-brand-dark"
+                            aria-label="Open chat assistant"
+                            title="Open chat assistant"
                         >
                             <MessageSquare className="text-white" />
                         </Button>
@@ -88,12 +89,16 @@ const ChatPanel: React.FC = () => {
                                 <button
                                     onClick={() => setIsMinimized(!isMinimized)}
                                     className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                                    aria-label={isMinimized ? "Expand chat" : "Minimize chat"}
+                                    title={isMinimized ? "Expand chat" : "Minimize chat"}
                                 >
                                     {isMinimized ? <Maximize2 size={16} /> : <Minus size={16} />}
                                 </button>
                                 <button
                                     onClick={() => setIsOpen(false)}
                                     className="p-1 hover:bg-white/10 rounded-lg transition-colors"
+                                    aria-label="Close chat"
+                                    title="Close chat"
                                 >
                                     <X size={16} />
                                 </button>
@@ -105,8 +110,7 @@ const ChatPanel: React.FC = () => {
                             <>
                                 <div
                                     ref={scrollRef}
-                                    className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50"
-                                    style={{ scrollbarWidth: 'thin' }}
+                                    className="flex-1 overflow-y-auto p-4 space-y-4 bg-surface-50 chat-scroll-thin"
                                     data-testid="chat-log"
                                 >
                                     {messages.length === 0 && (
@@ -157,9 +161,9 @@ const ChatPanel: React.FC = () => {
                                     ))}
                                     {isTyping && (
                                         <div className="flex items-center gap-1 px-2">
-                                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                                            <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce typing-dot-0" />
+                                            <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce typing-dot-150" />
+                                            <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce typing-dot-300" />
                                         </div>
                                     )}
                                 </div>

@@ -8,7 +8,6 @@ import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Input } from "../components/ui/Input";
 import { checkout, applyDiscount } from "../api";
-import { cn } from "../utils/cn";
 
 interface CheckoutFormData {
     name: string;

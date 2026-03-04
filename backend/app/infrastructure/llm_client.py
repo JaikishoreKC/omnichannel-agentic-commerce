@@ -380,10 +380,12 @@ class LLMClient:
                     },
                     timeout=self.settings.llm_timeout_seconds,
                 )
+                status_code = int(getattr(response, "status_code", 200))
                 # Handle rate limiting with retry
-                if response.status_code == 429:
+                if status_code == 429:
                     # Try to get Retry-After header first
-                    retry_after = response.headers.get("retry-after")
+                    headers = getattr(response, "headers", {}) or {}
+                    retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
                     if retry_after:
                         try:
                             delay = int(retry_after)

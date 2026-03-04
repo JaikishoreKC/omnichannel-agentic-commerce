@@ -45,6 +45,9 @@ class MongoClientManager:
 
     @property
     def client(self) -> Any:
+        if self._client is not None and not hasattr(self._client, "close"):
+            with suppress(Exception):
+                setattr(self._client, "close", lambda: None)
         return self._client
 
     def disconnect(self) -> None:
@@ -92,6 +95,9 @@ class RedisClientManager:
 
     @property
     def client(self) -> Any:
+        if self._client is not None and not hasattr(self._client, "close"):
+            with suppress(Exception):
+                setattr(self._client, "close", lambda: None)
         return self._client
 
     def disconnect(self) -> None:

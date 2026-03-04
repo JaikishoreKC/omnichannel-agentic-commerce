@@ -48,6 +48,22 @@
 }
 
 @layer utilities {
+  .chat-scroll-thin {
+    scrollbar-width: thin;
+  }
+
+  .typing-dot-0 {
+    animation-delay: 0ms;
+  }
+
+  .typing-dot-150 {
+    animation-delay: 150ms;
+  }
+
+  .typing-dot-300 {
+    animation-delay: 300ms;
+  }
+
   .scroll-calm::-webkit-scrollbar {
     width: 8px;
     height: 8px;

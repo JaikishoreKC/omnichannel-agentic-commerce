@@ -2,8 +2,6 @@ import React, { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { ShieldCheck, Lock, Mail, ArrowRight, KeyRound, AlertTriangle } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { Button } from "../components/ui/Button";
-import { Input } from "../components/ui/Input";
 
 type Step = "credentials" | "mfa";
 

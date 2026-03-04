@@ -87,6 +87,8 @@ Common codes:
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/refresh`
+- `POST /auth/reset-password-request`
+- `POST /auth/reset-password`
 
 Notes:
 
@@ -136,6 +138,7 @@ Example register response (shape):
 
 - `GET /products`
 - `GET /products/{product_id}`
+- `POST /products/{product_id}/reviews`
 
 `GET /products` query params:
 
@@ -289,6 +292,9 @@ Required headers:
 ## Admin Endpoints (Role = admin)
 
 - `GET /admin/stats`
+- `GET /admin/orders`
+- `GET /admin/products`
+- `GET /admin/users`
 - `GET /admin/categories`
 - `GET /admin/categories/records`
 - `POST /admin/categories`

@@ -46,6 +46,30 @@ class CartRepository:
         self._write_through(cart)
         return deepcopy(cart)
 
+    def get_by_id(self, cart_id: str) -> dict[str, Any] | None:
+        collection = self._mongo_collection()
+        if collection is None:
+            return None
+        payload = collection.find_one({"cartId": cart_id})
+        if not payload:
+            return None
+        payload.pop("_id", None)
+        payload.pop("cartId", None)
+        return deepcopy(payload) if isinstance(payload, dict) else None
+
+    def list_all(self) -> list[dict[str, Any]]:
+        collection = self._mongo_collection()
+        if collection is None:
+            return []
+        rows = list(collection.find({}).sort("updatedAt", -1))
+        carts: list[dict[str, Any]] = []
+        for row in rows:
+            row.pop("_id", None)
+            row.pop("cartId", None)
+            if isinstance(row, dict):
+                carts.append(deepcopy(row))
+        return carts
+
     def _write_through(self, cart: dict[str, Any]) -> None:
         self._write_to_redis(cart)
         self._write_to_mongo(cart)

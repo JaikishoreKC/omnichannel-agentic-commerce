@@ -1,5 +1,4 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
 import { login as apiLogin, register as apiRegister, setToken, setSessionId, setRefreshToken } from "../api";
 import type { AuthUser } from "../types";
 

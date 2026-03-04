@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from "react";
 import { BrainCircuit, Loader2, Sparkles, Trash2, Info } from "lucide-react";
-import { Button } from "../ui/Button";
 import { useToast } from "../../context/ToastContext";
 import { request } from "../../api/client";
 
@@ -37,7 +36,7 @@ export const AiMemoryTab: React.FC = () => {
             await request("DELETE", `/memory/${key}`);
             addToast("Memory cleared", "success");
             fetchMemories();
-        } catch (err) {
+        } catch {
             addToast("Failed to clear memory", "error");
         }
     };
