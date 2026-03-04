@@ -166,9 +166,16 @@ export function connectChat(params: {
     onOpen?: () => void;
     onClose?: () => void;
 }): WebSocket {
+    console.log(`[WS] Connecting to ${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
     const socket = new WebSocket(`${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
-    socket.onopen = () => params.onOpen?.();
+    
+    socket.onopen = () => {
+        console.log("[WS] Connection opened successfully");
+        params.onOpen?.();
+    };
+    
     socket.onmessage = (event) => {
+        console.log("[WS] Received message:", event.data);
         try {
             const parsed = JSON.parse(event.data as string) as {
                 type: string;
@@ -223,7 +230,13 @@ export function connectChat(params: {
             params.onError("Failed to parse websocket message.");
         }
     };
-    socket.onerror = () => params.onError("WebSocket connection error.");
-    socket.onclose = () => params.onClose?.();
+    socket.onerror = (event) => {
+        console.error("[WS] WebSocket error:", event);
+        params.onError("WebSocket connection error.");
+    };
+    socket.onclose = (event) => {
+        console.log("[WS] Connection closed:", event.code, event.reason);
+        params.onClose?.();
+    };
     return socket;
 }

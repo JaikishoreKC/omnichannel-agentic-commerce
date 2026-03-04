@@ -30,7 +30,7 @@ services:
       - ADMIN_MFA_TOTP_SECRET=${ADMIN_MFA_TOTP_SECRET:-JBSWY3DPEHPK3PXP}
       - LLM_ENABLED=${LLM_ENABLED:-true}
       - LLM_PROVIDER=${LLM_PROVIDER:-openrouter}
-      - LLM_MODEL=${LLM_MODEL:-meta-llama/llama-3.1-8b-instruct:free}
+      - LLM_MODEL=${LLM_MODEL:-meta-llama/llama-3.3-70b-instruct:free}
       - LLM_TIMEOUT_SECONDS=8
       - LLM_MAX_TOKENS=200
       - LLM_TEMPERATURE=0

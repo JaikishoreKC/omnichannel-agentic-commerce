@@ -58,13 +58,18 @@ async def _ensure_active_session(
     source: str,
 ) -> tuple[str, dict[str, object]]:
     resolved_session_id = str(candidate_session_id or "").strip()
+    logger.info(f"_ensure_active_session called with session_id: {resolved_session_id}, source: {source}")
+    
     if resolved_session_id:
         try:
             existing = session_service.get_session(resolved_session_id)
+            logger.info(f"Found existing session: {resolved_session_id}")
             return resolved_session_id, existing
-        except HTTPException:
+        except HTTPException as e:
+            logger.warning(f"Session not found or invalid: {resolved_session_id}, error: {e}")
             resolved_session_id = ""
 
+    logger.info("Creating new session...")
     created = session_service.create_session(
         channel="websocket",
         initial_context={},
@@ -76,6 +81,7 @@ async def _ensure_active_session(
             "referrer": websocket.headers.get("origin", ""),
         },
     )
+    logger.info(f"New session created with id: {created['id']}")
     # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
     await _send_session_event(websocket, created)
     return str(created["id"]), created
@@ -140,6 +146,9 @@ async def _resolve_and_sync_user_session(
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
     origin = str(websocket.headers.get("origin", "")).strip()
+    logger.info(f"WebSocket connection attempt from origin: {origin}")
+    logger.info(f"Allowed origins: {settings.cors_origin_list}")
+    
     if origin and "*" not in settings.cors_origin_list and origin not in settings.cors_origin_list:
         logger.warning(f"WebSocket rejected: Origin {origin} not in {settings.cors_origin_list}")
         _record_security_event(event_type="ws_origin_rejected", severity="warning")

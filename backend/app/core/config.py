@@ -29,7 +29,7 @@ class Settings:
     admin_mfa_totp_secret: str = "JBSWY3DPEHPK3PXP"  # Default secret (change in prod)
     llm_enabled: bool = False
     llm_provider: str = "openrouter"
-    llm_model: str = "meta-llama/llama-3.1-8b-instruct:free"
+    llm_model: str = "meta-llama/llama-3.3-70b-instruct:free"
     llm_timeout_seconds: float = 8.0
     llm_max_tokens: int = 200
     llm_temperature: float = 0.0
