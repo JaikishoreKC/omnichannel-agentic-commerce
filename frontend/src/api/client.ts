@@ -4,6 +4,7 @@ const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
 const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 const SESSION_KEY = "commerce_session_id";
 const AUTH_KEY = "commerce_access_token";
+const REFRESH_KEY = "commerce_refresh_token";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -33,6 +34,64 @@ export function setSessionId(value: string | null): void {
     localStorage.removeItem(SESSION_KEY);
 }
 
+export function setRefreshToken(value: string | null): void {
+    if (value) {
+        localStorage.setItem(REFRESH_KEY, value);
+        return;
+    }
+    localStorage.removeItem(REFRESH_KEY);
+}
+
+export function getRefreshToken(): string | null {
+    return localStorage.getItem(REFRESH_KEY);
+}
+
+/** Clear all auth state and dispatch a global event so AuthContext can redirect */
+function clearAuthAndNotify(): void {
+    setToken(null);
+    setRefreshToken(null);
+    localStorage.removeItem("commerce_user");
+    window.dispatchEvent(new CustomEvent("auth:expired"));
+}
+
+/** Attempt a silent token refresh using the stored refresh token. */
+let _isRefreshing = false;
+let _refreshQueue: Array<() => void> = [];
+
+async function tryRefreshToken(): Promise<boolean> {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) return false;
+
+    if (_isRefreshing) {
+        // Another refresh is in-flight; queue up and wait for it
+        return new Promise((resolve) => _refreshQueue.push(() => resolve(!!token())));
+    }
+
+    _isRefreshing = true;
+    try {
+        const response = await fetch(`${API_BASE}/auth/refresh`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ refreshToken }),
+        });
+        if (!response.ok) return false;
+        const data = await response.json();
+        const newAccess: string = data.accessToken;
+        const newRefresh: string = data.refreshToken;
+        if (!newAccess) return false;
+        setToken(newAccess);
+        if (newRefresh) setRefreshToken(newRefresh);
+        return true;
+    } catch {
+        return false;
+    } finally {
+        _isRefreshing = false;
+        const queue = _refreshQueue;
+        _refreshQueue = [];
+        queue.forEach((fn) => fn());
+    }
+}
+
 export async function request<T>(
     method: Method,
     path: string,
@@ -59,6 +118,17 @@ export async function request<T>(
         headers,
         body: body ? JSON.stringify(body) : undefined,
     });
+
+    // --- Global 401 handler: try silent refresh, then force logout ---
+    if (response.status === 401 && path !== "/auth/refresh") {
+        const refreshed = await tryRefreshToken();
+        if (refreshed) {
+            // Retry the original request with the new token
+            return request<T>(method, path, body, extraHeaders);
+        }
+        clearAuthAndNotify();
+        throw new Error("Session expired. Please log in again.");
+    }
 
     if (!response.ok) {
         let detail = `${response.status} ${response.statusText}`;

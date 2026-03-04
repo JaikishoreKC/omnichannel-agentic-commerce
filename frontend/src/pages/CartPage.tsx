@@ -1,50 +1,63 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, CreditCard, Truck, ShieldCheck } from "lucide-react";
+import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, CreditCard, Truck, ShieldCheck, X } from "lucide-react";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { Input } from "../components/ui/Input";
 import { checkout } from "../api";
 import { cn } from "../utils/cn";
+
+interface CheckoutFormData {
+    name: string;
+    line1: string;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+}
 
 const CartPage: React.FC = () => {
     const { cart, refreshCart, updateItemQuantity, removeItem, isLoading: isCartLoading } = useCart();
     const { isAuthenticated } = useAuth();
     const navigate = useNavigate();
     const [isCheckingOut, setIsCheckingOut] = useState(false);
+    const [showCheckoutModal, setShowCheckoutModal] = useState(false);
+    const [checkoutError, setCheckoutError] = useState<string | null>(null);
+    const [form, setForm] = useState<CheckoutFormData>({
+        name: "", line1: "", city: "", state: "", postalCode: "", country: "US"
+    });
 
-    const handleCheckout = async () => {
+    const handleCheckout = async (e: React.FormEvent) => {
+        e.preventDefault();
         if (!isAuthenticated) {
             navigate("/login?redirect=/cart");
             return;
         }
-
         setIsCheckingOut(true);
+        setCheckoutError(null);
         try {
-            // Mock shipping/payment for now as per previous project vibes
             await checkout({
-                shippingAddress: {
-                    name: "E2E User",
-                    line1: "123 Main St",
-                    city: "New York",
-                    state: "NY",
-                    postalCode: "10001",
-                    country: "US"
-                },
-                paymentMethod: {
-                    type: "card",
-                    token: "tok_visa"
-                }
+                shippingAddress: form,
+                paymentMethod: { type: "card", token: "tok_visa" } // Simulated payment
             });
             await refreshCart();
-            alert("Order placed successfully!");
+            setShowCheckoutModal(false);
             navigate("/account");
         } catch (err) {
-            alert("Checkout failed: " + (err instanceof Error ? err.message : "Unknown error"));
+            setCheckoutError(err instanceof Error ? err.message : "Checkout failed. Please try again.");
         } finally {
             setIsCheckingOut(false);
         }
+    };
+
+    const handleCheckoutClick = () => {
+        if (!isAuthenticated) {
+            navigate("/login?redirect=/cart");
+            return;
+        }
+        setShowCheckoutModal(true);
     };
 
     if (isCartLoading && !cart) {
@@ -139,7 +152,7 @@ const CartPage: React.FC = () => {
                                 <span>${cart.tax.toFixed(2)}</span>
                             </div>
                             {cart.discount > 0 && (
-                                <div className="flex justify-between text-cedar">
+                                <div className="flex justify-between text-emerald-400">
                                     <span>Discount</span>
                                     <span>-${cart.discount.toFixed(2)}</span>
                                 </div>
@@ -155,8 +168,7 @@ const CartPage: React.FC = () => {
 
                         <Button
                             className="w-full h-14 rounded-2xl bg-brand-light hover:bg-white hover:text-ink shadow-lg gap-2"
-                            onClick={handleCheckout}
-                            isLoading={isCheckingOut}
+                            onClick={handleCheckoutClick}
                             data-testid="checkout-button"
                         >
                             Checkout Now <ArrowRight size={20} />
@@ -180,6 +192,96 @@ const CartPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Checkout Modal */}
+            {showCheckoutModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-lg p-8 space-y-6 relative">
+                        <button
+                            onClick={() => setShowCheckoutModal(false)}
+                            className="absolute top-6 right-6 text-slate-400 hover:text-slate-700 transition-colors"
+                        >
+                            <X size={20} />
+                        </button>
+                        <div>
+                            <h2 className="text-2xl font-bold">Shipping Details</h2>
+                            <p className="text-slate-500 text-sm mt-1">Enter your delivery address to complete the order.</p>
+                        </div>
+
+                        {checkoutError && (
+                            <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-medium">
+                                {checkoutError}
+                            </div>
+                        )}
+
+                        <form onSubmit={handleCheckout} className="space-y-4">
+                            <Input
+                                label="Full Name"
+                                placeholder="Jane Doe"
+                                value={form.name}
+                                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                                required
+                            />
+                            <Input
+                                label="Street Address"
+                                placeholder="123 Commerce Ave"
+                                value={form.line1}
+                                onChange={(e) => setForm({ ...form, line1: e.target.value })}
+                                required
+                            />
+                            <div className="grid grid-cols-2 gap-4">
+                                <Input
+                                    label="City"
+                                    placeholder="New York"
+                                    value={form.city}
+                                    onChange={(e) => setForm({ ...form, city: e.target.value })}
+                                    required
+                                />
+                                <Input
+                                    label="State"
+                                    placeholder="NY"
+                                    value={form.state}
+                                    onChange={(e) => setForm({ ...form, state: e.target.value })}
+                                    required
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <Input
+                                    label="Postal Code"
+                                    placeholder="10001"
+                                    value={form.postalCode}
+                                    onChange={(e) => setForm({ ...form, postalCode: e.target.value })}
+                                    required
+                                />
+                                <Input
+                                    label="Country"
+                                    placeholder="US"
+                                    value={form.country}
+                                    onChange={(e) => setForm({ ...form, country: e.target.value })}
+                                    required
+                                />
+                            </div>
+
+                            <div className="p-4 rounded-2xl bg-surface-50 border border-line flex items-center justify-between mt-2">
+                                <div className="flex items-center gap-3 text-sm font-medium">
+                                    <CreditCard size={18} className="text-slate-400" />
+                                    <span>Simulated Payment</span>
+                                </div>
+                                <Badge variant="secondary">Demo Mode</Badge>
+                            </div>
+
+                            <Button
+                                type="submit"
+                                className="w-full h-13 rounded-2xl gap-2 mt-2"
+                                isLoading={isCheckingOut}
+                                data-testid="confirm-checkout-button"
+                            >
+                                Place Order <ArrowRight size={18} />
+                            </Button>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

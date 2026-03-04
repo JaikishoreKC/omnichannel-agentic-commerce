@@ -51,7 +51,12 @@ def list_products(
     _: dict[str, object] = Depends(require_admin),
 ) -> dict[str, Any]:
     """Return all products for the admin dashboard."""
-    products = list(product_repository.list_all().values()) if hasattr(product_repository.list_all(), 'values') else product_repository.list_all()
+    all_products = product_repository.list_all()
+    # list_all() may return a dict or a list depending on implementation
+    if isinstance(all_products, dict):
+        products = list(all_products.values())
+    else:
+        products = list(all_products)
     return {"products": products[:limit]}
 
 

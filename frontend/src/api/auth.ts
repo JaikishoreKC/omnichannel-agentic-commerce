@@ -16,3 +16,7 @@ export async function login(input: {
 }): Promise<AuthResponse> {
     return request<AuthResponse>("POST", "/auth/login", input);
 }
+
+export async function refreshToken(input: { refreshToken: string }): Promise<AuthResponse> {
+    return request<AuthResponse>("POST", "/auth/refresh", input);
+}

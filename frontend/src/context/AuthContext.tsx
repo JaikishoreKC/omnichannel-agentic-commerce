@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState } from "react";
-import { login as apiLogin, register as apiRegister, setToken, setSessionId } from "../api";
+import React, { createContext, useContext, useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { login as apiLogin, register as apiRegister, setToken, setSessionId, setRefreshToken } from "../api";
 import type { AuthUser } from "../types";
 
 interface AuthContextType {
@@ -23,9 +24,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isAuthenticated = !!user;
     const isAdmin = user?.role === "admin";
 
-    const _applyAuth = (res: { user: AuthUser; accessToken: string; sessionId?: string }) => {
+    // --- Global session-expiry handler ---
+    // Listens for the `auth:expired` event dispatched by the API client's 401 interceptor.
+    useEffect(() => {
+        const handleExpired = () => {
+            setUser(null);
+            // Navigate to login with a "session expired" flag so we can show a notice
+            window.location.href = "/login?expired=1";
+        };
+        window.addEventListener("auth:expired", handleExpired);
+        return () => window.removeEventListener("auth:expired", handleExpired);
+    }, []);
+
+    const _applyAuth = (res: { user: AuthUser; accessToken: string; refreshToken?: string; sessionId?: string }) => {
         setUser(res.user);
         setToken(res.accessToken);
+        if (res.refreshToken) setRefreshToken(res.refreshToken);
         if (res.sessionId) setSessionId(res.sessionId);
         localStorage.setItem("commerce_user", JSON.stringify(res.user));
     };
@@ -54,6 +68,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const logout = () => {
         setUser(null);
         setToken(null);
+        setRefreshToken(null);
         localStorage.removeItem("commerce_user");
     };
 

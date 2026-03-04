@@ -13,7 +13,9 @@ const AuthPage: React.FC = () => {
 
     const [formData, setFormData] = useState({ name: "", email: "", password: "" });
     const [isLoading, setIsLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(
+        params.get("expired") === "1" ? "Your session has expired. Please sign in again." : null
+    );
 
     const redirectUrl = params.get("redirect") || "/";
 
