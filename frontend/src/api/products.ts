@@ -30,5 +30,10 @@ export async function fetchProducts(options: {
 }
 
 export async function fetchProduct(productId: string): Promise<Product> {
-    return request<Product>("GET", `/products/${encodeURIComponent(productId)}`);
+    const data = await request<{ product: Product }>("GET", `/products/${encodeURIComponent(productId)}`);
+    return data.product;
+}
+
+export async function addProductReview(productId: string, review: { rating: number, title?: string, comment?: string }): Promise<void> {
+    await request("POST", `/products/${encodeURIComponent(productId)}/reviews`, review);
 }

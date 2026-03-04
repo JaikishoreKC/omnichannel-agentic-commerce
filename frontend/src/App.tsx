@@ -13,6 +13,8 @@ import { AccountPage } from "./pages/AccountPage";
 import OrderDetailPage from "./pages/OrderDetailPage";
 import { AdminDashboard } from "./pages/AdminDashboard";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
+import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
+import { ResetPasswordPage } from "./pages/ResetPasswordPage";
 
 // Guard: redirect to admin login if not an admin
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -48,6 +50,8 @@ const App: React.FC = () => {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/login" element={<AuthPage />} />
               <Route path="/register" element={<AuthPage />} />
+              <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+              <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/account" element={<AccountPage />} />
               <Route path="/account/orders/:orderId" element={<OrderDetailPage />} />
               <Route path="*" element={<Navigate to="/" replace />} />

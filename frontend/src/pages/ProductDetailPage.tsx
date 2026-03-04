@@ -1,23 +1,33 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Star, ShoppingCart, ArrowLeft, ShieldCheck, Truck, RotateCcw, Plus, Minus } from "lucide-react";
-import { fetchProduct } from "../api";
+import { fetchProduct, addProductReview } from "../api";
 import type { Product, ProductVariant } from "../types";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Skeleton } from "../components/ui/Skeleton";
 import { cn } from "../utils/cn";
 import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
+import { useToast } from "../context/ToastContext";
 
 const ProductDetailPage: React.FC = () => {
     const { productId } = useParams<{ productId: string }>();
     const navigate = useNavigate();
     const { addItem, updateItemQuantity, removeItem, cart } = useCart();
+    const { user } = useAuth();
+    const { addToast } = useToast();
+
     const [product, setProduct] = useState<Product | null>(null);
     const [selectedVariant, setSelectedVariant] = useState<ProductVariant | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [isAdding, setIsAdding] = useState(false);
     const [activeImage, setActiveImage] = useState(0);
+
+    // Review state
+    const [reviewText, setReviewText] = useState("");
+    const [reviewRating, setReviewRating] = useState(5);
+    const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
     useEffect(() => {
         const load = async () => {
@@ -52,6 +62,34 @@ const ProductDetailPage: React.FC = () => {
         }
     };
 
+    const handleReviewSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!user) {
+            addToast("You must be logged in to leave a review.", "warning");
+            navigate("/login");
+            return;
+        }
+        if (!reviewText.trim()) return;
+
+        setIsSubmittingReview(true);
+        try {
+            await addProductReview(product!.id, {
+                rating: reviewRating,
+                comment: reviewText.trim()
+            });
+            addToast("Review submitted successfully", "success");
+            setReviewText("");
+            setReviewRating(5);
+            // Reload product data to get the new review
+            const updatedProduct = await fetchProduct(product!.id);
+            setProduct(updatedProduct);
+        } catch (err: any) {
+            addToast(err.message || "Failed to submit review", "error");
+        } finally {
+            setIsSubmittingReview(false);
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -71,16 +109,19 @@ const ProductDetailPage: React.FC = () => {
 
     if (!product) return <div className="text-center py-24">Product not found</div>;
 
+    const reviews = product.reviews || [];
+
     return (
-        <div className="space-y-12 animate-fade-in">
+        <div className="space-y-12 animate-fade-in max-w-6xl mx-auto">
+            {/* Breadcrumb / Back */}
             <button
                 onClick={() => navigate(-1)}
-                className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-brand transition-colors"
+                className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors"
             >
                 <ArrowLeft size={16} /> Back
             </button>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-16">
                 {/* Images */}
                 <div className="space-y-4">
                     <div className="aspect-square rounded-[40px] bg-surface-100 overflow-hidden border border-line flex items-center justify-center p-12">
@@ -220,8 +261,107 @@ const ProductDetailPage: React.FC = () => {
                     </div>
                 </div>
             </div>
+
+            {/* Reviews Section */}
+            <div className="pt-12 border-t border-line space-y-12 pb-24">
+                <div className="flex flex-col lg:flex-row gap-16">
+                    {/* Left: Review Stats & Form */}
+                    <div className="lg:w-1/3 space-y-8">
+                        <div className="space-y-4">
+                            <h3 className="text-3xl font-bold">Customer Reviews</h3>
+                            <div className="flex items-center gap-6">
+                                <div className="text-6xl font-black text-ink">{product.rating.toFixed(1)}</div>
+                                <div>
+                                    <div className="flex gap-0.5 text-amber-500 mb-1">
+                                        {[1, 2, 3, 4, 5].map((s) => (
+                                            <Star key={s} size={20} fill={s <= Math.round(product.rating) ? "currentColor" : "none"} />
+                                        ))}
+                                    </div>
+                                    <p className="text-sm text-slate-500 font-bold">Based on {product.reviewCount} reviews</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Submit Review Form */}
+                        <div className="premium-card bg-surface-50 border-none shadow-none p-8 space-y-6">
+                            <h4 className="font-bold text-xl">Leave a review</h4>
+                            <form onSubmit={handleReviewSubmit} className="space-y-4">
+                                <div className="flex gap-2">
+                                    {[1, 2, 3, 4, 5].map((s) => (
+                                        <button
+                                            key={s}
+                                            type="button"
+                                            onClick={() => setReviewRating(s)}
+                                            className={cn(
+                                                "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
+                                                reviewRating >= s ? "bg-amber-100 text-amber-600 shadow-sm" : "bg-white text-slate-300 border border-line"
+                                            )}
+                                        >
+                                            <Star size={20} fill={reviewRating >= s ? "currentColor" : "none"} />
+                                        </button>
+                                    ))}
+                                </div>
+                                <textarea
+                                    className="w-full h-32 p-4 bg-white border border-line rounded-2xl focus:ring-2 focus:ring-brand focus:border-transparent transition-all outline-none resize-none text-sm"
+                                    placeholder="Tell us what you liked (or didn't) about this product..."
+                                    value={reviewText}
+                                    onChange={(e) => setReviewText(e.target.value)}
+                                    required
+                                />
+                                <Button
+                                    type="submit"
+                                    className="w-full rounded-xl gap-2 font-bold py-4"
+                                    isLoading={isSubmittingReview}
+                                    disabled={!reviewText.trim()}
+                                >
+                                    Submit Review
+                                </Button>
+                                {!user && <p className="text-[10px] text-center text-slate-400">You must be signed in to submit a review.</p>}
+                            </form>
+                        </div>
+                    </div>
+
+                    {/* Right: Reviews List */}
+                    <div className="flex-1 space-y-8">
+                        {reviews.length > 0 ? (
+                            <div className="divide-y divide-line">
+                                {reviews.map((r, i) => (
+                                    <div key={i} className="py-8 first:pt-0 animate-fade-in" style={{ animationDelay: `${i * 100}ms` }}>
+                                        <div className="flex items-center gap-4 mb-4">
+                                            <div className="w-12 h-12 rounded-full bg-surface-200 border border-line flex items-center justify-center text-slate-500 font-bold">
+                                                {r.userId.slice(-2).toUpperCase()}
+                                            </div>
+                                            <div>
+                                                <div className="flex gap-0.5 text-amber-500 mb-1">
+                                                    {[1, 2, 3, 4, 5].map((s) => (
+                                                        <Star key={s} size={14} fill={s <= r.rating ? "currentColor" : "none"} />
+                                                    ))}
+                                                </div>
+                                                <div className="flex items-center gap-2">
+                                                    <span className="text-sm font-bold text-ink">Verified Owner</span>
+                                                    <span className="text-[10px] text-slate-400 uppercase tracking-widest font-black">• {new Date(r.createdAt).toLocaleDateString()}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <p className="text-slate-600 leading-relaxed text-sm">{r.comment}</p>
+                                    </div>
+                                ))}
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 border-2 border-dashed border-line rounded-[40px] bg-surface-50">
+                                <Star size={40} className="text-slate-200" />
+                                <div className="space-y-1">
+                                    <h4 className="font-bold text-slate-900">No reviews yet</h4>
+                                    <p className="text-sm text-slate-500">Be the first to share your experience!</p>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
         </div>
     );
 };
+
 
 export { ProductDetailPage };

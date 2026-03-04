@@ -127,10 +127,44 @@ class ProductService:
         }
 
     def get_product(self, product_id: str) -> dict[str, Any]:
-        product = self.product_repository.get(product_id)
+        product = self.product_repository.get_by_id(product_id)
         if not product:
             raise HTTPException(status_code=404, detail="Product not found")
-        return deepcopy(product)
+        return {"product": product}
+
+    def add_review(
+        self, product_id: str, user_id: str, rating: int, title: str | None, comment: str | None
+    ) -> dict[str, Any]:
+        product = self.product_repository.get_by_id(product_id)
+        if not product:
+            raise HTTPException(status_code=404, detail="Product not found")
+            
+        review = {
+            "id": generate_id("review"),
+            "userId": user_id,
+            "rating": rating,
+            "title": title,
+            "comment": comment,
+            "createdAt": iso_now(),
+        }
+        
+        reviews = product.get("reviews", [])
+        reviews.append(review)
+        product["reviews"] = reviews
+        
+        total_rating = sum(r["rating"] for r in reviews)
+        new_rating = total_rating / len(reviews)
+        new_review_count = len(reviews)
+        
+        # Depending on if update takes partial dict or full dict. Assuming memory repo uses merge or full replace.
+        # We will pass full product
+        product["rating"] = new_rating
+        product["reviewCount"] = new_review_count
+        product["updatedAt"] = iso_now()
+        
+        self.product_repository.update(product_id, product)
+        
+        return {"review": review, "product": product}
 
     def create_product(self, payload: dict[str, Any]) -> dict[str, Any]:
         product_id = payload.get("id") or generate_id("prod")

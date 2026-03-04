@@ -22,6 +22,7 @@ export interface Product {
   features?: string[];
   specifications?: Record<string, unknown>;
   status?: string;
+  reviews?: any[];
 }
 
 export interface CartItem {

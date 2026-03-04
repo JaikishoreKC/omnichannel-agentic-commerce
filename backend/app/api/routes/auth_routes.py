@@ -91,3 +91,17 @@ def login(payload: LoginRequest, request: Request) -> dict[str, object]:
 @router.post("/refresh")
 def refresh(payload: RefreshRequest) -> dict[str, object]:
     return auth_service.refresh(refresh_token=payload.refreshToken)
+
+
+from app.models.schemas import PasswordResetRequest, PasswordResetConfirmRequest
+
+@router.post("/reset-password-request", status_code=202)
+def request_password_reset(payload: PasswordResetRequest) -> dict[str, object]:
+    auth_service.request_password_reset(email=payload.email)
+    return {"message": "If an account with that email exists, a password reset link has been sent."}
+
+
+@router.post("/reset-password", status_code=200)
+def confirm_password_reset(payload: PasswordResetConfirmRequest) -> dict[str, object]:
+    auth_service.confirm_password_reset(token=payload.token, new_password=payload.newPassword)
+    return {"message": "Password successfully reset."}

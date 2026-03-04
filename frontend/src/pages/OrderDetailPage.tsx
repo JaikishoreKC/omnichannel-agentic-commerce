@@ -14,35 +14,67 @@ import {
     Copy,
     ExternalLink
 } from "lucide-react";
-import { fetchOrderById } from "../api";
+import { fetchOrderById, cancelOrder, refundOrder } from "../api";
 import type { OrderDetail } from "../types";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
+import { useToast } from "../context/ToastContext";
 import { cn } from "../utils/cn";
 
 const OrderDetailPage: React.FC = () => {
     const { orderId } = useParams<{ orderId: string }>();
     const navigate = useNavigate();
+    const { addToast } = useToast();
     const [order, setOrder] = useState<OrderDetail | null>(null);
     const [isLoading, setIsLoading] = useState(true);
+    const [isActionLoading, setIsActionLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
+    const loadOrder = async () => {
+        if (!orderId) return;
+        try {
+            setIsLoading(true);
+            const data = await fetchOrderById(orderId);
+            setOrder(data);
+        } catch (err: any) {
+            console.error("Failed to load order", err);
+            setError(err.message || "Could not find this order.");
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
     useEffect(() => {
-        const loadOrder = async () => {
-            if (!orderId) return;
-            try {
-                setIsLoading(true);
-                const data = await fetchOrderById(orderId);
-                setOrder(data);
-            } catch (err: any) {
-                console.error("Failed to load order", err);
-                setError(err.message || "Could not find this order.");
-            } finally {
-                setIsLoading(false);
-            }
-        };
         loadOrder();
     }, [orderId]);
+
+    const handleCancel = async () => {
+        if (!order || !window.confirm("Are you sure you want to cancel this order?")) return;
+        setIsActionLoading(true);
+        try {
+            await cancelOrder(order.id, "Customer requested cancellation via UI");
+            addToast("Order successfully cancelled", "info");
+            await loadOrder();
+        } catch (err: any) {
+            addToast(err.message || "Failed to cancel order", "error");
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
+
+    const handleRefund = async () => {
+        if (!order || !window.confirm("Are you sure you want to request a refund for this order?")) return;
+        setIsActionLoading(true);
+        try {
+            await refundOrder(order.id, "Customer requested refund via UI");
+            addToast("Refund requested successfully", "success");
+            await loadOrder();
+        } catch (err: any) {
+            addToast(err.message || "Failed to request refund", "error");
+        } finally {
+            setIsActionLoading(false);
+        }
+    };
 
     const getStatusStyles = (status: string) => {
         switch (status.toLowerCase()) {
@@ -86,7 +118,7 @@ const OrderDetailPage: React.FC = () => {
     return (
         <div className="max-w-5xl mx-auto space-y-8 pb-20 animate-fade-in">
             {/* Header Navigation */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <button
                     onClick={() => navigate("/account")}
                     className="group flex items-center gap-2 text-slate-500 hover:text-brand transition-colors font-medium px-2 py-1 -ml-2 rounded-lg"
@@ -94,7 +126,29 @@ const OrderDetailPage: React.FC = () => {
                     <ChevronLeft size={20} className="group-hover:-translate-x-1 transition-transform" />
                     Back to Account
                 </button>
-                <div className="flex items-center gap-3">
+                <div className="flex flex-wrap items-center gap-3">
+                    {order.status.toLowerCase() !== "cancelled" && order.status.toLowerCase() !== "delivered" && order.status.toLowerCase() !== "refund_requested" && order.status.toLowerCase() !== "refunded" && (
+                        <Button
+                            variant="danger"
+                            size="sm"
+                            className="rounded-xl font-bold h-10"
+                            onClick={handleCancel}
+                            disabled={isActionLoading}
+                        >
+                            <AlertCircle size={16} className="mr-2" /> Cancel Order
+                        </Button>
+                    )}
+                    {order.status.toLowerCase() === "delivered" && (
+                        <Button
+                            variant="outline"
+                            size="sm"
+                            className="rounded-xl font-bold h-10 text-slate-600 hover:text-red-600 hover:bg-red-50 border-slate-200 hover:border-red-200"
+                            onClick={handleRefund}
+                            disabled={isActionLoading}
+                        >
+                            <AlertCircle size={16} className="mr-2" /> Request Refund
+                        </Button>
+                    )}
                     <Button variant="outline" size="sm" className="rounded-xl gap-2 font-bold h-10">
                         <Package size={16} /> Invoice PDF
                     </Button>

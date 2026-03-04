@@ -30,3 +30,11 @@ export async function fetchOrders(): Promise<Order[]> {
 export async function fetchOrderById(id: string): Promise<OrderDetail> {
     return request<OrderDetail>("GET", `/orders/${id}`);
 }
+
+export async function cancelOrder(id: string, reason: string): Promise<void> {
+    await request("POST", `/orders/${id}/cancel`, { reason });
+}
+
+export async function refundOrder(id: string, reason: string): Promise<void> {
+    await request("POST", `/orders/${id}/refund`, { reason });
+}

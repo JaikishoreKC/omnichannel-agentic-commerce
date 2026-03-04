@@ -102,6 +102,47 @@ class AuthService:
         self.auth_repository.revoke_refresh_token(refresh_token)
         return self._issue_tokens(user)
 
+    def request_password_reset(self, email: str) -> None:
+        normalized_email = email.strip().lower()
+        user = self.auth_repository.get_user_by_email(normalized_email)
+        if not user:
+            # Important: Do not throw error here to prevent email enumeration
+            return
+
+        # Simple approach for demonstration: Create a short-lived token
+        reset_token = create_token(
+            claims={"sub": user["id"], "type": "reset_password"},
+            secret=self.settings.token_secret,
+            ttl_seconds=3600
+        )
+        # Log it for testing since we have no email client configured
+        self.logger.info(f"Password reset requested for {normalized_email}. Token: {reset_token}")
+
+    def confirm_password_reset(self, token: str, new_password: str) -> None:
+        try:
+            payload = decode_token(
+                token=token,
+                secret=self.settings.token_secret,
+                expected_type="reset_password"
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token") from exc
+
+        user_id = payload.get("sub")
+        user = self.auth_repository.get_user_by_id(str(user_id))
+        if not user:
+            raise HTTPException(status_code=404, detail="User no longer exists")
+
+        user["passwordHash"] = hash_password(new_password)
+        user["updatedAt"] = iso_now()
+        self.auth_repository.update_user(user)
+
+    def logout(self, refresh_token: str | None) -> None:
+        # This method was part of the provided code edit, but its implementation
+        # was incomplete/incorrect. Assuming the intent was to revoke the token.
+        if refresh_token:
+            self.auth_repository.revoke_refresh_token(refresh_token)
+
     def get_user_from_access_token(self, access_token: str) -> dict[str, Any]:
         try:
             payload = decode_token(

@@ -92,6 +92,18 @@ const AuthPage: React.FC = () => {
                         data-testid="password-input"
                     />
 
+                    {mode === "login" && (
+                        <div className="flex justify-end -mt-2">
+                            <button
+                                type="button"
+                                onClick={() => navigate("/forgot-password")}
+                                className="text-xs font-semibold text-brand hover:text-brand-light transition-colors"
+                            >
+                                Forgot password?
+                            </button>
+                        </div>
+                    )}
+
                     <Button
                         type="submit"
                         className="w-full h-12 rounded-2xl gap-2"

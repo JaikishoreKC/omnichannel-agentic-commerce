@@ -23,6 +23,15 @@ class RefreshRequest(BaseModel):
     refreshToken: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str = Field(pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    token: str
+    newPassword: str = Field(min_length=8)
+
+
 class AuthUser(BaseModel):
     id: str
     email: str
@@ -57,6 +66,12 @@ class AddCartItemRequest(BaseModel):
     productId: str
     variantId: str
     quantity: int = Field(ge=1, le=50)
+
+
+class AddProductReviewRequest(BaseModel):
+    rating: int = Field(ge=1, le=5)
+    title: str | None = None
+    comment: str | None = None
 
 
 class UpdateCartItemRequest(BaseModel):

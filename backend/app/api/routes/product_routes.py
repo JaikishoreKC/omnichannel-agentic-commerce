@@ -31,3 +31,22 @@ def list_products(
 @router.get("/{product_id}")
 def get_product(product_id: str) -> dict[str, object]:
     return product_service.get_product(product_id=product_id)
+
+
+from app.models.schemas import AddProductReviewRequest
+from app.api.deps import get_current_user
+from fastapi import Depends
+
+@router.post("/{product_id}/reviews", status_code=201)
+def add_product_review(
+    product_id: str,
+    payload: AddProductReviewRequest,
+    user: dict[str, object] = Depends(get_current_user),
+) -> dict[str, object]:
+    return product_service.add_review(
+        product_id=product_id,
+        user_id=str(user["id"]),
+        rating=payload.rating,
+        title=payload.title,
+        comment=payload.comment,
+    )
