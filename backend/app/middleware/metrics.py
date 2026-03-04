@@ -1,8 +1,11 @@
 from __future__ import annotations
 from contextlib import suppress
 from fastapi import Request
-from app.container import metrics_collector, settings
+from app.api.deps import get_metrics_collector, get_settings
 from app.infrastructure.observability import RequestTimer
+
+metrics_collector = get_metrics_collector()
+settings = get_settings()
 
 def _rate_limit_scope(path: str) -> str:
     parts = [part for part in path.split("/") if part]

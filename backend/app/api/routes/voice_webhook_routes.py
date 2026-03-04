@@ -5,9 +5,11 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.container import superu_client, voice_recovery_service
+from app.api.deps import get_superu_client, get_voice_recovery_service
 
 router = APIRouter(prefix="/voice", tags=["voice"])
+superu_client = get_superu_client()
+voice_recovery_service = get_voice_recovery_service()
 
 
 @router.post("/superu/callback")

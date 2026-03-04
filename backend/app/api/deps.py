@@ -4,7 +4,95 @@ from typing import Any
 
 from fastapi import Depends, Header, HTTPException, Request, Response
 
-from app.container import auth_service, session_service, settings
+from app.container import container
+
+
+def get_container() -> Any:
+    return container
+
+
+def get_settings() -> Any:
+    return container.settings
+
+
+def get_auth_service() -> Any:
+    return container.auth_service
+
+
+def get_session_service() -> Any:
+    return container.session_service
+
+
+def get_cart_service() -> Any:
+    return container.cart_service
+
+
+def get_order_service() -> Any:
+    return container.order_service
+
+
+def get_product_service() -> Any:
+    return container.product_service
+
+
+def get_memory_service() -> Any:
+    return container.memory_service
+
+
+def get_interaction_service() -> Any:
+    return container.interaction_service
+
+
+def get_support_service() -> Any:
+    return container.support_service
+
+
+def get_admin_service() -> Any:
+    return container.admin_service
+
+
+def get_admin_activity_service() -> Any:
+    return container.admin_activity_service
+
+
+def get_auth_repository() -> Any:
+    return container.auth_repository
+
+
+def get_order_repository() -> Any:
+    return container.order_repository
+
+
+def get_product_repository() -> Any:
+    return container.product_repository
+
+
+def get_category_service() -> Any:
+    return container.category_service
+
+
+def get_inventory_service() -> Any:
+    return container.inventory_service
+
+
+def get_voice_recovery_service() -> Any:
+    return container.voice_recovery_service
+
+
+def get_superu_client() -> Any:
+    return container.superu_client
+
+
+def get_metrics_collector() -> Any:
+    return container.metrics_collector
+
+
+def get_rate_limiter() -> Any:
+    return container.rate_limiter
+
+
+def get_orchestrator() -> Any:
+    return container.orchestrator
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -21,6 +109,7 @@ def get_current_user(request: Request) -> dict[str, Any]:
     token = _extract_bearer_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
+    auth_service = get_auth_service()
     return auth_service.get_user_from_access_token(token)
 
 
@@ -28,6 +117,7 @@ def get_optional_user(request: Request) -> dict[str, Any] | None:
     token = _extract_bearer_token(request)
     if not token:
         return None
+    auth_service = get_auth_service()
     return auth_service.get_user_from_access_token(token)
 
 
@@ -42,6 +132,8 @@ def resolve_session_id(
     response: Response,
     x_session_id: str | None = Header(default=None),
 ) -> str:
+    session_service = get_session_service()
+    settings = get_settings()
     session_id = x_session_id or request.cookies.get("session_id")
     if session_id:
         try:

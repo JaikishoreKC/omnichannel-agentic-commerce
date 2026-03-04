@@ -5,20 +5,29 @@ from app.infrastructure.logging import get_logger
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
 
-from app.api.deps import get_optional_user
-from app.api.session_utils import get_or_create_session, resolve_user_session_and_link_identity
-from app.container import (
-    auth_service,
-    cart_service,
-    interaction_service,
-    memory_service,
-    orchestrator,
-    session_service,
+from app.api.deps import (
+    get_auth_service,
+    get_cart_service,
+    get_interaction_service,
+    get_memory_service,
+    get_optional_user,
+    get_orchestrator,
+    get_session_service,
+)
+from app.application.session_workflows import (
+    get_or_create_session,
+    resolve_user_session_and_link_identity,
 )
 from app.models.schemas import InteractionMessageRequest
 
 router = APIRouter(prefix="/interactions", tags=["interactions"])
 logger = get_logger(__name__)
+auth_service = get_auth_service()
+cart_service = get_cart_service()
+interaction_service = get_interaction_service()
+memory_service = get_memory_service()
+orchestrator = get_orchestrator()
+session_service = get_session_service()
 
 
 @router.post("/message")

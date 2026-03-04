@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request, Response
 
-from app.container import session_service
+from app.api.deps import get_session_service
 from app.models.schemas import CreateSessionRequest
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+session_service = get_session_service()
 
 
 @router.post("", status_code=201)

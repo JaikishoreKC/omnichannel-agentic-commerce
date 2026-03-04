@@ -4,18 +4,18 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
-from app.api.deps import require_admin
-from app.container import (
-    admin_activity_service,
-    admin_service,
-    auth_repository,
-    category_service,
-    inventory_service,
-    order_repository,
-    product_repository,
-    product_service,
-    support_service,
-    voice_recovery_service,
+from app.api.deps import (
+    get_admin_activity_service,
+    get_admin_service,
+    get_auth_repository,
+    get_category_service,
+    get_inventory_service,
+    get_order_repository,
+    get_product_repository,
+    get_product_service,
+    get_support_service,
+    get_voice_recovery_service,
+    require_admin,
 )
 from app.models.schemas import (
     CategoryUpdateRequest,
@@ -28,6 +28,16 @@ from app.models.schemas import (
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+admin_activity_service = get_admin_activity_service()
+admin_service = get_admin_service()
+auth_repository = get_auth_repository()
+category_service = get_category_service()
+inventory_service = get_inventory_service()
+order_repository = get_order_repository()
+product_repository = get_product_repository()
+product_service = get_product_service()
+support_service = get_support_service()
+voice_recovery_service = get_voice_recovery_service()
 
 
 @router.get("/stats")

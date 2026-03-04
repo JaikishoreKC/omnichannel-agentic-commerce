@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Query
 
-from app.api.deps import get_current_user
-from app.container import memory_service
+from app.api.deps import get_current_user, get_memory_service
 from app.models.schemas import UpdatePreferencesRequest
 
 router = APIRouter(prefix="/memory", tags=["memory"])
+memory_service = get_memory_service()
 
 
 @router.get("")

@@ -2,10 +2,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Request
 
-from app.container import auth_service, cart_service, session_service
+from app.api.deps import get_auth_service, get_cart_service, get_session_service
 from app.models.schemas import LoginRequest, RefreshRequest, RegisterRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+auth_service = get_auth_service()
+cart_service = get_cart_service()
+session_service = get_session_service()
 
 
 @router.post("/register", status_code=201)

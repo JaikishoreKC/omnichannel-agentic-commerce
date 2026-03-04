@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 
-from app.api.deps import get_current_user
-from app.container import order_service
+from app.api.deps import get_current_user, get_order_service
 from app.models.schemas import (
     CancelOrderRequest,
     CreateOrderRequest,
@@ -12,6 +11,7 @@ from app.models.schemas import (
 )
 
 router = APIRouter(prefix="/orders", tags=["orders"])
+order_service = get_order_service()
 
 
 @router.post("", status_code=201)

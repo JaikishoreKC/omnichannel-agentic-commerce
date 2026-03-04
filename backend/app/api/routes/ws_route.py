@@ -4,18 +4,28 @@ import asyncio
 from time import time
 from contextlib import suppress
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
-from app.api.session_utils import get_or_create_session, resolve_user_session_and_link_identity
-from app.container import (
-    auth_service,
-    cart_service,
-    container,
-    metrics_collector,
-    orchestrator,
-    session_service,
-    settings,
+from app.api.deps import (
+    get_auth_service,
+    get_cart_service,
+    get_container,
+    get_metrics_collector,
+    get_orchestrator,
+    get_session_service,
+    get_settings,
+)
+from app.application.session_workflows import (
+    get_or_create_session,
+    resolve_user_session_and_link_identity,
 )
 
 logger = get_logger(__name__)
+auth_service = get_auth_service()
+cart_service = get_cart_service()
+app_container = get_container()
+metrics_collector = get_metrics_collector()
+orchestrator = get_orchestrator()
+session_service = get_session_service()
+settings = get_settings()
 
 def _record_security_event(*, event_type: str, severity: str) -> None:
     with suppress(RuntimeError):
@@ -114,7 +124,7 @@ async def _resolve_and_sync_user_session(
     return session_id, active_session, user_id
 
 async def websocket_endpoint(websocket: WebSocket) -> None:
-    container.ensure_external_baseline()
+    app_container.ensure_external_baseline()
     origin = str(websocket.headers.get("origin", "")).strip()
     logger.info(f"WebSocket connection attempt from origin: {origin}")
     logger.info(f"Allowed origins: {settings.cors_origin_list}")

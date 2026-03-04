@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.container import product_service
+from app.api.deps import get_product_service
 
 router = APIRouter(prefix="/products", tags=["products"])
+product_service = get_product_service()
 
 
 @router.get("")

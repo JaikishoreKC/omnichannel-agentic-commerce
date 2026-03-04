@@ -4,7 +4,17 @@ from time import time
 from contextlib import suppress
 from fastapi import Request
 from fastapi.responses import JSONResponse
-from app.container import auth_service, metrics_collector, rate_limiter, settings
+from app.api.deps import (
+    get_auth_service,
+    get_metrics_collector,
+    get_rate_limiter,
+    get_settings,
+)
+
+auth_service = get_auth_service()
+metrics_collector = get_metrics_collector()
+rate_limiter = get_rate_limiter()
+settings = get_settings()
 
 def _rate_limit_profile(request: Request) -> tuple[str, int]:
     auth_header = request.headers.get("Authorization", "")

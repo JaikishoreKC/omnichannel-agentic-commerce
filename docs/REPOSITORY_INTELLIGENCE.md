@@ -157,7 +157,7 @@ Purpose: durable “repository brain” for safe future development.
 ## 5) Dependency Analysis
 
 ## High-Coupling Areas
-- **`container.py` as service locator** is imported directly by routes/middleware.
+- **`container.py` as service locator** remains a central coupling point, now accessed for transport concerns primarily via `api/deps.py` providers (direct imports in routes/middleware removed).
 - **`orchestrator_core.py`** depends on multiple cross-domain services/agents.
 - **`voice_recovery_service.py` + `services/voice/*`** are broad integration points.
 
@@ -317,3 +317,45 @@ When implementation changes materially, update this file in the same PR under:
 
 ### Notes
 - Backend test fallback dependencies (`fakeredis`, `mongomock`) were required in the local virtual environment for deterministic execution when local Redis/Mongo are unavailable.
+
+---
+
+## 13) Change Log (2026-03-05, Complexity Reduction Pass)
+
+### Implemented
+- Simplified intent-to-action extraction by replacing the long conditional chain with declarative mapping and targeted special handling: `backend/app/orchestrator/action_extractor.py`
+- Refactored agent execution branching into dispatch-based handlers for readability and maintainability: `backend/app/agents/cart_agent.py`, `backend/app/agents/order_agent.py`
+- Introduced shared session resolution/linking workflows to reduce duplicated route logic: `backend/app/application/session_workflows.py`, reused by `backend/app/api/routes/interaction_routes.py` and `backend/app/api/routes/ws_route.py`
+- Decomposed classifier rule flow into grouped intent-classification helpers to reduce nesting: `backend/app/orchestrator/intent_classifier.py`
+- Decomposed orchestrator stream lifecycle into focused helper methods (recent-load, metadata application, streaming, persistence): `backend/app/orchestrator/orchestrator_core.py`
+- Consolidated duplicate LLM retry-delay logic into shared helper path: `backend/app/infrastructure/llm_client.py`
+- Simplified product repository update API by removing ambiguous variadic signature and aligned service callsites: `backend/app/repositories/product_repository.py`, `backend/app/services/product_service.py`
+- Removed dead/duplicate code in websocket and orchestrator modules: `backend/app/api/routes/ws_route.py`, `backend/app/orchestrator/orchestrator_core.py`
+- Removed obsolete API helper duplicate after application-layer extraction: `backend/app/api/session_utils.py`
+
+### Validation Snapshot
+- Backend tests (full suite): `168 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+---
+
+## 14) Change Log (2026-03-05, Architecture Boundary Hardening Pass)
+
+### Implemented
+- Added explicit dependency providers in `backend/app/api/deps.py`, including `get_container()` and service/repository/provider accessors used by transport modules.
+- Migrated API routes and middleware from direct composition-root imports to provider-backed dependencies: `backend/app/api/routes/*.py`, `backend/app/middleware/*.py`.
+- Extracted session orchestration glue to the new application layer module: `backend/app/application/session_workflows.py`.
+- Rewired interaction/websocket paths to use application workflows: `backend/app/api/routes/interaction_routes.py`, `backend/app/api/routes/ws_route.py`.
+- Added boundary regression test to enforce no direct `from app.container import container` in routes/middleware: `backend/tests/unit/test_architecture_boundaries.py`.
+- Added architecture target/migration blueprint doc: `docs/ARCHITECTURE_TARGET_STRUCTURE.md`.
+
+### Validation Snapshot
+- Backend tests (full suite): `168 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Notes
+- `fakeredis` was installed in the backend virtual environment to satisfy test fallback dependencies during local execution.

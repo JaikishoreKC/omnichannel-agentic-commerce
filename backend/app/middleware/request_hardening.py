@@ -2,8 +2,11 @@ from __future__ import annotations
 from fastapi import Request
 from fastapi.responses import JSONResponse
 from app.core.config import Settings
-from app.container import metrics_collector, settings
+from app.api.deps import get_metrics_collector, get_settings
 from contextlib import suppress
+
+metrics_collector = get_metrics_collector()
+settings = get_settings()
 
 STRICT_JSON_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 CRITICAL_DUPLICATE_HEADERS = {

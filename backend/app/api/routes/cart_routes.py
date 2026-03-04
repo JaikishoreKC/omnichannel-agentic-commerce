@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Response
 
-from app.api.deps import get_optional_user, resolve_session_id
-from app.container import cart_service
+from app.api.deps import get_cart_service, get_optional_user, resolve_session_id
 from app.models.schemas import (
     AddCartItemRequest,
     ApplyDiscountRequest,
@@ -11,6 +10,7 @@ from app.models.schemas import (
 )
 
 router = APIRouter(prefix="/cart", tags=["cart"])
+cart_service = get_cart_service()
 
 
 @router.get("")
