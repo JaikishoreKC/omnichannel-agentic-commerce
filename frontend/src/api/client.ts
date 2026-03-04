@@ -3,8 +3,9 @@ import type { ChatResponsePayload } from "./types";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
 const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 const SESSION_KEY = "commerce_session_id";
-const AUTH_KEY = "commerce_access_token";
-const REFRESH_KEY = "commerce_refresh_token";
+
+let _accessTokenMemory: string | null = null;
+let _refreshTokenMemory: string | null = null;
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
@@ -21,15 +22,11 @@ type WsEnvelope = {
 };
 
 export function token(): string | null {
-    return localStorage.getItem(AUTH_KEY);
+    return _accessTokenMemory;
 }
 
 export function setToken(value: string | null): void {
-    if (value) {
-        localStorage.setItem(AUTH_KEY, value);
-        return;
-    }
-    localStorage.removeItem(AUTH_KEY);
+    _accessTokenMemory = value;
 }
 
 export function sessionId(): string | null {
@@ -47,15 +44,11 @@ export function setSessionId(value: string | null): void {
 }
 
 export function setRefreshToken(value: string | null): void {
-    if (value) {
-        localStorage.setItem(REFRESH_KEY, value);
-        return;
-    }
-    localStorage.removeItem(REFRESH_KEY);
+    _refreshTokenMemory = value;
 }
 
 export function getRefreshToken(): string | null {
-    return localStorage.getItem(REFRESH_KEY);
+    return _refreshTokenMemory;
 }
 
 /** Clear all auth state and dispatch a global event so AuthContext can redirect */
@@ -72,7 +65,6 @@ let _refreshQueue: Array<() => void> = [];
 
 async function tryRefreshToken(): Promise<boolean> {
     const refreshToken = getRefreshToken();
-    if (!refreshToken) return false;
 
     if (_isRefreshing) {
         // Another refresh is in-flight; queue up and wait for it
@@ -84,7 +76,8 @@ async function tryRefreshToken(): Promise<boolean> {
         const response = await fetch(`${API_BASE}/auth/refresh`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ refreshToken }),
+            credentials: "include",
+            body: JSON.stringify(refreshToken ? { refreshToken } : {}),
         });
         if (!response.ok) return false;
         const data = await response.json();
@@ -115,11 +108,6 @@ export async function request<T>(
         ...extraHeaders,
     };
 
-    const savedToken = token();
-    if (savedToken) {
-        headers.Authorization = `Bearer ${savedToken}`;
-    }
-
     const savedSession = sessionId();
     if (savedSession) {
         headers["X-Session-Id"] = savedSession;
@@ -128,6 +116,7 @@ export async function request<T>(
     const response = await fetch(`${API_BASE}${path}`, {
         method,
         headers,
+        credentials: "include",
         body: body ? JSON.stringify(body) : undefined,
     });
 

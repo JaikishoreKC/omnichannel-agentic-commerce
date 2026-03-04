@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import secrets
 from copy import deepcopy
 from datetime import datetime, timezone as dt_timezone
 from typing import Any
@@ -71,9 +73,7 @@ class AuthService:
                 if not supplied or not totp.verify(supplied):
                     raise HTTPException(status_code=401, detail="Invalid Admin OTP")
             except ImportError:
-                # Fallback if pyotp is not installed yet
-                if str(otp or "").strip() != "000000": # Temporary fallback for dev
-                     raise HTTPException(status_code=401, detail="Admin OTP required (pyotp missing)")
+                raise HTTPException(status_code=503, detail="Admin MFA is unavailable")
 
         user["lastLoginAt"] = iso_now()
         self.auth_repository.update_user(user)
@@ -109,26 +109,31 @@ class AuthService:
             # Important: Do not throw error here to prevent email enumeration
             return
 
-        # Simple approach for demonstration: Create a short-lived token
-        reset_token = create_token(
-            claims={"sub": user["id"], "type": "reset_password"},
-            secret=self.settings.token_secret,
-            ttl_seconds=3600
+        reset_token = secrets.token_urlsafe(32)
+        reset_token_hash = hashlib.sha256(reset_token.encode("utf-8")).hexdigest()
+        expires_at = datetime.now(dt_timezone.utc).timestamp() + 3600
+        self.auth_repository.set_password_reset_token(
+            token_hash=reset_token_hash,
+            payload={
+                "userId": str(user["id"]),
+                "email": normalized_email,
+                "expiresAt": float(expires_at),
+                "createdAt": iso_now(),
+            },
         )
-        # Log it for testing since we have no email client configured
-        self.logger.info(f"Password reset requested for {normalized_email}. Token: {reset_token}")
+        self.logger.info("Password reset requested", email=normalized_email)
 
     def confirm_password_reset(self, token: str, new_password: str) -> None:
-        try:
-            payload = decode_token(
-                token=token,
-                secret=self.settings.token_secret,
-                expected_type="reset_password"
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail="Invalid or expired reset token") from exc
+        token_hash = hashlib.sha256(str(token).encode("utf-8")).hexdigest()
+        token_payload = self.auth_repository.get_password_reset_token(token_hash)
+        if not token_payload:
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
+        expires_at = float(token_payload.get("expiresAt", 0))
+        if expires_at <= datetime.now(dt_timezone.utc).timestamp():
+            self.auth_repository.delete_password_reset_token(token_hash)
+            raise HTTPException(status_code=400, detail="Invalid or expired reset token")
 
-        user_id = payload.get("sub")
+        user_id = token_payload.get("userId")
         user = self.auth_repository.get_user_by_id(str(user_id))
         if not user:
             raise HTTPException(status_code=404, detail="User no longer exists")
@@ -136,6 +141,7 @@ class AuthService:
         user["passwordHash"] = hash_password(new_password)
         user["updatedAt"] = iso_now()
         self.auth_repository.update_user(user)
+        self.auth_repository.delete_password_reset_token(token_hash)
 
     def logout(self, refresh_token: str | None) -> None:
         # This method was part of the provided code edit, but its implementation

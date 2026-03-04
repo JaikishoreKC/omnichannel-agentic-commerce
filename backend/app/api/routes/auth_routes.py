@@ -1,18 +1,52 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Cookie, HTTPException, Request, Response
 
-from app.api.deps import get_auth_service, get_cart_service, get_session_service
+from app.api.deps import ACCESS_COOKIE_KEY, get_auth_service, get_cart_service, get_session_service, get_settings
 from app.models.schemas import LoginRequest, RefreshRequest, RegisterRequest
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 auth_service = get_auth_service()
 cart_service = get_cart_service()
 session_service = get_session_service()
+settings = get_settings()
+REFRESH_COOKIE_KEY = "refresh_token"
+
+
+def _set_auth_cookies(response: Response, *, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key=ACCESS_COOKIE_KEY,
+        value=access_token,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite=settings.session_cookie_samesite,
+    )
+    response.set_cookie(
+        key=REFRESH_COOKIE_KEY,
+        value=refresh_token,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite=settings.session_cookie_samesite,
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(
+        key=ACCESS_COOKIE_KEY,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite=settings.session_cookie_samesite,
+    )
+    response.delete_cookie(
+        key=REFRESH_COOKIE_KEY,
+        httponly=True,
+        secure=bool(settings.session_cookie_secure),
+        samesite=settings.session_cookie_samesite,
+    )
 
 
 @router.post("/register", status_code=201)
-def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
+def register(payload: RegisterRequest, request: Request, response: Response) -> dict[str, object]:
     channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
     result = auth_service.register(
         email=payload.email,
@@ -51,11 +85,16 @@ def register(payload: RegisterRequest, request: Request) -> dict[str, object]:
     )
     result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
+    _set_auth_cookies(
+        response,
+        access_token=str(result.get("accessToken", "")),
+        refresh_token=str(result.get("refreshToken", "")),
+    )
     return result
 
 
 @router.post("/login")
-def login(payload: LoginRequest, request: Request) -> dict[str, object]:
+def login(payload: LoginRequest, request: Request, response: Response) -> dict[str, object]:
     channel = request.headers.get("X-Channel", "web").strip().lower() or "web"
     result = auth_service.login(email=payload.email, password=payload.password, otp=payload.otp)
     session_id = request.headers.get("X-Session-Id") or request.cookies.get("session_id")
@@ -88,12 +127,42 @@ def login(payload: LoginRequest, request: Request) -> dict[str, object]:
     )
     result["user"]["identity"] = linked_user.get("identity")
     result["sessionId"] = str(resolved["id"])
+    _set_auth_cookies(
+        response,
+        access_token=str(result.get("accessToken", "")),
+        refresh_token=str(result.get("refreshToken", "")),
+    )
     return result
 
 
 @router.post("/refresh")
-def refresh(payload: RefreshRequest) -> dict[str, object]:
-    return auth_service.refresh(refresh_token=payload.refreshToken)
+def refresh(
+    payload: RefreshRequest,
+    response: Response,
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE_KEY),
+) -> dict[str, object]:
+    refresh_token = str(payload.refreshToken or refresh_cookie or "").strip()
+    if not refresh_token:
+        raise HTTPException(status_code=401, detail="Refresh token is required")
+    result = auth_service.refresh(refresh_token=refresh_token)
+    _set_auth_cookies(
+        response,
+        access_token=str(result.get("accessToken", "")),
+        refresh_token=str(result.get("refreshToken", "")),
+    )
+    return result
+
+
+@router.post("/logout", status_code=204)
+def logout(
+    response: Response,
+    refresh_cookie: str | None = Cookie(default=None, alias=REFRESH_COOKIE_KEY),
+) -> Response:
+    refresh_token = str(refresh_cookie or "").strip() or None
+    auth_service.logout(refresh_token)
+    _clear_auth_cookies(response)
+    response.status_code = 204
+    return response
 
 
 from app.models.schemas import PasswordResetRequest, PasswordResetConfirmRequest

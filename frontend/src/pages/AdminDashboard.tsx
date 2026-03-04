@@ -86,7 +86,10 @@ const AdminDashboard: React.FC = () => {
 
     useEffect(() => { loadData(); }, []);
 
-    const handleLogout = () => { logout(); navigate("/admin/login"); };
+    const handleLogout = async () => {
+        await logout();
+        navigate("/admin/login");
+    };
 
     const statCards = stats ? [
         { label: "Total Revenue", value: `$${stats.totalRevenue.toLocaleString("en-US", { minimumFractionDigits: 2 })}`, icon: TrendingUp, color: "text-emerald-600", bg: "bg-emerald-50" },

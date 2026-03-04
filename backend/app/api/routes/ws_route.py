@@ -49,12 +49,16 @@ async def _ensure_active_session(
     source: str,
 ) -> tuple[str, dict[str, object]]:
     resolved_session_id = str(candidate_session_id or "").strip()
-    logger.info(f"_ensure_active_session called with session_id: {resolved_session_id}, source: {source}")
+    cookie_session_id = str(websocket.cookies.get("session_id") or "").strip()
+    logger.info("_ensure_active_session called", source=source)
+
+    if resolved_session_id and cookie_session_id and resolved_session_id != cookie_session_id:
+        raise HTTPException(status_code=403, detail="Session mismatch")
 
     if resolved_session_id:
         try:
             existing = await asyncio.to_thread(session_service.get_session, resolved_session_id)
-            logger.info(f"Found existing session: {resolved_session_id}")
+            logger.info("Found existing websocket session")
             return resolved_session_id, existing
         except HTTPException as e:
             logger.warning(f"Session not found or invalid: {resolved_session_id}, error: {e}")
@@ -70,7 +74,7 @@ async def _ensure_active_session(
         source=source,
         referrer=websocket.headers.get("origin", ""),
     )
-    logger.info(f"Session active with id: {created['id']}")
+    logger.info("Session active for websocket")
     await _send_session_event(websocket, created)
     return str(created["id"]), created
 
@@ -126,17 +130,16 @@ async def _resolve_and_sync_user_session(
 async def websocket_endpoint(websocket: WebSocket) -> None:
     app_container.ensure_external_baseline()
     origin = str(websocket.headers.get("origin", "")).strip()
-    logger.info(f"WebSocket connection attempt from origin: {origin}")
-    logger.info(f"Allowed origins: {settings.cors_origin_list}")
+    logger.info("WebSocket connection attempt")
     
     if origin and "*" not in settings.cors_origin_list and origin not in settings.cors_origin_list:
-        logger.warning(f"WebSocket rejected: Origin {origin} not in {settings.cors_origin_list}")
+        logger.warning("WebSocket rejected due to origin policy")
         _record_security_event(event_type="ws_origin_rejected", severity="warning")
         await websocket.close(code=1008, reason="origin not allowed")
         return
 
     await websocket.accept()
-    logger.info(f"WebSocket connection accepted from origin: {origin or 'None'}")
+    logger.info("WebSocket connection accepted")
     await asyncio.to_thread(session_service.cleanup_expired, force=False)
     
     session_id, active_session = await _ensure_active_session(

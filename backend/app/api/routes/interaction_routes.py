@@ -36,6 +36,11 @@ async def process_message(
     request: Request,
     user: dict[str, object] | None = Depends(get_optional_user),
 ) -> dict[str, object]:
+    cookie_session_id = str(request.cookies.get("session_id") or "").strip()
+    payload_session_id = str(payload.sessionId or "").strip()
+    if not user and cookie_session_id and payload_session_id and cookie_session_id != payload_session_id:
+        raise HTTPException(status_code=403, detail="Session mismatch")
+
     session = await get_or_create_session(
         session_service=session_service,
         session_id=payload.sessionId,
@@ -132,6 +137,10 @@ def get_history(
 
     if not session_id:
         raise HTTPException(status_code=400, detail="sessionId is required for guest history retrieval")
+    cookie_session_id = str(request.cookies.get("session_id") or "").strip()
+    requested_session_id = str(session_id or "").strip()
+    if cookie_session_id and requested_session_id and cookie_session_id != requested_session_id:
+        raise HTTPException(status_code=403, detail="Session mismatch")
     session = session_service.get_session(session_id)
     history = interaction_service.history_for_session(session_id=str(session["id"]), limit=limit)
     return {"sessionId": str(session["id"]), "messages": history}

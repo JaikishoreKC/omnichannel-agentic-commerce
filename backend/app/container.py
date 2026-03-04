@@ -56,6 +56,7 @@ from app.store.in_memory import InMemoryStore
 class Container:
     def __init__(self) -> None:
         self.settings = Settings.from_env()
+        self.settings.validate_security()
         self.store = InMemoryStore()
         self._baseline_seeded = False
         self._baseline_seed_lock = Lock()

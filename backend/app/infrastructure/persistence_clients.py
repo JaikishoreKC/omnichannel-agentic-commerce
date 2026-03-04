@@ -9,6 +9,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+def _redact_endpoint(value: str) -> str:
+    sanitized = str(value or "").strip()
+    if not sanitized:
+        return "<empty>"
+    if "@" in sanitized:
+        return sanitized.split("@", 1)[-1]
+    return sanitized
+
+
 @dataclass
 class MongoClientManager:
     uri: str
@@ -22,7 +31,7 @@ class MongoClientManager:
         
         # Warning if using localhost in what might be a non-dev env
         if "localhost" in self.uri or "127.0.0.1" in self.uri:
-            logger.warning("MongoClientManager is using a localhost URI: %s", self.uri)
+            logger.warning("MongoClientManager is using a localhost URI endpoint: %s", _redact_endpoint(self.uri))
 
         try:
             from pymongo import MongoClient
@@ -33,7 +42,7 @@ class MongoClientManager:
         except Exception as exc:
             self._client = None
             self._last_error = str(exc)
-            logger.warning("Failed to connect to MongoDB at %s: %s", self.uri, exc)
+            logger.warning("Failed to connect to MongoDB at endpoint %s: %s", _redact_endpoint(self.uri), exc)
 
     @property
     def status(self) -> str:
@@ -72,7 +81,7 @@ class RedisClientManager:
             return
 
         if "localhost" in self.url or "127.0.0.1" in self.url:
-            logger.warning("RedisClientManager is using a localhost URL: %s", self.url)
+            logger.warning("RedisClientManager is using a localhost URL endpoint: %s", _redact_endpoint(self.url))
 
         try:
             import redis
@@ -83,7 +92,7 @@ class RedisClientManager:
         except Exception as exc:
             self._client = None
             self._last_error = str(exc)
-            logger.warning("Failed to connect to Redis at %s: %s", self.url, exc)
+            logger.warning("Failed to connect to Redis at endpoint %s: %s", _redact_endpoint(self.url), exc)
 
     @property
     def status(self) -> str:

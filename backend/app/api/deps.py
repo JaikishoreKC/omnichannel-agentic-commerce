@@ -7,6 +7,9 @@ from fastapi import Depends, Header, HTTPException, Request, Response
 from app.container import container
 
 
+ACCESS_COOKIE_KEY = "access_token"
+
+
 def get_container() -> Any:
     return container
 
@@ -105,8 +108,16 @@ def _extract_bearer_token(request: Request) -> str | None:
     return parts[1]
 
 
+def _extract_access_token(request: Request) -> str | None:
+    bearer_token = _extract_bearer_token(request)
+    if bearer_token:
+        return bearer_token
+    cookie_token = str(request.cookies.get(ACCESS_COOKIE_KEY) or "").strip()
+    return cookie_token or None
+
+
 def get_current_user(request: Request) -> dict[str, Any]:
-    token = _extract_bearer_token(request)
+    token = _extract_access_token(request)
     if not token:
         raise HTTPException(status_code=401, detail="Authentication required")
     auth_service = get_auth_service()
@@ -114,7 +125,7 @@ def get_current_user(request: Request) -> dict[str, Any]:
 
 
 def get_optional_user(request: Request) -> dict[str, Any] | None:
-    token = _extract_bearer_token(request)
+    token = _extract_access_token(request)
     if not token:
         return None
     auth_service = get_auth_service()

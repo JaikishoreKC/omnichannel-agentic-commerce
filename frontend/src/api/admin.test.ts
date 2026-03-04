@@ -26,7 +26,7 @@ describe("admin api contracts", () => {
 
         const result = await getHealth();
 
-        expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/health");
+        expect(fetchMock).toHaveBeenCalledWith("http://localhost:8000/health", { credentials: "include" });
         expect(result.services.llm.circuitBreakerState).toBe("closed");
     });
 

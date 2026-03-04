@@ -27,3 +27,26 @@ def test_refresh_token_rotation_revokes_previous_token() -> None:
     second = client.post("/v1/auth/refresh", json={"refreshToken": second_refresh})
     assert second.status_code == 200
 
+
+def test_logout_revokes_cookie_refresh_token_and_clears_auth_cookies() -> None:
+    client = TestClient(app)
+    register = client.post(
+        "/v1/auth/register",
+        json={
+            "email": "logout@example.com",
+            "password": "SecurePass123!",
+            "name": "Logout User",
+        },
+    )
+    assert register.status_code == 201
+
+    logout = client.post("/v1/auth/logout")
+    assert logout.status_code == 204
+
+    set_cookie_headers = logout.headers.get_list("set-cookie")
+    assert any(header.startswith("access_token=") for header in set_cookie_headers)
+    assert any(header.startswith("refresh_token=") for header in set_cookie_headers)
+
+    refreshed = client.post("/v1/auth/refresh", json={})
+    assert refreshed.status_code == 401
+

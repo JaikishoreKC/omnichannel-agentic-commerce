@@ -66,7 +66,7 @@ export interface HealthStatus {
 export async function getHealth(): Promise<HealthStatus> {
     const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
     const healthUrl = API_BASE.replace("/v1", "/health");
-    const res = await fetch(healthUrl);
+    const res = await fetch(healthUrl, { credentials: "include" });
     if (!res.ok) throw new Error("Failed to fetch health");
     return res.json();
 }

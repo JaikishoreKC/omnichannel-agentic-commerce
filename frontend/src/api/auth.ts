@@ -17,6 +17,10 @@ export async function login(input: {
     return request<AuthResponse>("POST", "/auth/login", input);
 }
 
-export async function refreshToken(input: { refreshToken: string }): Promise<AuthResponse> {
-    return request<AuthResponse>("POST", "/auth/refresh", input);
+export async function refreshToken(input?: { refreshToken?: string }): Promise<AuthResponse> {
+    return request<AuthResponse>("POST", "/auth/refresh", input ?? {});
+}
+
+export async function logout(): Promise<void> {
+    await request<void>("POST", "/auth/logout", {});
 }

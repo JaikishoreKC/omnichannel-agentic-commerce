@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { login as apiLogin, register as apiRegister, setToken, setSessionId, setRefreshToken } from "../api";
+import { login as apiLogin, logout as apiLogout, register as apiRegister, setRefreshToken, setSessionId, setToken } from "../api";
 import type { AuthUser } from "../types";
 
 interface AuthContextType {
@@ -9,7 +9,7 @@ interface AuthContextType {
     login: (email: string, pass: string) => Promise<void>;
     loginAdmin: (email: string, pass: string, otp: string) => Promise<void>;
     register: (name: string, email: string, pass: string) => Promise<void>;
-    logout: () => void;
+    logout: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -35,10 +35,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => window.removeEventListener("auth:expired", handleExpired);
     }, []);
 
-    const _applyAuth = (res: { user: AuthUser; accessToken: string; refreshToken?: string; sessionId?: string }) => {
+    const _applyAuth = (res: { user: AuthUser; sessionId?: string }) => {
         setUser(res.user);
-        setToken(res.accessToken);
-        if (res.refreshToken) setRefreshToken(res.refreshToken);
         if (res.sessionId) setSessionId(res.sessionId);
         localStorage.setItem("commerce_user", JSON.stringify(res.user));
     };
@@ -64,10 +62,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         _applyAuth(res);
     };
 
-    const logout = () => {
+    const logout = async () => {
+        try {
+            await apiLogout();
+        } catch {
+            // local cleanup still proceeds if remote logout fails
+        }
         setUser(null);
         setToken(null);
         setRefreshToken(null);
+        setSessionId(null);
         localStorage.removeItem("commerce_user");
     };
 

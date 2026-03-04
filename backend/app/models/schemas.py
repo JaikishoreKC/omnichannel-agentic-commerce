@@ -20,7 +20,7 @@ class LoginRequest(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refreshToken: str
+    refreshToken: str | None = None
 
 
 class PasswordResetRequest(BaseModel):

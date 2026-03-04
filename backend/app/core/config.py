@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
+    environment: str = "development"
     app_name: str = "Omnichannel Agentic Commerce API"
     api_prefix: str = "/v1"
     token_secret: str = "replace-with-strong-secret"
@@ -82,9 +83,26 @@ class Settings:
         origins = [value.strip() for value in self.cors_origins.split(",")]
         return [value for value in origins if value]
 
+    @property
+    def is_production_like(self) -> bool:
+        normalized = str(self.environment).strip().lower()
+        return normalized in {"prod", "production", "staging"}
+
+    def validate_security(self) -> None:
+        if not self.is_production_like:
+            return
+        token_secret = str(self.token_secret or "").strip()
+        if not token_secret or token_secret == "replace-with-strong-secret" or len(token_secret) < 32:
+            raise ValueError("TOKEN_SECRET must be set to a strong value in production-like environments")
+        if self.admin_mfa_required:
+            mfa_secret = str(self.admin_mfa_totp_secret or "").strip()
+            if not mfa_secret or mfa_secret == "JBSWY3DPEHPK3PXP":
+                raise ValueError("ADMIN_MFA_TOTP_SECRET must be set to a non-default value when ADMIN_MFA_REQUIRED is enabled")
+
     @classmethod
     def from_env(cls) -> "Settings":
         return cls(
+            environment=os.getenv("ENVIRONMENT", cls.environment),
             app_name=os.getenv("APP_NAME", cls.app_name),
             api_prefix=os.getenv("API_PREFIX", cls.api_prefix),
             token_secret=os.getenv("TOKEN_SECRET", cls.token_secret),

@@ -359,3 +359,46 @@ When implementation changes materially, update this file in the same PR under:
 
 ### Notes
 - `fakeredis` was installed in the backend virtual environment to satisfy test fallback dependencies during local execution.
+
+---
+
+## 15) Change Log (2026-03-05, Security Hardening Pass)
+
+### Implemented
+- Removed insecure admin MFA fallback (`000000`) and fail-closed when MFA dependency is unavailable: `backend/app/services/auth_service.py`.
+- Reworked password reset flow to avoid token disclosure in logs and store only hashed reset tokens with expiry: `backend/app/services/auth_service.py`, `backend/app/repositories/auth_repository.py`.
+- Moved refresh token persistence to hashed-at-rest storage with legacy read/revoke compatibility paths: `backend/app/repositories/auth_repository.py`.
+- Added production-like startup security validation for secrets and admin MFA defaults: `backend/app/core/config.py`, `backend/app/container.py`.
+- Increased session ID entropy and added guest session mismatch checks for interactions/websocket paths: `backend/app/services/session_service.py`, `backend/app/api/routes/interaction_routes.py`, `backend/app/api/routes/ws_route.py`.
+- Tightened transport defaults and reduced sensitive operational exposure in health/logging: `backend/app/main.py`, `backend/app/infrastructure/persistence_clients.py`, `backend/app/api/routes/ws_route.py`.
+- Shifted frontend auth/refresh token storage from `localStorage` to in-memory state and enabled cookie credentials for refresh flow: `frontend/src/api/client.ts`, `frontend/src/api/auth.ts`, `backend/app/api/routes/auth_routes.py`, `backend/app/models/schemas.py`.
+- Added regression tests for security validation and reset-token handling: `backend/tests/unit/test_security_hardening.py`.
+
+### Validation Snapshot
+- Backend tests (full suite): `171 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Follow-up Completion (2026-03-05)
+- Completed cookie-first auth transport: access token now accepted via secure cookie in API auth dependencies and set on auth flows (`backend/app/api/deps.py`, `backend/app/api/routes/auth_routes.py`).
+- Removed frontend bearer-header usage from request pipeline; auth relies on credentialed cookie transport (`frontend/src/api/client.ts`, `frontend/src/context/AuthContext.tsx`).
+- Restricted detailed `/health` diagnostics to authenticated admin context and returns reduced public snapshot otherwise (`backend/app/main.py`, `frontend/src/api/admin.ts`).
+- Updated affected frontend health test contract for credentialed fetch (`frontend/src/api/admin.test.ts`).
+
+### Follow-up Validation Snapshot
+- Backend tests (full suite): `171 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Final Follow-up Completion (2026-03-05)
+- Added server-side logout endpoint that revokes refresh tokens from cookie context and clears both access/refresh cookies: `backend/app/api/routes/auth_routes.py`.
+- Wired frontend logout to call backend logout before navigation and clear local auth/session state: `frontend/src/api/auth.ts`, `frontend/src/context/AuthContext.tsx`, `frontend/src/pages/AdminDashboard.tsx`, `frontend/src/pages/AccountPage.tsx`.
+- Added integration coverage for logout revocation and cookie clearing behavior: `backend/tests/integration/test_auth_refresh_rotation.py`.
+
+### Final Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`

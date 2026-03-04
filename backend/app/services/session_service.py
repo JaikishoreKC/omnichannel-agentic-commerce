@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import secrets
 from datetime import datetime, timedelta, timezone
 from threading import Lock
 from typing import Any
@@ -28,7 +29,7 @@ class SessionService:
         ip_address: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        session_id = generate_id("session")
+        session_id = f"session_{secrets.token_urlsafe(24)}"
         now = utc_now()
         resolved_anonymous_id = (anonymous_id or f"anon_{session_id}").strip()
         conversation_context = {

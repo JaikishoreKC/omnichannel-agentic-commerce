@@ -28,6 +28,7 @@ from app.middleware import (
 )
 
 from app.container import (
+    auth_service,
     container,
     llm_client,
     mongo_manager,
@@ -77,8 +78,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "X-Session-Id", "X-Anonymous-Id", "Idempotency-Key"],
 )
 
 # Register custom middlewares
@@ -193,13 +194,35 @@ async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONR
     )
 
 @app.get("/health")
-def health() -> dict[str, object]:
+def health(request: Request) -> dict[str, object]:
+    token = request.cookies.get("access_token")
+    if not token:
+        auth_header = str(request.headers.get("Authorization", "")).strip()
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip() or None
+
+    is_admin = False
+    if token:
+        with suppress(Exception):
+            user = auth_service.get_user_from_access_token(str(token))
+            is_admin = str(user.get("role", "")).strip().lower() == "admin"
+
+    if not is_admin:
+        return {
+            "status": "ok",
+            "services": {
+                "mongo": {"status": mongo_manager.status},
+                "redis": {"status": redis_manager.status},
+                "llm": {"enabled": llm_client.enabled},
+            },
+        }
+
     llm_snapshot = llm_client.circuit_breaker.snapshot
     return {
         "status": "ok",
         "services": {
-            "mongo": {"status": mongo_manager.status, "error": mongo_manager.error},
-            "redis": {"status": redis_manager.status, "error": redis_manager.error},
+            "mongo": {"status": mongo_manager.status},
+            "redis": {"status": redis_manager.status},
             # Note: statePersistence and other service info derived from container
             "llm": {
                 "enabled": llm_client.enabled,

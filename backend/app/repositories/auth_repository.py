@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import time
 from copy import deepcopy
 from typing import Any
 
@@ -16,6 +18,7 @@ class AuthRepository:
     ) -> None:
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
+        self._password_reset_tokens: dict[str, dict[str, Any]] = {}
 
     def create_user(self, user: dict[str, Any]) -> dict[str, Any]:
         self._write_user_through(user)
@@ -68,23 +71,54 @@ class AuthRepository:
 
 
     def set_refresh_token(self, token: str, payload: dict[str, Any]) -> None:
-        self._write_refresh_to_redis(token, payload)
-        self._write_refresh_to_mongo(token, payload)
+        token_hash = self._token_hash(token)
+        self._write_refresh_to_redis(token_hash, payload)
+        self._write_refresh_to_mongo(token_hash, payload)
 
     def get_refresh_token(self, token: str) -> dict[str, Any] | None:
-        cached = self._read_refresh_from_redis(token)
+        token_hash = self._token_hash(token)
+        cached = self._read_refresh_from_redis(token_hash)
+        if cached is None:
+            cached = self._read_refresh_from_redis_legacy(token)
         if cached is not None:
             return deepcopy(cached)
 
-        persisted = self._read_refresh_from_mongo(token)
+        persisted = self._read_refresh_from_mongo(token_hash)
+        if persisted is None:
+            persisted = self._read_refresh_from_mongo_legacy(token)
         if persisted is not None:
-            self._write_refresh_to_redis(token, persisted)
+            self._write_refresh_to_redis(token_hash, persisted)
             return deepcopy(persisted)
         return None
 
     def revoke_refresh_token(self, token: str) -> None:
-        self._delete_refresh_from_redis(token)
-        self._delete_refresh_from_mongo(token)
+        token_hash = self._token_hash(token)
+        self._delete_refresh_from_redis(token_hash)
+        self._delete_refresh_from_redis_legacy(token)
+        self._delete_refresh_from_mongo(token_hash)
+        self._delete_refresh_from_mongo_legacy(token)
+
+    def set_password_reset_token(self, token_hash: str, payload: dict[str, Any]) -> None:
+        self._password_reset_tokens[token_hash] = deepcopy(payload)
+        self._write_password_reset_to_redis(token_hash, payload)
+        self._write_password_reset_to_mongo(token_hash, payload)
+
+    def get_password_reset_token(self, token_hash: str) -> dict[str, Any] | None:
+        cached = self._read_password_reset_from_redis(token_hash)
+        if cached is not None:
+            return deepcopy(cached)
+
+        persisted = self._read_password_reset_from_mongo(token_hash)
+        if persisted is not None:
+            self._write_password_reset_to_redis(token_hash, persisted)
+            return deepcopy(persisted)
+        in_memory = self._password_reset_tokens.get(token_hash)
+        return deepcopy(in_memory) if isinstance(in_memory, dict) else None
+
+    def delete_password_reset_token(self, token_hash: str) -> None:
+        self._password_reset_tokens.pop(token_hash, None)
+        self._delete_password_reset_from_redis(token_hash)
+        self._delete_password_reset_from_mongo(token_hash)
 
     def _write_user_through(self, user: dict[str, Any]) -> None:
         self._write_user_to_redis(user)
@@ -117,8 +151,11 @@ class AuthRepository:
     def _redis_user_email_key(self, email: str) -> str:
         return f"user:email:{email}"
 
-    def _redis_refresh_key(self, token: str) -> str:
-        return f"refresh:{token}"
+    def _redis_refresh_key(self, token_hash: str) -> str:
+        return f"refresh:{token_hash}"
+
+    def _redis_password_reset_key(self, token_hash: str) -> str:
+        return f"password_reset:{token_hash}"
 
     def _write_user_to_redis(self, user: dict[str, Any]) -> None:
         client = self._redis_client()
@@ -178,36 +215,63 @@ class AuthRepository:
         payload.pop("userId", None)
         return payload if isinstance(payload, dict) else None
 
-    def _write_refresh_to_redis(self, token: str, payload: dict[str, Any]) -> None:
+    def _write_refresh_to_redis(self, token_hash: str, payload: dict[str, Any]) -> None:
         client = self._redis_client()
         if client is None:
             return
-        client.set(self._redis_refresh_key(token), json.dumps(payload), ex=7 * 24 * 60 * 60)
+        client.set(self._redis_refresh_key(token_hash), json.dumps(payload), ex=7 * 24 * 60 * 60)
 
-    def _read_refresh_from_redis(self, token: str) -> dict[str, Any] | None:
+    def _read_refresh_from_redis(self, token_hash: str) -> dict[str, Any] | None:
         client = self._redis_client()
         if client is None:
             return None
-        payload = client.get(self._redis_refresh_key(token))
+        payload = client.get(self._redis_refresh_key(token_hash))
         return self._decode_dict_payload(payload)
 
-    def _delete_refresh_from_redis(self, token: str) -> None:
+    def _read_refresh_from_redis_legacy(self, token: str) -> dict[str, Any] | None:
+        client = self._redis_client()
+        if client is None:
+            return None
+        payload = client.get(f"refresh:{token}")
+        return self._decode_dict_payload(payload)
+
+    def _delete_refresh_from_redis(self, token_hash: str) -> None:
         client = self._redis_client()
         if client is None:
             return
-        client.delete(self._redis_refresh_key(token))
+        client.delete(self._redis_refresh_key(token_hash))
 
-    def _write_refresh_to_mongo(self, token: str, payload: dict[str, Any]) -> None:
+    def _delete_refresh_from_redis_legacy(self, token: str) -> None:
+        client = self._redis_client()
+        if client is None:
+            return
+        client.delete(f"refresh:{token}")
+
+    def _write_refresh_to_mongo(self, token_hash: str, payload: dict[str, Any]) -> None:
         collection = self._mongo_refresh_collection()
         if collection is None:
             return
         collection.update_one(
-            {"token": token},
-            {"$set": {"token": token, **deepcopy(payload)}},
+            {"tokenHash": token_hash},
+            {"$set": {"tokenHash": token_hash, **deepcopy(payload)}},
             upsert=True,
         )
 
-    def _read_refresh_from_mongo(self, token: str) -> dict[str, Any] | None:
+    def _read_refresh_from_mongo(self, token_hash: str) -> dict[str, Any] | None:
+        collection = self._mongo_refresh_collection()
+        if collection is None:
+            return None
+        payload = collection.find_one({"tokenHash": token_hash})
+        if not payload:
+            payload = collection.find_one({"token": token_hash})
+        if not payload:
+            return None
+        payload.pop("_id", None)
+        payload.pop("tokenHash", None)
+        payload.pop("token", None)
+        return payload if isinstance(payload, dict) else None
+
+    def _read_refresh_from_mongo_legacy(self, token: str) -> dict[str, Any] | None:
         collection = self._mongo_refresh_collection()
         if collection is None:
             return None
@@ -218,11 +282,77 @@ class AuthRepository:
         payload.pop("token", None)
         return payload if isinstance(payload, dict) else None
 
-    def _delete_refresh_from_mongo(self, token: str) -> None:
+    def _delete_refresh_from_mongo(self, token_hash: str) -> None:
+        collection = self._mongo_refresh_collection()
+        if collection is None:
+            return
+        collection.delete_one({"tokenHash": token_hash})
+
+    def _delete_refresh_from_mongo_legacy(self, token: str) -> None:
         collection = self._mongo_refresh_collection()
         if collection is None:
             return
         collection.delete_one({"token": token})
+
+    def _mongo_password_reset_collection(self) -> Any | None:
+        client = self.mongo_manager.client
+        if client is None:
+            return None
+        database = client.get_default_database()
+        if database is None:
+            database = client["commerce"]
+        return database["password_reset_tokens"]
+
+    def _write_password_reset_to_redis(self, token_hash: str, payload: dict[str, Any]) -> None:
+        client = self._redis_client()
+        if client is None:
+            return
+        ttl_seconds = max(60, int(float(payload.get("expiresAt", 0)) - time.time()))
+        client.set(self._redis_password_reset_key(token_hash), json.dumps(payload), ex=ttl_seconds)
+
+    def _read_password_reset_from_redis(self, token_hash: str) -> dict[str, Any] | None:
+        client = self._redis_client()
+        if client is None:
+            return None
+        payload = client.get(self._redis_password_reset_key(token_hash))
+        return self._decode_dict_payload(payload)
+
+    def _delete_password_reset_from_redis(self, token_hash: str) -> None:
+        client = self._redis_client()
+        if client is None:
+            return
+        client.delete(self._redis_password_reset_key(token_hash))
+
+    def _write_password_reset_to_mongo(self, token_hash: str, payload: dict[str, Any]) -> None:
+        collection = self._mongo_password_reset_collection()
+        if collection is None:
+            return
+        collection.update_one(
+            {"tokenHash": token_hash},
+            {"$set": {"tokenHash": token_hash, **deepcopy(payload)}},
+            upsert=True,
+        )
+
+    def _read_password_reset_from_mongo(self, token_hash: str) -> dict[str, Any] | None:
+        collection = self._mongo_password_reset_collection()
+        if collection is None:
+            return None
+        payload = collection.find_one({"tokenHash": token_hash})
+        if not payload:
+            return None
+        payload.pop("_id", None)
+        payload.pop("tokenHash", None)
+        return payload if isinstance(payload, dict) else None
+
+    def _delete_password_reset_from_mongo(self, token_hash: str) -> None:
+        collection = self._mongo_password_reset_collection()
+        if collection is None:
+            return
+        collection.delete_one({"tokenHash": token_hash})
+
+    @staticmethod
+    def _token_hash(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _decode_dict_payload(payload: Any) -> dict[str, Any] | None:
