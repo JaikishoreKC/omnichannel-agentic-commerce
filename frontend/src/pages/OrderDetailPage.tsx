@@ -36,9 +36,8 @@ const OrderDetailPage: React.FC = () => {
             setIsLoading(true);
             const data = await fetchOrderById(orderId);
             setOrder(data);
-        } catch (err: any) {
-            console.error("Failed to load order", err);
-            setError(err.message || "Could not find this order.");
+        } catch (err: unknown) {
+            setError(err instanceof Error ? err.message : "Could not find this order.");
         } finally {
             setIsLoading(false);
         }
@@ -55,8 +54,8 @@ const OrderDetailPage: React.FC = () => {
             await cancelOrder(order.id, "Customer requested cancellation via UI");
             addToast("Order successfully cancelled", "info");
             await loadOrder();
-        } catch (err: any) {
-            addToast(err.message || "Failed to cancel order", "error");
+        } catch (err: unknown) {
+            addToast(err instanceof Error ? err.message : "Failed to cancel order", "error");
         } finally {
             setIsActionLoading(false);
         }
@@ -69,8 +68,8 @@ const OrderDetailPage: React.FC = () => {
             await refundOrder(order.id, "Customer requested refund via UI");
             addToast("Refund requested successfully", "success");
             await loadOrder();
-        } catch (err: any) {
-            addToast(err.message || "Failed to request refund", "error");
+        } catch (err: unknown) {
+            addToast(err instanceof Error ? err.message : "Failed to request refund", "error");
         } finally {
             setIsActionLoading(false);
         }
@@ -173,7 +172,13 @@ const OrderDetailPage: React.FC = () => {
                     <div className="text-xs font-bold uppercase tracking-wider text-slate-500/60">Order ID</div>
                     <div className="text-lg font-mono font-bold text-slate-900 flex items-center gap-2">
                         #{order.id.slice(0, 12).toUpperCase()}
-                        <button className="text-slate-300 hover:text-slate-500"><Copy size={14} /></button>
+                        <button
+                            className="text-slate-300 hover:text-slate-500"
+                            aria-label="Copy order id"
+                            title="Copy order id"
+                        >
+                            <Copy size={14} />
+                        </button>
                     </div>
                 </div>
 

@@ -2,6 +2,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { ShoppingCart, Eye, Star, Plus, Minus } from "lucide-react";
 import type { Product } from "../../types";
+import type { CartItem } from "../../types";
 import { Button } from "../ui/Button";
 import { Badge } from "../ui/Badge";
 import { useCart } from "../../context/CartContext";
@@ -15,7 +16,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     const [isAdding, setIsAdding] = React.useState(false);
 
     const defaultVariant = product.variants.find(v => v.inStock) || product.variants[0];
-    const cartItem = cart?.items.find((item: any) => item.productId === product.id && item.variantId === defaultVariant.id);
+    const cartItem = cart?.items.find((item: CartItem) => item.productId === product.id && item.variantId === defaultVariant.id);
     const quantity = cartItem?.quantity || 0;
 
     const handleAddToCart = async (e: React.MouseEvent) => {

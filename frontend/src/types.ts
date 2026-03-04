@@ -22,7 +22,7 @@ export interface Product {
   features?: string[];
   specifications?: Record<string, unknown>;
   status?: string;
-  reviews?: any[];
+  reviews?: Array<Record<string, unknown>>;
 }
 
 export interface CartItem {
@@ -133,7 +133,7 @@ export interface OrderDetail extends Order {
     carrier?: string;
     trackingNumber?: string;
     status: string;
-    updates: any[];
+    updates: Array<Record<string, unknown>>;
   };
   estimatedDelivery?: string;
   updatedAt: string;

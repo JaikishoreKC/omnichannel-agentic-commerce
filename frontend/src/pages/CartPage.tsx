@@ -40,8 +40,9 @@ const CartPage: React.FC = () => {
             await refreshCart();
             addToast("Discount applied successfully!", "success");
             setDiscountCode("");
-        } catch (err: any) {
-            addToast(err.message || "Invalid or expired discount code", "error");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Invalid or expired discount code";
+            addToast(message, "error");
         } finally {
             setIsApplyingDiscount(false);
         }

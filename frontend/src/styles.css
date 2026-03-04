@@ -49,7 +49,6 @@
 
 @layer utilities {
   .chat-scroll-thin {
-    scrollbar-width: thin;
   }
 
   .typing-dot-0 {

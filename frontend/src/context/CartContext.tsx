@@ -30,8 +30,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsLoading(true);
             const data = await apiFetchCart();
             setCart(data);
-        } catch (err) {
-            console.error("Failed to fetch cart", err);
+        } catch {
+            setCart(null);
         } finally {
             setIsLoading(false);
         }

@@ -21,6 +21,15 @@ interface ChatContextType {
     clearMessages: () => void;
 }
 
+type HistoryMessage = {
+    id: string;
+    role?: "user" | "assistant";
+    userId?: string | null;
+    message: string;
+    timestamp: string;
+    agent?: string;
+};
+
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -36,7 +45,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         if (!sessionId) return;
         try {
             const history = await fetchChatHistory({ sessionId });
-            const mapped: Message[] = history.messages.map((m: any) => ({
+            const mapped: Message[] = history.messages.map((m: HistoryMessage) => ({
                 id: m.id,
                 role: m.role || (m.userId ? "user" : "assistant"),
                 content: m.message,
@@ -44,8 +53,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 agent: m.agent,
             }));
             setMessages(mapped);
-        } catch (err) {
-            console.error("Failed to load chat history", err);
+        } catch {
+            setMessages([]);
         }
     }, [sessionId]);
 
@@ -56,7 +65,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         loadHistory();
 
-        let reconnectTimer: any;
+        let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
         let attempts = 0;
 
         const connect = () => {
@@ -64,7 +73,6 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
             if (connectingRef.current || socketRef.current?.readyState === WebSocket.OPEN) {
                 return;
             }
-            console.log(`Attempting to connect chat (attempt ${attempts + 1})...`);
             connectingRef.current = true;
             setIsConnecting(true);
             const socket = connectChat({
@@ -86,8 +94,8 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         connect();
                     }, delay);
                 },
-                onError: (err) => console.error("Chat WS error", err),
-                onSession: (sid) => console.log("Session updated via WS", sid),
+                onError: () => undefined,
+                onSession: () => undefined,
                 onTyping: ({ isTyping }) => setIsTyping(isTyping),
                 onMessage: (payload, streamId) => {
                     setMessages((prev) => [
@@ -137,7 +145,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         connect();
 
         return () => {
-            clearTimeout(reconnectTimer);
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+            }
             if (socketRef.current) {
                 socketRef.current.close();
             }

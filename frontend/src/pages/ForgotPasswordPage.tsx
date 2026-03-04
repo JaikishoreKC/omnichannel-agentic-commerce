@@ -20,8 +20,9 @@ export const ForgotPasswordPage: React.FC = () => {
             await request("POST", "/auth/reset-password-request", { email });
             setSubmitted(true);
             addToast("If an account exists, a link was sent to your email", "success");
-        } catch (err: any) {
-            addToast(err.message || "Failed to process request", "error");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to process request";
+            addToast(message, "error");
         } finally {
             setLoading(false);
         }

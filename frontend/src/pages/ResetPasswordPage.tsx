@@ -39,8 +39,9 @@ export const ResetPasswordPage: React.FC = () => {
             await request("POST", "/auth/reset-password", { token, newPassword: password });
             setSuccess(true);
             addToast("Password reset successfully", "success");
-        } catch (err: any) {
-            addToast(err.message || "Failed to reset password", "error");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to reset password";
+            addToast(message, "error");
         } finally {
             setLoading(false);
         }

@@ -23,14 +23,23 @@ const AccountPage: React.FC = () => {
             try {
                 const data = await fetchOrders();
                 setOrders(data);
-            } catch (err) {
-                console.error("Failed to load orders", err);
+            } catch {
+                setOrders([]);
             } finally {
                 setIsLoadingOrders(false);
             }
         };
         load();
     }, []);
+
+    type AccountTab = "orders" | "memory" | "support" | "wishlist" | "settings";
+    const tabs: Array<{ id: AccountTab; label: string; icon: React.ElementType }> = [
+        { id: "orders", label: "Orders", icon: Package },
+        { id: "memory", label: "AI Memory", icon: BrainCircuit },
+        { id: "support", label: "Support", icon: LifeBuoy },
+        { id: "wishlist", label: "Wishlist", icon: Heart },
+        { id: "settings", label: "Settings", icon: Settings },
+    ];
 
     if (!user) {
         navigate("/login");
@@ -117,16 +126,10 @@ const AccountPage: React.FC = () => {
 
             {/* Navigation Tabs */}
             <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide">
-                {[
-                    { id: "orders", label: "Orders", icon: Package },
-                    { id: "memory", label: "AI Memory", icon: BrainCircuit },
-                    { id: "support", label: "Support", icon: LifeBuoy },
-                    { id: "wishlist", label: "Wishlist", icon: Heart },
-                    { id: "settings", label: "Settings", icon: Settings }
-                ].map((tab) => (
+                {tabs.map((tab) => (
                     <button
                         key={tab.id}
-                        onClick={() => setActiveTab(tab.id as any)}
+                        onClick={() => setActiveTab(tab.id)}
                         className={cn(
                             "flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-sm whitespace-nowrap transition-colors",
                             activeTab === tab.id

@@ -9,6 +9,7 @@ from typing import Any
 from app.core.config import Settings
 from app.repositories.admin_activity_repository import AdminActivityRepository
 from app.core.utils import generate_id, iso_now
+from app.store.in_memory import InMemoryStore
 
 
 class AdminActivityService:
@@ -17,9 +18,13 @@ class AdminActivityService:
         *,
         settings: Settings,
         admin_activity_repository: AdminActivityRepository,
+        store: InMemoryStore | None = None,
+        enable_memory_mirror: bool = False,
     ) -> None:
         self.settings = settings
         self.admin_activity_repository = admin_activity_repository
+        self.store = store
+        self.enable_memory_mirror = enable_memory_mirror
 
     def record(
         self,
@@ -145,35 +150,24 @@ class AdminActivityService:
     def _mirror_to_in_memory_log(self, payload: dict[str, Any]) -> None:
         if not self._should_use_memory_mirror():
             return
-        try:
-            from app.container import store
-
-            logs = getattr(store, "admin_activity_logs", None)
-            if isinstance(logs, list):
-                logs.append(deepcopy(payload))
-        except Exception:
+        if self.store is None:
             return
+        logs = getattr(self.store, "admin_activity_logs", None)
+        if isinstance(logs, list):
+            logs.append(deepcopy(payload))
 
     def _read_in_memory_logs(self, *, limit: int) -> list[dict[str, Any]]:
-        try:
-            from app.container import store
-
-            logs = getattr(store, "admin_activity_logs", None)
-            if not isinstance(logs, list) or not logs:
-                return []
-            safe_limit = max(1, min(limit, 5000))
-            slice_logs = logs[-safe_limit:]
-            return [deepcopy(row) for row in reversed(slice_logs) if isinstance(row, dict)]
-        except Exception:
+        if self.store is None:
             return []
+        logs = getattr(self.store, "admin_activity_logs", None)
+        if not isinstance(logs, list) or not logs:
+            return []
+        safe_limit = max(1, min(limit, 5000))
+        slice_logs = logs[-safe_limit:]
+        return [deepcopy(row) for row in reversed(slice_logs) if isinstance(row, dict)]
 
     def _should_use_memory_mirror(self) -> bool:
-        try:
-            from app.container import admin_activity_repository as container_admin_activity_repository
-
-            return self.admin_activity_repository is container_admin_activity_repository
-        except Exception:
-            return False
+        return self.enable_memory_mirror and self.store is not None
 
     def _compute_entry_hash(self, payload: dict[str, Any]) -> str:
         canonical = json.dumps(

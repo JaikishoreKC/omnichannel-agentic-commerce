@@ -57,9 +57,9 @@ export interface HealthStatus {
             provider: string;
             circuit_breaker: string;
         };
-        [key: string]: any;
+        [key: string]: unknown;
     };
-    [key: string]: any;
+    [key: string]: unknown;
 }
 
 export async function getHealth(): Promise<HealthStatus> {

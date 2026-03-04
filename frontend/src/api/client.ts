@@ -8,6 +8,18 @@ const REFRESH_KEY = "commerce_refresh_token";
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 
+type ValidationErrorItem = {
+    loc?: Array<string | number>;
+    msg?: string;
+};
+
+type WsEnvelope = {
+    type: string;
+    sessionId?: string;
+    streamId?: string;
+    payload?: Record<string, unknown>;
+};
+
 export function token(): string | null {
     return localStorage.getItem(AUTH_KEY);
 }
@@ -137,7 +149,14 @@ export async function request<T>(
             const rawDetail = payload.error?.message ?? payload.detail;
             if (rawDetail) {
                 if (Array.isArray(rawDetail)) {
-                    detail = rawDetail.map((err: any) => `${err.loc?.join(".")}: ${err.msg}`).join(", ");
+                    detail = rawDetail
+                        .map((err) => {
+                            const item = err as ValidationErrorItem;
+                            const loc = Array.isArray(item.loc) ? item.loc.join(".") : "field";
+                            const message = typeof item.msg === "string" ? item.msg : "invalid";
+                            return `${loc}: ${message}`;
+                        })
+                        .join(", ");
                 } else {
                     detail = String(rawDetail);
                 }
@@ -166,26 +185,19 @@ export function connectChat(params: {
     onOpen?: () => void;
     onClose?: () => void;
 }): WebSocket {
-    console.log(`[WS] Connecting to ${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
     const socket = new WebSocket(`${WS_BASE}?sessionId=${encodeURIComponent(params.sessionId)}`);
     
     socket.onopen = () => {
-        console.log("[WS] Connection opened successfully");
         params.onOpen?.();
     };
     
     socket.onmessage = (event) => {
-        console.log("[WS] Received message:", event.data);
         try {
-            const parsed = JSON.parse(event.data as string) as {
-                type: string;
-                sessionId?: string;
-                streamId?: string;
-                payload?: any;
-            };
+            const parsed = JSON.parse(event.data as string) as WsEnvelope;
             if (parsed.type === "session" && parsed.payload?.sessionId) {
-                setSessionId(parsed.payload.sessionId);
-                params.onSession(parsed.payload.sessionId);
+                const nextSessionId = String(parsed.payload.sessionId);
+                setSessionId(nextSessionId);
+                params.onSession(nextSessionId);
                 return;
             }
             if (parsed.type === "ping") {
@@ -194,48 +206,46 @@ export function connectChat(params: {
             }
             if (parsed.type === "typing" && parsed.payload && typeof parsed.payload.isTyping === "boolean") {
                 params.onTyping?.({
-                    actor: parsed.payload.actor as string | undefined,
-                    isTyping: parsed.payload.isTyping as boolean,
+                    actor: typeof parsed.payload.actor === "string" ? parsed.payload.actor : undefined,
+                    isTyping: parsed.payload.isTyping,
                 });
                 return;
             }
             if (parsed.type === "response" && parsed.payload) {
-                params.onMessage(parsed.payload as ChatResponsePayload, parsed.streamId);
+                params.onMessage(parsed.payload as unknown as ChatResponsePayload, parsed.streamId);
                 return;
             }
             if (parsed.type === "stream_start" && parsed.payload?.streamId) {
                 params.onStreamStart?.({
-                    streamId: parsed.payload.streamId as string,
-                    agent: parsed.payload.agent as string | undefined,
+                    streamId: String(parsed.payload.streamId),
+                    agent: typeof parsed.payload.agent === "string" ? parsed.payload.agent : undefined,
                 });
                 return;
             }
             if (parsed.type === "stream_delta" && parsed.payload?.streamId) {
                 params.onStreamDelta?.({
-                    streamId: parsed.payload.streamId as string,
-                    delta: parsed.payload.delta as string,
+                    streamId: String(parsed.payload.streamId),
+                    delta: String(parsed.payload.delta ?? ""),
                 });
                 return;
             }
             if (parsed.type === "stream_end" && parsed.payload?.streamId) {
                 params.onStreamEnd?.({
-                    streamId: parsed.payload.streamId as string,
+                    streamId: String(parsed.payload.streamId),
                 });
                 return;
             }
             if (parsed.type === "error") {
-                params.onError(parsed.payload?.message ?? "Unknown websocket error");
+                params.onError(typeof parsed.payload?.message === "string" ? parsed.payload.message : "Unknown websocket error");
             }
         } catch {
             params.onError("Failed to parse websocket message.");
         }
     };
-    socket.onerror = (event) => {
-        console.error("[WS] WebSocket error:", event);
+    socket.onerror = () => {
         params.onError("WebSocket connection error.");
     };
-    socket.onclose = (event) => {
-        console.log("[WS] Connection closed:", event.code, event.reason);
+    socket.onclose = () => {
         params.onClose?.();
     };
     return socket;

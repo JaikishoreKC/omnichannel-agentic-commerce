@@ -4,14 +4,17 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager
+from app.store.in_memory import InMemoryStore
 
 class VoiceRepository:
     def __init__(
         self,
         *,
         mongo_manager: MongoClientManager,
+        store: InMemoryStore | None = None,
     ) -> None:
         self.mongo_manager = mongo_manager
+        self.store = store
 
     def get_settings(self) -> dict[str, Any] | None:
         collection = self._mongo_db()["voice_settings"]
@@ -156,110 +159,83 @@ class VoiceRepository:
         return {str(row["userId"]) for row in rows}
 
     def _upsert_job_in_memory(self, job: dict[str, Any]) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.voice_jobs_by_id[str(job["id"])] = deepcopy(job)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.voice_jobs_by_id[str(job["id"])] = deepcopy(job)
 
     def _get_job_in_memory(self, job_id: str) -> dict[str, Any] | None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                row = store.voice_jobs_by_id.get(job_id)
-                return deepcopy(row) if isinstance(row, dict) else None
-        except Exception:
+        if self.store is None:
             return None
+        with self.store.lock:
+            row = self.store.voice_jobs_by_id.get(job_id)
+            return deepcopy(row) if isinstance(row, dict) else None
 
     def _list_jobs_in_memory(self, *, status: str | None, limit: int) -> list[dict[str, Any]]:
-        try:
-            from app.container import store
-
-            with store.lock:
-                rows = list(store.voice_jobs_by_id.values())
-            normalized_status = str(status).strip().lower() if status else ""
-            output: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                if normalized_status and str(row.get("status", "")).strip().lower() != normalized_status:
-                    continue
-                output.append(deepcopy(row))
-            output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
-            return output[: max(1, limit)]
-        except Exception:
+        if self.store is None:
             return []
+        with self.store.lock:
+            rows = list(self.store.voice_jobs_by_id.values())
+        normalized_status = str(status).strip().lower() if status else ""
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if normalized_status and str(row.get("status", "")).strip().lower() != normalized_status:
+                continue
+            output.append(deepcopy(row))
+        output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
+        return output[: max(1, limit)]
 
     def _upsert_call_in_memory(self, call: dict[str, Any]) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.voice_calls_by_id[str(call["id"])] = deepcopy(call)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.voice_calls_by_id[str(call["id"])] = deepcopy(call)
 
     def _get_call_in_memory(self, call_id: str) -> dict[str, Any] | None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                row = store.voice_calls_by_id.get(call_id)
-                return deepcopy(row) if isinstance(row, dict) else None
-        except Exception:
+        if self.store is None:
             return None
+        with self.store.lock:
+            row = self.store.voice_calls_by_id.get(call_id)
+            return deepcopy(row) if isinstance(row, dict) else None
 
     def _list_calls_in_memory(self, *, status: str | None, limit: int) -> list[dict[str, Any]]:
-        try:
-            from app.container import store
-
-            with store.lock:
-                rows = list(store.voice_calls_by_id.values())
-            normalized_status = str(status).strip().lower() if status else ""
-            output: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                if normalized_status and str(row.get("status", "")).strip().lower() != normalized_status:
-                    continue
-                output.append(deepcopy(row))
-            output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
-            return output[: max(1, limit)]
-        except Exception:
+        if self.store is None:
             return []
+        with self.store.lock:
+            rows = list(self.store.voice_calls_by_id.values())
+        normalized_status = str(status).strip().lower() if status else ""
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            if normalized_status and str(row.get("status", "")).strip().lower() != normalized_status:
+                continue
+            output.append(deepcopy(row))
+        output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
+        return output[: max(1, limit)]
 
     def _upsert_suppression_in_memory(self, user_id: str, payload: dict[str, Any]) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.voice_suppressions_by_user[user_id] = deepcopy(payload)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.voice_suppressions_by_user[user_id] = deepcopy(payload)
 
     def _delete_suppression_in_memory(self, user_id: str) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.voice_suppressions_by_user.pop(user_id, None)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.voice_suppressions_by_user.pop(user_id, None)
 
     def _list_suppressions_in_memory(self) -> list[dict[str, Any]]:
-        try:
-            from app.container import store
-
-            with store.lock:
-                rows = list(store.voice_suppressions_by_user.values())
-            output = [deepcopy(row) for row in rows if isinstance(row, dict)]
-            output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
-            return output
-        except Exception:
+        if self.store is None:
             return []
+        with self.store.lock:
+            rows = list(self.store.voice_suppressions_by_user.values())
+        output = [deepcopy(row) for row in rows if isinstance(row, dict)]
+        output.sort(key=lambda row: str(row.get("createdAt", "")), reverse=True)
+        return output
 
     def _mongo_db(self) -> Any:
         client = self.mongo_manager.client

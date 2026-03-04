@@ -114,6 +114,7 @@ class Container:
         self.cart_repository = CartRepository(
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
+            store=self.store,
         )
         self.cart_service = CartService(
             settings=self.settings,
@@ -140,6 +141,7 @@ class Container:
         )
         self.voice_repository = VoiceRepository(
             mongo_manager=self.mongo_manager,
+            store=self.store,
         )
         self.inventory_service = InventoryService(
             inventory_repository=self.inventory_repository,
@@ -169,6 +171,8 @@ class Container:
         self.admin_activity_service = AdminActivityService(
             settings=self.settings,
             admin_activity_repository=self.admin_activity_repository,
+            store=self.store,
+            enable_memory_mirror=True,
         )
         self.voice_recovery_service = VoiceRecoveryService(
             settings=self.settings,

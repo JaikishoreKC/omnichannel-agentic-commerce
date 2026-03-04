@@ -3,7 +3,7 @@ import { request } from "./client";
 export interface MemorySnapshot {
     snapshot: {
         preferences: Record<string, string>;
-        flags: Record<string, any>;
+        flags: Record<string, unknown>;
         lastUpdated: string;
     }
 }
@@ -13,8 +13,8 @@ export interface MemoryHistoryEvent {
     userId: string;
     eventType: string;
     key: string;
-    value: any;
-    oldValue: any;
+    value: unknown;
+    oldValue: unknown;
     source: string;
     timestamp: string;
 }

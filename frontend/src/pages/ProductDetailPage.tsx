@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Star, ShoppingCart, ArrowLeft, ShieldCheck, Truck, RotateCcw, Plus, Minus } from "lucide-react";
 import { fetchProduct, addProductReview } from "../api";
-import type { Product, ProductVariant } from "../types";
+import type { Product, ProductVariant, CartItem } from "../types";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
 import { Skeleton } from "../components/ui/Skeleton";
@@ -10,6 +10,14 @@ import { cn } from "../utils/cn";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
+
+type ProductReview = {
+    id: string;
+    userId: string;
+    rating: number;
+    createdAt: string;
+    comment: string;
+};
 
 const ProductDetailPage: React.FC = () => {
     const { productId } = useParams<{ productId: string }>();
@@ -24,7 +32,6 @@ const ProductDetailPage: React.FC = () => {
     const [isAdding, setIsAdding] = useState(false);
     const [activeImage, setActiveImage] = useState(0);
 
-    // Review state
     const [reviewText, setReviewText] = useState("");
     const [reviewRating, setReviewRating] = useState(5);
     const [isSubmittingReview, setIsSubmittingReview] = useState(false);
@@ -45,7 +52,7 @@ const ProductDetailPage: React.FC = () => {
         load();
     }, [productId]);
 
-    const cartItem = cart?.items.find((item: any) => item.productId === product?.id && item.variantId === selectedVariant?.id);
+    const cartItem = cart?.items.find((item: CartItem) => item.productId === product?.id && item.variantId === selectedVariant?.id);
     const quantity = cartItem?.quantity || 0;
 
     const handleAddToCart = async () => {
@@ -80,11 +87,11 @@ const ProductDetailPage: React.FC = () => {
             addToast("Review submitted successfully", "success");
             setReviewText("");
             setReviewRating(5);
-            // Reload product data to get the new review
             const updatedProduct = await fetchProduct(product!.id);
             setProduct(updatedProduct);
-        } catch (err: any) {
-            addToast(err.message || "Failed to submit review", "error");
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : "Failed to submit review";
+            addToast(message, "error");
         } finally {
             setIsSubmittingReview(false);
         }
@@ -109,11 +116,19 @@ const ProductDetailPage: React.FC = () => {
 
     if (!product) return <div className="text-center py-24">Product not found</div>;
 
-    const reviews = product.reviews || [];
+    const reviews: ProductReview[] = (product.reviews || []).map((review, index) => {
+        const row = review as Record<string, unknown>;
+        return {
+            id: String(row.id ?? index),
+            userId: String(row.userId ?? "AN"),
+            rating: Number(row.rating ?? 0),
+            createdAt: String(row.createdAt ?? ""),
+            comment: String(row.comment ?? "")
+        };
+    });
 
     return (
         <div className="space-y-12 animate-fade-in max-w-6xl mx-auto">
-            {/* Breadcrumb / Back */}
             <button
                 onClick={() => navigate(-1)}
                 className="flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-slate-900 transition-colors"
@@ -122,7 +137,6 @@ const ProductDetailPage: React.FC = () => {
             </button>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-12 lg:gap-16">
-                {/* Images */}
                 <div className="space-y-4">
                     <div className="aspect-square rounded-[40px] bg-surface-100 overflow-hidden border border-line flex items-center justify-center p-12">
                         <img
@@ -147,7 +161,6 @@ const ProductDetailPage: React.FC = () => {
                     </div>
                 </div>
 
-                {/* Info */}
                 <div className="space-y-8">
                     <div className="space-y-4">
                         <div className="flex items-center gap-2">
@@ -172,7 +185,6 @@ const ProductDetailPage: React.FC = () => {
                         {product.description}
                     </p>
 
-                    {/* Variants */}
                     <div className="space-y-4">
                         <h4 className="font-bold">Select Style & Size</h4>
                         <div className="flex flex-wrap gap-3">
@@ -217,6 +229,8 @@ const ProductDetailPage: React.FC = () => {
                                     }}
                                     disabled={isAdding}
                                     data-testid={`decrease-qty-${product.id}`}
+                                    aria-label="Decrease quantity"
+                                    title="Decrease quantity"
                                 >
                                     <Minus size={18} />
                                 </Button>
@@ -228,6 +242,8 @@ const ProductDetailPage: React.FC = () => {
                                     onClick={handleAddToCart}
                                     disabled={isAdding}
                                     data-testid={`increase-qty-${product.id}`}
+                                    aria-label="Increase quantity"
+                                    title="Increase quantity"
                                 >
                                     <Plus size={18} />
                                 </Button>
@@ -244,7 +260,6 @@ const ProductDetailPage: React.FC = () => {
                         )}
                     </div>
 
-                    {/* Features */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 pt-8 border-t border-line">
                         {[
                             { icon: ShieldCheck, label: "2 Year Warranty" },
@@ -262,10 +277,8 @@ const ProductDetailPage: React.FC = () => {
                 </div>
             </div>
 
-            {/* Reviews Section */}
             <div className="pt-12 border-t border-line space-y-12 pb-24">
                 <div className="flex flex-col lg:flex-row gap-16">
-                    {/* Left: Review Stats & Form */}
                     <div className="lg:w-1/3 space-y-8">
                         <div className="space-y-4">
                             <h3 className="text-3xl font-bold">Customer Reviews</h3>
@@ -282,7 +295,6 @@ const ProductDetailPage: React.FC = () => {
                             </div>
                         </div>
 
-                        {/* Submit Review Form */}
                         <div className="premium-card bg-surface-50 border-none shadow-none p-8 space-y-6">
                             <h4 className="font-bold text-xl">Leave a review</h4>
                             <form onSubmit={handleReviewSubmit} className="space-y-4">
@@ -292,6 +304,8 @@ const ProductDetailPage: React.FC = () => {
                                             key={s}
                                             type="button"
                                             onClick={() => setReviewRating(s)}
+                                            aria-label={`Rate ${s} star${s > 1 ? "s" : ""}`}
+                                            title={`Rate ${s} star${s > 1 ? "s" : ""}`}
                                             className={cn(
                                                 "w-10 h-10 rounded-xl flex items-center justify-center transition-all",
                                                 reviewRating >= s ? "bg-amber-100 text-amber-600 shadow-sm" : "bg-white text-slate-300 border border-line"
@@ -321,12 +335,11 @@ const ProductDetailPage: React.FC = () => {
                         </div>
                     </div>
 
-                    {/* Right: Reviews List */}
                     <div className="flex-1 space-y-8">
                         {reviews.length > 0 ? (
                             <div className="divide-y divide-line">
-                                {reviews.map((r, i) => (
-                                    <div key={i} className="py-8 first:pt-0 animate-fade-in" style={{ animationDelay: `${i * 100}ms` }}>
+                                {reviews.map((r) => (
+                                    <div key={r.id} className="py-8 first:pt-0 animate-fade-in">
                                         <div className="flex items-center gap-4 mb-4">
                                             <div className="w-12 h-12 rounded-full bg-surface-200 border border-line flex items-center justify-center text-slate-500 font-bold">
                                                 {r.userId.slice(-2).toUpperCase()}
@@ -362,6 +375,5 @@ const ProductDetailPage: React.FC = () => {
         </div>
     );
 };
-
 
 export { ProductDetailPage };

@@ -59,7 +59,11 @@ export const SupportTicketsTab: React.FC = () => {
                                         <Clock size={10} /> {t.date}
                                     </div>
                                 </div>
-                                <button className="p-2 bg-surface-100 rounded-lg group-hover:bg-brand group-hover:text-white transition-all">
+                                <button
+                                    className="p-2 bg-surface-100 rounded-lg group-hover:bg-brand group-hover:text-white transition-all"
+                                    aria-label={`Open support ticket ${t.id}`}
+                                    title="Open ticket"
+                                >
                                     <ArrowRight size={16} />
                                 </button>
                             </div>
@@ -78,7 +82,7 @@ export const SupportTicketsTab: React.FC = () => {
                         </p>
                     </div>
                     {/* In a real app, this would trigger opening the ChatPanel */}
-                    <Button variant="outline" className="rounded-xl" onClick={() => (window as any).dispatchEvent(new CustomEvent('chat:toggle'))}>
+                    <Button variant="outline" className="rounded-xl" onClick={() => window.dispatchEvent(new CustomEvent('chat:toggle'))}>
                         Chat with Agent
                     </Button>
                 </div>

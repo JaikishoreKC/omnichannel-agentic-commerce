@@ -6,7 +6,7 @@ import {
     Clock, ChevronRight, Boxes, BarChart3, List, Sparkles
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { getAdminStats, getAdminOrders, getAdminProducts, getAdminUsers, getActivityLogs, getHealth } from "../api/admin";
+import { getAdminStats, getAdminOrders, getAdminProducts, getAdminUsers, getActivityLogs, getHealth, verifyAdminIntegrity } from "../api/admin";
 import type { AdminStats, AdminOrder, AdminProduct, AdminUser, ActivityLog, HealthStatus } from "../api/admin";
 
 // ─── Sub-nav tabs ────────────────────────────────────────────────────────────
@@ -305,7 +305,6 @@ const AdminDashboard: React.FC = () => {
                                         <button
                                             onClick={async () => {
                                                 try {
-                                                    const { verifyAdminIntegrity } = await import("../api/admin");
                                                     const r = await verifyAdminIntegrity();
                                                     setIntegrity(r);
                                                 } catch {

@@ -6,7 +6,7 @@ import { request } from "../../api/client";
 interface MemoryItem {
     id: string;
     key: string;
-    value: any;
+    value: unknown;
     created_at: string;
 }
 
@@ -20,8 +20,8 @@ export const AiMemoryTab: React.FC = () => {
             setIsLoading(true);
             const data = await request<MemoryItem[]>("GET", "/memory");
             setMemories(data);
-        } catch (err) {
-            console.error("Failed to fetch memories", err);
+        } catch {
+            setMemories([]);
         } finally {
             setIsLoading(false);
         }

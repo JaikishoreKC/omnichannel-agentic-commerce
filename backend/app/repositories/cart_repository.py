@@ -5,15 +5,20 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
+from app.store.in_memory import InMemoryStore
+
+
 class CartRepository:
     def __init__(
         self,
         *,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
+        store: InMemoryStore | None = None,
     ) -> None:
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
+        self.store = store
 
     def create(self, cart: dict[str, Any]) -> dict[str, Any]:
         self._write_through(cart)
@@ -156,41 +161,29 @@ class CartRepository:
         return payload if isinstance(payload, dict) else None
 
     def _write_to_in_memory(self, cart: dict[str, Any]) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.carts_by_id[str(cart["id"])] = deepcopy(cart)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.carts_by_id[str(cart["id"])] = deepcopy(cart)
 
     def _read_from_in_memory(self, cart_id: str) -> dict[str, Any] | None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                row = store.carts_by_id.get(cart_id)
-                return deepcopy(row) if isinstance(row, dict) else None
-        except Exception:
+        if self.store is None:
             return None
+        with self.store.lock:
+            row = self.store.carts_by_id.get(cart_id)
+            return deepcopy(row) if isinstance(row, dict) else None
 
     def _list_from_in_memory(self) -> list[dict[str, Any]]:
-        try:
-            from app.container import store
-
-            with store.lock:
-                rows = list(store.carts_by_id.values())
-            rows = [deepcopy(row) for row in rows if isinstance(row, dict)]
-            rows.sort(key=lambda row: str(row.get("updatedAt", "")), reverse=True)
-            return rows
-        except Exception:
+        if self.store is None:
             return []
+        with self.store.lock:
+            rows = list(self.store.carts_by_id.values())
+        rows = [deepcopy(row) for row in rows if isinstance(row, dict)]
+        rows.sort(key=lambda row: str(row.get("updatedAt", "")), reverse=True)
+        return rows
 
     def _delete_from_in_memory(self, cart_id: str) -> None:
-        try:
-            from app.container import store
-
-            with store.lock:
-                store.carts_by_id.pop(cart_id, None)
-        except Exception:
+        if self.store is None:
             return
+        with self.store.lock:
+            self.store.carts_by_id.pop(cart_id, None)
