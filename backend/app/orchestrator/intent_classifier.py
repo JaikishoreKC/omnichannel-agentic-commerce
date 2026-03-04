@@ -50,16 +50,39 @@ class IntentClassifier:
     def _classify_rules(self, *, message: str, context: dict[str, Any] | None = None) -> IntentResult:
         text = message.strip().lower()
         phrase_text = re.sub(r"[_\s]+", " ", text).strip()
-        entities: dict[str, Any] = {}
 
         if not text:
             return IntentResult(name="general_question", confidence=0.2, entities={})
 
         if ("cart" in text or "my cart" in text) and self._contains_order_status_phrase(text):
+            entities: dict[str, Any] = {}
             entities.update(self._extract_order_id(text))
             return IntentResult(name="multi_status", confidence=0.9, entities=entities)
 
-        # Memory intents.
+        for classifier in (
+            self._classify_memory_intent,
+            self._classify_order_intent,
+            self._classify_support_intent,
+            self._classify_search_and_add_intent,
+            self._classify_cart_intent,
+        ):
+            result = classifier(text=text, message=message, phrase_text=phrase_text)
+            if result is not None:
+                return result
+
+        product = self._classify_product_intent(
+            text=text,
+            message=message,
+            phrase_text=phrase_text,
+            context=context,
+        )
+        if product is not None:
+            return product
+
+        return IntentResult(name="general_question", confidence=0.6, entities={"query": message.strip()})
+
+    def _classify_memory_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
+        _ = phrase_text
         if self._is_show_memory_request(text):
             return IntentResult(name="show_memory", confidence=0.93, entities={})
         if self._is_clear_memory_request(text):
@@ -70,8 +93,11 @@ class IntentClassifier:
         updates = self._extract_preference_updates(message)
         if updates and self._is_preference_statement(text):
             return IntentResult(name="save_preference", confidence=0.88, entities={"updates": updates})
+        return None
 
-        # Order intents.
+    def _classify_order_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
+        _ = phrase_text
+        entities: dict[str, Any] = {}
         if "order" in text and "address" in text and any(token in text for token in ("change", "update", "delivery")):
             entities.update(self._extract_order_id(text))
             entities.update(self._extract_shipping_address(message))
@@ -87,7 +113,11 @@ class IntentClassifier:
             return IntentResult(name="order_status", confidence=0.9, entities=entities)
         if "checkout" in text or "place order" in text or "buy now" in text:
             return IntentResult(name="checkout", confidence=0.95, entities={})
+        return None
 
+    def _classify_support_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
+        _ = phrase_text
+        entities: dict[str, Any] = {}
         if self._is_support_status_request(text):
             entities.update(self._extract_ticket_id(text))
             return IntentResult(name="support_status", confidence=0.9, entities=entities)
@@ -98,8 +128,11 @@ class IntentClassifier:
             entities.update(self._extract_ticket_id(text))
             entities["query"] = message.strip()
             return IntentResult(name="support_escalation", confidence=0.88, entities=entities)
+        return None
 
-        if ("add" in text and "cart" in text) and any(
+    def _classify_search_and_add_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
+        _ = phrase_text
+        if not (("add" in text and "cart" in text) and any(
             token in text
             for token in (
                 "find",
@@ -112,17 +145,21 @@ class IntentClassifier:
                 "over",
                 "above",
             )
-        ):
-            entities.update(self._extract_quantity(text))
-            entities.update(self._extract_product_or_variant_id(text))
-            entities.update(self._extract_price_range(text))
-            entities.update(self._extract_size(message))
-            entities.update(self._extract_color(text))
-            entities.update(self._extract_brand(message))
-            entities["query"] = self._extract_search_query_for_combo(message)
-            return IntentResult(name="search_and_add_to_cart", confidence=0.93, entities=entities)
+        )):
+            return None
 
-        # Cart intents.
+        entities: dict[str, Any] = {}
+        entities.update(self._extract_quantity(text))
+        entities.update(self._extract_product_or_variant_id(text))
+        entities.update(self._extract_price_range(text))
+        entities.update(self._extract_size(message))
+        entities.update(self._extract_color(text))
+        entities.update(self._extract_brand(message))
+        entities["query"] = self._extract_search_query_for_combo(message)
+        return IntentResult(name="search_and_add_to_cart", confidence=0.93, entities=entities)
+
+    def _classify_cart_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
+        entities: dict[str, Any] = {}
         if self._is_clear_cart_request(text):
             return IntentResult(name="clear_cart", confidence=0.94, entities={})
         if self._is_adjust_cart_quantity_request(text):
@@ -166,8 +203,17 @@ class IntentClassifier:
             return IntentResult(name="add_to_cart", confidence=0.92, entities=entities)
         if self._is_view_cart_request(phrase_text):
             return IntentResult(name="view_cart", confidence=0.9, entities={})
+        return None
 
-        # Product intents.
+    def _classify_product_intent(
+        self,
+        *,
+        text: str,
+        message: str,
+        phrase_text: str,
+        context: dict[str, Any] | None,
+    ) -> IntentResult | None:
+        entities: dict[str, Any] = {}
         if any(token in text for token in ["find", "search", "show me", "recommend", "looking for"]):
             entities.update(self._extract_price_range(text))
             entities.update(self._extract_size(message))
@@ -189,8 +235,7 @@ class IntentClassifier:
             entities.update(self._extract_brand(message))
             entities["query"] = message.strip()
             return IntentResult(name="product_search", confidence=0.78, entities=entities)
-
-        return IntentResult(name="general_question", confidence=0.6, entities={"query": message.strip()})
+        return None
 
     def _extract_order_id(self, text: str) -> dict[str, Any]:
         match = re.search(r"\b(order[_\-][a-z0-9]+|ord[_\-][a-z0-9]+)\b", text)

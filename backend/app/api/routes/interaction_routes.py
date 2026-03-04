@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from fastapi import HTTPException
 
 from app.api.deps import get_optional_user
+from app.api.session_utils import get_or_create_session, resolve_user_session_and_link_identity
 from app.container import (
     auth_service,
     cart_service,
@@ -26,51 +27,32 @@ async def process_message(
     request: Request,
     user: dict[str, object] | None = Depends(get_optional_user),
 ) -> dict[str, object]:
-    try:
-        session = await asyncio.to_thread(session_service.get_session, payload.sessionId)
-    except HTTPException:
-        session = await asyncio.to_thread(
-            session_service.create_session,
-            channel=payload.channel,
-            initial_context={},
-            anonymous_id=request.headers.get("X-Anonymous-Id"),
-            user_agent=request.headers.get("User-Agent"),
-            ip_address=request.client.host if request.client else None,
-            metadata={
-                "source": "interactions_message",
-                "referrer": request.headers.get("referer", ""),
-            },
-        )
+    session = await get_or_create_session(
+        session_service=session_service,
+        session_id=payload.sessionId,
+        channel=payload.channel,
+        anonymous_id=request.headers.get("X-Anonymous-Id"),
+        user_agent=request.headers.get("User-Agent"),
+        ip_address=request.client.host if request.client else None,
+        source="interactions_message",
+        referrer=request.headers.get("referer", ""),
+    )
 
     user_id = str(user["id"]) if user else session.get("userId")
     if user_id:
-        anonymous_id = str(session.get("anonymousId", "")).strip() or None
-        if payload.sessionId:
-            await asyncio.to_thread(
-                cart_service.merge_guest_cart_into_user,
-                session_id=payload.sessionId,
+        try:
+            session = await resolve_user_session_and_link_identity(
+                session_service=session_service,
+                cart_service=cart_service,
+                auth_service=auth_service,
                 user_id=str(user_id),
-            )
-        session = await asyncio.to_thread(
-            session_service.resolve_user_session,
-            user_id=str(user_id),
-            preferred_session_id=session.get("id"),
+                session=session,
+                preferred_session_id=payload.sessionId,
             channel=payload.channel,
-            anonymous_id=anonymous_id,
             user_agent=request.headers.get("User-Agent"),
             ip_address=request.client.host if request.client else None,
-            metadata={
-                "source": "interactions_message",
-                "referrer": request.headers.get("referer", ""),
-            },
-        )
-        try:
-            await asyncio.to_thread(
-                auth_service.link_identity,
-                user_id=str(user_id),
-                channel=payload.channel,
-                external_id=str(session["id"]),
-                anonymous_id=str(session.get("anonymousId", "")) or None,
+                source="interactions_message",
+                referrer=request.headers.get("referer", ""),
             )
         except Exception as exc:
             logger.warning("Identity link failed for interaction message", exc_info=exc)

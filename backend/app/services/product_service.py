@@ -227,7 +227,7 @@ class ProductService:
         product["reviewCount"] = new_review_count
         product["updatedAt"] = iso_now()
         
-        self.product_repository.update(product_id, product)
+        self.product_repository.update(product)
         
         return {"review": review, "product": product}
 

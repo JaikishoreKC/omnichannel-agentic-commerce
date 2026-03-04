@@ -76,9 +76,7 @@ class Orchestrator:
         channel: str,
         stream: bool = False,
     ):
-        recent = self.interaction_service.recent(session_id=session_id, limit=12)
-        if not recent and user_id:
-            recent = self._recent_from_memory(user_id=user_id, limit=12)
+        recent = self._load_recent_messages(session_id=session_id, user_id=user_id)
 
         decision_policy = self._decision_policy()
         planner_enabled_for_request = self._planner_enabled_for_request(
@@ -180,6 +178,61 @@ class Orchestrator:
             intent=intent,
             agent_name=agent_name,
         )
+        self._apply_execution_metadata(
+            response=response,
+            decision_policy=decision_policy,
+            planner_enabled_for_request=planner_enabled_for_request,
+            planner_attempted=planner_attempted,
+            action_limit=action_limit,
+            truncated_action_count=truncated_action_count,
+            planner_plan=planner_plan,
+            planner_used=planner_used,
+            planner_steps=planner_steps,
+        )
+        
+        payload = self._to_transport_payload(response)
+
+        if stream:
+            async for chunk in self._stream_agent_response(
+                context=context,
+                agent_name=agent_name,
+                intent=intent,
+                actions=actions,
+                planner_plan=planner_plan,
+                planner_used=planner_used,
+            ):
+                yield chunk
+
+        self._persist_interaction(
+            context=context,
+            message=message,
+            intent_name=intent.name,
+            agent_name=agent_name,
+            entities=intent.entities,
+            payload=payload,
+        )
+
+        yield {"type": "final_response", "payload": payload}
+
+    def _load_recent_messages(self, *, session_id: str, user_id: str | None) -> list[dict[str, Any]]:
+        recent = self.interaction_service.recent(session_id=session_id, limit=12)
+        if not recent and user_id:
+            return self._recent_from_memory(user_id=user_id, limit=12)
+        return recent
+
+    def _apply_execution_metadata(
+        self,
+        *,
+        response: AgentResponse,
+        decision_policy: str,
+        planner_enabled_for_request: bool,
+        planner_attempted: bool,
+        action_limit: int,
+        truncated_action_count: int,
+        planner_plan: LLMActionPlan | None,
+        planner_used: bool,
+        planner_steps: list[dict[str, Any]],
+    ) -> None:
         response.metadata["executionPolicy"] = {
             "decisionPolicy": decision_policy,
             "plannerEnabled": planner_enabled_for_request,
@@ -198,7 +251,8 @@ class Orchestrator:
                 "stepCount": len(planner_steps),
                 "steps": planner_steps,
             }
-        elif planner_attempted:
+            return
+        if planner_attempted:
             response.metadata["planner"] = {
                 "used": False,
                 "confidence": 0.0,
@@ -208,60 +262,64 @@ class Orchestrator:
                 "stepCount": 0,
                 "steps": [],
             }
-        
-        payload = self._to_transport_payload(response)
 
-        # If streaming is requested and we have a message, yield it in chunks
-        # In the future, this is where we'd yield real LLM chunks
-        # If streaming is requested, yield it
-        if stream:
-            # Yield metadata first
-            yield {"type": "stream_start", "payload": {"agent": agent_name}}
-            
-            # Use the agent's native streaming if available
-            agent = self.agents[agent_name]
-            # Since execute_stream has a default impl in BaseAgent, we can just call it
-            # We need to pass the actual action used (either from planner or intent)
-            effective_action = AgentAction(name=intent.name, params=intent.entities)
-            if planner_plan and planner_plan.actions and planner_used:
-                 # If planner was used, we might have multiple actions, 
-                 # for now we stream the primary one or clarification
-                 if planner_plan.needs_clarification:
-                      effective_action = AgentAction(name="clarification", params={"query": planner_plan.clarification_question})
-                 else:
-                      effective_action = actions[0]
+    async def _stream_agent_response(
+        self,
+        *,
+        context: Any,
+        agent_name: str,
+        intent: Any,
+        actions: list[AgentAction],
+        planner_plan: LLMActionPlan | None,
+        planner_used: bool,
+    ):
+        yield {"type": "stream_start", "payload": {"agent": agent_name}}
+        agent = self.agents[agent_name]
+        effective_action = AgentAction(name=intent.name, params=intent.entities)
+        if planner_plan and planner_plan.actions and planner_used:
+            if planner_plan.needs_clarification:
+                effective_action = AgentAction(name="clarification", params={"query": planner_plan.clarification_question})
+            else:
+                effective_action = actions[0]
 
-            async for delta in agent.execute_stream(action=effective_action, context=context):
-                yield {"type": "stream_delta", "payload": {"delta": delta}}
-            
-            yield {"type": "stream_end", "payload": {}}
+        async for delta in agent.execute_stream(action=effective_action, context=context):
+            yield {"type": "stream_delta", "payload": {"delta": delta}}
 
-        # Record and update context
+        yield {"type": "stream_end", "payload": {}}
+
+    def _persist_interaction(
+        self,
+        *,
+        context: Any,
+        message: str,
+        intent_name: str,
+        agent_name: str,
+        entities: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> None:
         self.interaction_service.record(
             session_id=context.session_id,
             user_id=context.user_id,
             message=message,
-            intent=intent.name,
+            intent=intent_name,
             agent=agent_name,
             response=payload,
         )
         self.context_builder.session_service.update_conversation(
             session_id=context.session_id,
-            last_intent=intent.name,
+            last_intent=intent_name,
             last_agent=agent_name,
             last_message=message,
-            entities=intent.entities,
+            entities=entities,
         )
         asyncio.create_task(
             self._record_memory(
                 user_id=context.user_id,
-                intent=intent.name,
+                intent=intent_name,
                 message=message,
                 response=payload,
             )
         )
-
-        yield {"type": "final_response", "payload": payload}
 
     async def _record_memory(
         self,

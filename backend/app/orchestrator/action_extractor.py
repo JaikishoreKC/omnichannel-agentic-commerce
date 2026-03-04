@@ -6,6 +6,30 @@ from app.orchestrator.types import AgentAction, IntentResult
 class ActionExtractor:
     """Maps classified intents to concrete agent actions."""
 
+    _ACTION_MAP: dict[str, tuple[str, str | None, bool]] = {
+        "product_search": ("search_products", None, False),
+        "add_to_cart": ("add_item", None, False),
+        "add_multiple_to_cart": ("add_multiple_items", None, False),
+        "apply_discount": ("apply_discount", None, False),
+        "update_cart": ("update_item", None, False),
+        "adjust_cart_quantity": ("adjust_item_quantity", None, False),
+        "remove_from_cart": ("remove_item", None, False),
+        "clear_cart": ("clear_cart", "cart", True),
+        "view_cart": ("get_cart", "cart", True),
+        "checkout": ("checkout_summary", None, True),
+        "order_status": ("get_order_status", None, False),
+        "cancel_order": ("cancel_order", None, False),
+        "request_refund": ("request_refund", None, False),
+        "change_order_address": ("change_order_address", None, False),
+        "show_memory": ("show_memory", None, True),
+        "save_preference": ("save_preference", None, False),
+        "forget_preference": ("forget_preference", None, False),
+        "clear_memory": ("clear_memory", None, True),
+        "support_escalation": ("create_ticket", "support", False),
+        "support_status": ("ticket_status", "support", False),
+        "support_close": ("close_ticket", "support", False),
+    }
+
     def extract(self, intent: IntentResult) -> list[AgentAction]:
         name = intent.name
         entities = intent.entities
@@ -15,20 +39,12 @@ class ActionExtractor:
                 AgentAction(name="get_cart", params={}, target_agent="cart"),
                 AgentAction(name="get_order_status", params=entities, target_agent="order"),
             ]
-        if name == "product_search":
-            return [AgentAction(name="search_products", params=entities)]
+
         if name == "search_and_add_to_cart":
             product_params = {"query": entities.get("query", "")}
-            if entities.get("size") is not None:
-                product_params["size"] = entities["size"]
-            if entities.get("color") is not None:
-                product_params["color"] = entities["color"]
-            if entities.get("brand") is not None:
-                product_params["brand"] = entities["brand"]
-            if entities.get("minPrice") is not None:
-                product_params["minPrice"] = entities["minPrice"]
-            if entities.get("maxPrice") is not None:
-                product_params["maxPrice"] = entities["maxPrice"]
+            for field in ("size", "color", "brand", "minPrice", "maxPrice"):
+                if entities.get(field) is not None:
+                    product_params[field] = entities[field]
             return [
                 AgentAction(
                     name="search_products",
@@ -47,44 +63,11 @@ class ActionExtractor:
                     target_agent="cart",
                 ),
             ]
-        if name == "add_to_cart":
-            return [AgentAction(name="add_item", params=entities)]
-        if name == "add_multiple_to_cart":
-            return [AgentAction(name="add_multiple_items", params=entities)]
-        if name == "apply_discount":
-            return [AgentAction(name="apply_discount", params=entities)]
-        if name == "update_cart":
-            return [AgentAction(name="update_item", params=entities)]
-        if name == "adjust_cart_quantity":
-            return [AgentAction(name="adjust_item_quantity", params=entities)]
-        if name == "remove_from_cart":
-            return [AgentAction(name="remove_item", params=entities)]
-        if name == "clear_cart":
-            return [AgentAction(name="clear_cart", params={})]
-        if name == "view_cart":
-            return [AgentAction(name="get_cart", params={})]
-        if name == "checkout":
-            return [AgentAction(name="checkout_summary", params={})]
-        if name == "order_status":
-            return [AgentAction(name="get_order_status", params=entities)]
-        if name == "cancel_order":
-            return [AgentAction(name="cancel_order", params=entities)]
-        if name == "request_refund":
-            return [AgentAction(name="request_refund", params=entities)]
-        if name == "change_order_address":
-            return [AgentAction(name="change_order_address", params=entities)]
-        if name == "show_memory":
-            return [AgentAction(name="show_memory", params={})]
-        if name == "save_preference":
-            return [AgentAction(name="save_preference", params=entities)]
-        if name == "forget_preference":
-            return [AgentAction(name="forget_preference", params=entities)]
-        if name == "clear_memory":
-            return [AgentAction(name="clear_memory", params={})]
-        if name == "support_escalation":
-            return [AgentAction(name="create_ticket", params=entities, target_agent="support")]
-        if name == "support_status":
-            return [AgentAction(name="ticket_status", params=entities, target_agent="support")]
-        if name == "support_close":
-            return [AgentAction(name="close_ticket", params=entities, target_agent="support")]
+
+        mapped = self._ACTION_MAP.get(name)
+        if mapped is not None:
+            action_name, target_agent, use_empty_params = mapped
+            params = {} if use_empty_params else entities
+            return [AgentAction(name=action_name, params=params, target_agent=target_agent)]
+
         return [AgentAction(name="answer_question", params=entities)]

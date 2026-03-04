@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any
+from typing import Callable
 
 from fastapi import HTTPException
 
@@ -29,258 +30,273 @@ class CartAgent(BaseAgent):
     def __init__(self, cart_service: CartService, product_service: ProductService) -> None:
         self.cart_service = cart_service
         self.product_service = product_service
+        self._handlers: dict[str, Callable[[AgentAction, AgentContext], AgentExecutionResult]] = {
+            "get_cart": self._handle_get_cart,
+            "add_item": self._handle_add_item,
+            "add_multiple_items": self._handle_add_multiple_items,
+            "clear_cart": self._handle_clear_cart,
+            "adjust_item_quantity": self._handle_adjust_item_quantity,
+            "update_item": self._handle_update_item,
+            "remove_item": self._handle_remove_item,
+            "apply_discount": self._handle_apply_discount,
+        }
 
     def execute(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
-        user_id = context.user_id
-        session_id = context.session_id
-        params = action.params
+        handler = self._handlers.get(action.name)
+        if handler is None:
+            raise HTTPException(status_code=400, detail=f"Unsupported cart action: {action.name}")
+        return handler(action, context)
 
-        if action.name == "get_cart":
-            cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
+    def _handle_get_cart(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        _ = action
+        cart = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        return AgentExecutionResult(
+            success=True,
+            message=f"Your cart has {cart['itemCount']} item(s), total ${cart['total']:.2f}.",
+            data={"cart": cart},
+            next_actions=self._cart_next_actions(cart),
+        )
+
+    def _handle_add_item(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        params = action.params
+        resolution = self._resolve_variant_for_add(params=params, context=context)
+        if resolution.clarification:
+            suggestion_actions = [
+                {
+                    "label": f"Add {option['name']}",
+                    "action": f"add_to_cart:{option['productId']}:{option['variantId']}",
+                }
+                for option in resolution.options[:3]
+            ]
             return AgentExecutionResult(
-                success=True,
-                message=f"Your cart has {cart['itemCount']} item(s), total ${cart['total']:.2f}.",
-                data={"cart": cart},
-                next_actions=self._cart_next_actions(cart),
+                success=False,
+                message=resolution.clarification,
+                data={"code": "CLARIFICATION_REQUIRED", "options": resolution.options},
+                next_actions=suggestion_actions,
+            )
+        if not resolution.resolved:
+            return AgentExecutionResult(
+                success=False,
+                message="Tell me what to add, for example: add 2 running shoes to cart.",
+                data={},
             )
 
-        if action.name == "add_item":
-            resolution = self._resolve_variant_for_add(params=params, context=context)
-            if resolution.clarification:
-                suggestion_actions = [
-                    {
-                        "label": f"Add {option['name']}",
-                        "action": f"add_to_cart:{option['productId']}:{option['variantId']}",
-                    }
-                    for option in resolution.options[:3]
-                ]
-                return AgentExecutionResult(
-                    success=False,
-                    message=resolution.clarification,
-                    data={"code": "CLARIFICATION_REQUIRED", "options": resolution.options},
-                    next_actions=suggestion_actions,
-                )
-            if not resolution.resolved:
-                return AgentExecutionResult(
-                    success=False,
-                    message="Tell me what to add, for example: add 2 running shoes to cart.",
-                    data={},
-                )
+        product_id = str(resolution.product_id)
+        variant_id = str(resolution.variant_id)
+        quantity = self._safe_quantity(params.get("quantity", 1))
+        cart = self.cart_service.add_item(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            product_id=product_id,
+            variant_id=variant_id,
+            quantity=quantity,
+        )
+        return AgentExecutionResult(
+            success=True,
+            message=(
+                f"Added item to cart: {self._product_name(product_id)} x{quantity}. "
+                f"New total is ${cart['total']:.2f}."
+            ),
+            data={"cart": cart},
+            next_actions=self._cart_next_actions(cart),
+        )
 
+    def _handle_add_multiple_items(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        raw_items = action.params.get("items", [])
+        if not isinstance(raw_items, list) or not raw_items:
+            return AgentExecutionResult(
+                success=False,
+                message="Tell me multiple items like: add 2 running shoes and 1 hoodie to cart.",
+                data={},
+            )
+
+        added: list[str] = []
+        unresolved: list[str] = []
+        clarifications: list[str] = []
+        for raw_item in raw_items:
+            if not isinstance(raw_item, dict):
+                continue
+            resolution = self._resolve_variant_for_add(params=raw_item, context=context)
+            if resolution.clarification:
+                unresolved.append(str(raw_item.get("query", "item")).strip())
+                clarifications.append(resolution.clarification)
+                continue
+            if not resolution.resolved:
+                unresolved.append(str(raw_item.get("query", "item")).strip())
+                continue
             product_id = str(resolution.product_id)
             variant_id = str(resolution.variant_id)
-            quantity = self._safe_quantity(params.get("quantity", 1))
-            cart = self.cart_service.add_item(
-                user_id=user_id,
-                session_id=session_id,
+            quantity = self._safe_quantity(raw_item.get("quantity", 1))
+            self.cart_service.add_item(
+                user_id=context.user_id,
+                session_id=context.session_id,
                 product_id=product_id,
                 variant_id=variant_id,
                 quantity=quantity,
             )
+            added.append(f"{self._product_name(product_id)} x{quantity}")
+
+        cart = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        if not added:
+            fallback = "I couldn't match those items. Try product names like running shoes or hoodie."
+            return AgentExecutionResult(
+                success=False,
+                message=clarifications[0] if clarifications else fallback,
+                data={"cart": cart, "unresolved": unresolved, "clarifications": clarifications},
+            )
+
+        message = f"Added {', '.join(added)}."
+        unresolved_clean = [name for name in unresolved if name]
+        if unresolved_clean:
+            message += f" I couldn't match: {', '.join(unresolved_clean)}."
+        message += f" Cart total is ${cart['total']:.2f}."
+        return AgentExecutionResult(
+            success=True,
+            message=message,
+            data={"cart": cart, "unresolved": unresolved_clean},
+            next_actions=self._cart_next_actions(cart),
+        )
+
+    def _handle_clear_cart(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        _ = action
+        cart = self.cart_service.clear_cart(user_id=context.user_id, session_id=context.session_id)
+        return AgentExecutionResult(
+            success=True,
+            message="Cleared your cart.",
+            data={"cart": cart},
+            next_actions=self._cart_next_actions(cart),
+        )
+
+    def _handle_adjust_item_quantity(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        params = action.params
+        cart = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        target = self._find_cart_item(cart=cart, params=params)
+        if target is None:
+            return AgentExecutionResult(
+                success=False,
+                message="I couldn't identify which cart item to adjust.",
+                data={"cart": cart},
+            )
+
+        delta = int(params.get("delta", 0))
+        if delta == 0:
+            delta = 1
+        current_quantity = int(target.get("quantity", 1))
+        next_quantity = current_quantity + delta
+        if next_quantity <= 0:
+            self.cart_service.remove_item(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                item_id=str(target["itemId"]),
+            )
+            updated = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+            return AgentExecutionResult(
+                success=True,
+                message=f"Removed {target['name']} from cart.",
+                data={"cart": updated},
+                next_actions=self._cart_next_actions(updated),
+            )
+
+        updated = self.cart_service.update_item(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            item_id=str(target["itemId"]),
+            quantity=next_quantity,
+        )
+        return AgentExecutionResult(
+            success=True,
+            message=(
+                f"Updated {target['name']} quantity from {current_quantity} to {next_quantity}. "
+                f"Total is now ${updated['total']:.2f}."
+            ),
+            data={"cart": updated},
+            next_actions=self._cart_next_actions(updated),
+        )
+
+    def _handle_update_item(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        params = action.params
+        cart = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        target = self._find_cart_item(cart=cart, params=params)
+        if target is None:
+            return AgentExecutionResult(
+                success=False,
+                message="Your cart is empty. Add an item first.",
+                data={"cart": cart},
+            )
+
+        quantity = self._safe_quantity(params.get("quantity", 1))
+        updated = self.cart_service.update_item(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            item_id=str(target["itemId"]),
+            quantity=quantity,
+        )
+        return AgentExecutionResult(
+            success=True,
+            message=f"Updated {target['name']} quantity to {quantity}. Total is now ${updated['total']:.2f}.",
+            data={"cart": updated},
+            next_actions=self._cart_next_actions(updated),
+        )
+
+    def _handle_remove_item(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        params = action.params
+        cart = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        target = self._find_cart_item(cart=cart, params=params)
+        if target is None:
+            return AgentExecutionResult(
+                success=False,
+                message="Your cart is empty.",
+                data={"cart": cart},
+            )
+
+        remove_quantity = int(params.get("quantity", 0))
+        current_quantity = int(target.get("quantity", 1))
+        if remove_quantity > 0 and current_quantity > remove_quantity:
+            updated = self.cart_service.update_item(
+                user_id=context.user_id,
+                session_id=context.session_id,
+                item_id=str(target["itemId"]),
+                quantity=current_quantity - remove_quantity,
+            )
             return AgentExecutionResult(
                 success=True,
                 message=(
-                    f"Added item to cart: {self._product_name(product_id)} x{quantity}. "
-                    f"New total is ${cart['total']:.2f}."
-                ),
-                data={"cart": cart},
-                next_actions=self._cart_next_actions(cart),
-            )
-
-        if action.name == "add_multiple_items":
-            raw_items = params.get("items", [])
-            if not isinstance(raw_items, list) or not raw_items:
-                return AgentExecutionResult(
-                    success=False,
-                    message="Tell me multiple items like: add 2 running shoes and 1 hoodie to cart.",
-                    data={},
-                )
-
-            added: list[str] = []
-            unresolved: list[str] = []
-            clarifications: list[str] = []
-            for raw_item in raw_items:
-                if not isinstance(raw_item, dict):
-                    continue
-                resolution = self._resolve_variant_for_add(params=raw_item, context=context)
-                if resolution.clarification:
-                    unresolved.append(str(raw_item.get("query", "item")).strip())
-                    clarifications.append(resolution.clarification)
-                    continue
-                if not resolution.resolved:
-                    unresolved.append(str(raw_item.get("query", "item")).strip())
-                    continue
-                product_id = str(resolution.product_id)
-                variant_id = str(resolution.variant_id)
-                quantity = self._safe_quantity(raw_item.get("quantity", 1))
-                self.cart_service.add_item(
-                    user_id=user_id,
-                    session_id=session_id,
-                    product_id=product_id,
-                    variant_id=variant_id,
-                    quantity=quantity,
-                )
-                added.append(f"{self._product_name(product_id)} x{quantity}")
-
-            cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-            if not added:
-                fallback = "I couldn't match those items. Try product names like running shoes or hoodie."
-                return AgentExecutionResult(
-                    success=False,
-                    message=clarifications[0] if clarifications else fallback,
-                    data={"cart": cart, "unresolved": unresolved, "clarifications": clarifications},
-                )
-
-            message = f"Added {', '.join(added)}."
-            unresolved_clean = [name for name in unresolved if name]
-            if unresolved_clean:
-                message += f" I couldn't match: {', '.join(unresolved_clean)}."
-            message += f" Cart total is ${cart['total']:.2f}."
-            return AgentExecutionResult(
-                success=True,
-                message=message,
-                data={"cart": cart, "unresolved": unresolved_clean},
-                next_actions=self._cart_next_actions(cart),
-            )
-
-        if action.name == "clear_cart":
-            cart = self.cart_service.clear_cart(user_id=user_id, session_id=session_id)
-            return AgentExecutionResult(
-                success=True,
-                message="Cleared your cart.",
-                data={"cart": cart},
-                next_actions=self._cart_next_actions(cart),
-            )
-
-        if action.name == "adjust_item_quantity":
-            cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-            target = self._find_cart_item(cart=cart, params=params)
-            if target is None:
-                return AgentExecutionResult(
-                    success=False,
-                    message="I couldn't identify which cart item to adjust.",
-                    data={"cart": cart},
-                )
-
-            delta = int(params.get("delta", 0))
-            if delta == 0:
-                delta = 1
-            current_quantity = int(target.get("quantity", 1))
-            next_quantity = current_quantity + delta
-            if next_quantity <= 0:
-                self.cart_service.remove_item(
-                    user_id=user_id,
-                    session_id=session_id,
-                    item_id=str(target["itemId"]),
-                )
-                updated = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-                return AgentExecutionResult(
-                    success=True,
-                    message=f"Removed {target['name']} from cart.",
-                    data={"cart": updated},
-                    next_actions=self._cart_next_actions(updated),
-                )
-
-            updated = self.cart_service.update_item(
-                user_id=user_id,
-                session_id=session_id,
-                item_id=str(target["itemId"]),
-                quantity=next_quantity,
-            )
-            return AgentExecutionResult(
-                success=True,
-                message=(
-                    f"Updated {target['name']} quantity from {current_quantity} to {next_quantity}. "
-                    f"Total is now ${updated['total']:.2f}."
+                    f"Removed {remove_quantity} of {target['name']}. "
+                    f"Remaining quantity is {current_quantity - remove_quantity}."
                 ),
                 data={"cart": updated},
                 next_actions=self._cart_next_actions(updated),
             )
 
-        if action.name == "update_item":
-            cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-            target = self._find_cart_item(cart=cart, params=params)
-            if target is None:
-                return AgentExecutionResult(
-                    success=False,
-                    message="Your cart is empty. Add an item first.",
-                    data={"cart": cart},
-                )
+        self.cart_service.remove_item(user_id=context.user_id, session_id=context.session_id, item_id=str(target["itemId"]))
+        updated = self.cart_service.get_cart(user_id=context.user_id, session_id=context.session_id)
+        return AgentExecutionResult(
+            success=True,
+            message=f"Removed {target['name']} from cart. Cart total is ${updated['total']:.2f}.",
+            data={"cart": updated},
+            next_actions=self._cart_next_actions(updated),
+        )
 
-            quantity = self._safe_quantity(params.get("quantity", 1))
-            updated = self.cart_service.update_item(
-                user_id=user_id,
-                session_id=session_id,
-                item_id=str(target["itemId"]),
-                quantity=quantity,
-            )
+    def _handle_apply_discount(self, action: AgentAction, context: AgentContext) -> AgentExecutionResult:
+        code = str(action.params.get("code", "")).strip().upper()
+        if not code:
             return AgentExecutionResult(
-                success=True,
-                message=f"Updated {target['name']} quantity to {quantity}. Total is now ${updated['total']:.2f}.",
-                data={"cart": updated},
-                next_actions=self._cart_next_actions(updated),
+                success=False,
+                message="Tell me the discount code to apply, for example: apply code SAVE20.",
+                data={},
             )
-
-        if action.name == "remove_item":
-            cart = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-            target = self._find_cart_item(cart=cart, params=params)
-            if target is None:
-                return AgentExecutionResult(
-                    success=False,
-                    message="Your cart is empty.",
-                    data={"cart": cart},
-                )
-
-            remove_quantity = int(params.get("quantity", 0))
-            current_quantity = int(target.get("quantity", 1))
-            if remove_quantity > 0 and current_quantity > remove_quantity:
-                updated = self.cart_service.update_item(
-                    user_id=user_id,
-                    session_id=session_id,
-                    item_id=str(target["itemId"]),
-                    quantity=current_quantity - remove_quantity,
-                )
-                return AgentExecutionResult(
-                    success=True,
-                    message=(
-                        f"Removed {remove_quantity} of {target['name']}. "
-                        f"Remaining quantity is {current_quantity - remove_quantity}."
-                    ),
-                    data={"cart": updated},
-                    next_actions=self._cart_next_actions(updated),
-                )
-
-            self.cart_service.remove_item(user_id=user_id, session_id=session_id, item_id=str(target["itemId"]))
-            updated = self.cart_service.get_cart(user_id=user_id, session_id=session_id)
-            return AgentExecutionResult(
-                success=True,
-                message=f"Removed {target['name']} from cart. Cart total is ${updated['total']:.2f}.",
-                data={"cart": updated},
-                next_actions=self._cart_next_actions(updated),
-            )
-
-        if action.name == "apply_discount":
-            code = str(params.get("code", "")).strip().upper()
-            if not code:
-                return AgentExecutionResult(
-                    success=False,
-                    message="Tell me the discount code to apply, for example: apply code SAVE20.",
-                    data={},
-                )
-            cart = self.cart_service.apply_discount(
-                user_id=user_id,
-                session_id=session_id,
-                discount_code=code,
-            )
-            discount_amount = float(cart.get("discount", 0.0))
-            return AgentExecutionResult(
-                success=True,
-                message=f"Applied {code}. You saved ${discount_amount:.2f}.",
-                data={"cart": cart},
-                next_actions=self._cart_next_actions(cart),
-            )
-
-        raise HTTPException(status_code=400, detail=f"Unsupported cart action: {action.name}")
+        cart = self.cart_service.apply_discount(
+            user_id=context.user_id,
+            session_id=context.session_id,
+            discount_code=code,
+        )
+        discount_amount = float(cart.get("discount", 0.0))
+        return AgentExecutionResult(
+            success=True,
+            message=f"Applied {code}. You saved ${discount_amount:.2f}.",
+            data={"cart": cart},
+            next_actions=self._cart_next_actions(cart),
+        )
 
     def _safe_quantity(self, value: Any) -> int:
         try:

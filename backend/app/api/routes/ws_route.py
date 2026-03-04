@@ -4,6 +4,7 @@ import asyncio
 from time import time
 from contextlib import suppress
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
+from app.api.session_utils import get_or_create_session, resolve_user_session_and_link_identity
 from app.container import (
     auth_service,
     cart_service,
@@ -39,7 +40,7 @@ async def _ensure_active_session(
 ) -> tuple[str, dict[str, object]]:
     resolved_session_id = str(candidate_session_id or "").strip()
     logger.info(f"_ensure_active_session called with session_id: {resolved_session_id}, source: {source}")
-    
+
     if resolved_session_id:
         try:
             existing = await asyncio.to_thread(session_service.get_session, resolved_session_id)
@@ -49,21 +50,17 @@ async def _ensure_active_session(
             logger.warning(f"Session not found or invalid: {resolved_session_id}, error: {e}")
             resolved_session_id = ""
 
-    logger.info("Creating new session...")
-    created = await asyncio.to_thread(
-        session_service.create_session,
+    created = await get_or_create_session(
+        session_service=session_service,
+        session_id=None,
         channel="websocket",
-        initial_context={},
         anonymous_id=websocket.headers.get("x-anonymous-id"),
         user_agent=websocket.headers.get("user-agent"),
         ip_address=websocket.client.host if websocket.client else None,
-        metadata={
-            "source": source,
-            "referrer": websocket.headers.get("origin", ""),
-        },
+        source=source,
+        referrer=websocket.headers.get("origin", ""),
     )
-    logger.info(f"New session created with id: {created['id']}")
-    # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
+    logger.info(f"Session active with id: {created['id']}")
     await _send_session_event(websocket, created)
     return str(created["id"]), created
 
@@ -92,35 +89,20 @@ async def _resolve_and_sync_user_session(
         user_id = str(active_session["userId"])
         
     if user_id:
-        anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
-        if session_id:
-            await asyncio.to_thread(
-                cart_service.merge_guest_cart_into_user,
-                session_id=session_id,
-                user_id=user_id,
-            )
-        
-        resolved_session = await asyncio.to_thread(
-            session_service.resolve_user_session,
-            user_id=user_id,
-            preferred_session_id=session_id,
-            channel="websocket",
-            anonymous_id=anonymous_id,
-            user_agent=websocket.headers.get("user-agent"),
-            ip_address=websocket.client.host if websocket.client else None,
-            metadata={
-                "source": source,
-                "referrer": websocket.headers.get("origin", ""),
-            },
-        )
-        
+        resolved_session = active_session
         with suppress(LookupError, ValueError):
-            await asyncio.to_thread(
-                auth_service.link_identity,
+            resolved_session = await resolve_user_session_and_link_identity(
+                session_service=session_service,
+                cart_service=cart_service,
+                auth_service=auth_service,
                 user_id=user_id,
+                session=active_session,
+                preferred_session_id=session_id,
                 channel="websocket",
-                external_id=str(resolved_session["id"]),
-                anonymous_id=str(resolved_session.get("anonymousId", "")) or None,
+                user_agent=websocket.headers.get("user-agent"),
+                ip_address=websocket.client.host if websocket.client else None,
+                source=source,
+                referrer=websocket.headers.get("origin", ""),
             )
             
         if str(resolved_session["id"]) != session_id:

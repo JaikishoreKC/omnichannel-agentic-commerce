@@ -356,7 +356,7 @@ class LLMClient:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
         max_retries = 5
-        base_delay = 5.0  # Increased base delay for free tier
+        base_delay = 5.0
 
         for attempt in range(max_retries):
             try:
@@ -381,19 +381,10 @@ class LLMClient:
                     timeout=self.settings.llm_timeout_seconds,
                 )
                 status_code = int(getattr(response, "status_code", 200))
-                # Handle rate limiting with retry
                 if status_code == 429:
-                    # Try to get Retry-After header first
                     headers = getattr(response, "headers", {}) or {}
                     retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
-                    if retry_after:
-                        try:
-                            delay = int(retry_after)
-                            logger.info(f"[LLM] Rate limited (429), using Retry-After header: {delay}s")
-                        except ValueError:
-                            delay = base_delay * (2 ** attempt)
-                    else:
-                        delay = base_delay * (2 ** attempt)
+                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                     
                     if attempt < max_retries - 1:
                         logger.info(f"[LLM] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
@@ -413,16 +404,8 @@ class LLMClient:
                 return content
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
-                    # Try to get Retry-After header
                     retry_after = e.response.headers.get("retry-after")
-                    if retry_after:
-                        try:
-                            delay = int(retry_after)
-                            logger.info(f"[LLM] HTTPStatusError 429, using Retry-After header: {delay}s")
-                        except ValueError:
-                            delay = base_delay * (2 ** attempt)
-                    else:
-                        delay = base_delay * (2 ** attempt)
+                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                     
                     if attempt < max_retries - 1:
                         logger.info(f"[LLM] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
@@ -458,7 +441,7 @@ class LLMClient:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
         max_retries = 5
-        base_delay = 5.0  # Increased base delay for free tier
+        base_delay = 5.0
 
         for attempt in range(max_retries):
             try:
@@ -484,18 +467,9 @@ class LLMClient:
                         },
                         timeout=self.settings.llm_timeout_seconds,
                     ) as response:
-                        # Handle rate limiting with retry
                         if response.status_code == 429:
-                            # Try to get Retry-After header
                             retry_after = response.headers.get("retry-after")
-                            if retry_after:
-                                try:
-                                    delay = int(retry_after)
-                                    logger.info(f"[LLM Stream] Rate limited (429), using Retry-After header: {delay}s")
-                                except ValueError:
-                                    delay = base_delay * (2 ** attempt)
-                            else:
-                                delay = base_delay * (2 ** attempt)
+                            delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                             
                             if attempt < max_retries - 1:
                                 logger.info(f"[LLM Stream] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
@@ -522,11 +496,20 @@ class LLMClient:
                 break  # Success, exit retry loop
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
-                    delay = base_delay * (2 ** attempt)
+                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=e.response.headers.get("retry-after"))
                     logger.info(f"[LLM Stream] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
                     await asyncio.sleep(delay)
                     continue
                 raise
+
+    @staticmethod
+    def _retry_delay_seconds(*, attempt: int, base_delay: float, retry_after: str | None) -> float:
+        if retry_after:
+            try:
+                return float(retry_after)
+            except ValueError:
+                pass
+        return float(base_delay * (2 ** attempt))
 
     def _build_classification_prompt(self, *, message: str, recent_messages: list[dict[str, Any]]) -> str:
         recent_snippets = []

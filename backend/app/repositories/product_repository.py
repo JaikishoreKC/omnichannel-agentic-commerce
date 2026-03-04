@@ -56,13 +56,7 @@ class ProductRepository:
         self._write_to_mongo(product)
         return deepcopy(product)
 
-    def update(self, *args: Any) -> dict[str, Any]:
-        if len(args) == 1 and isinstance(args[0], dict):
-            product = args[0]
-        elif len(args) == 2 and isinstance(args[1], dict):
-            product = args[1]
-        else:
-            raise TypeError("update expects update(product) or update(product_id, product)")
+    def update(self, product: dict[str, Any]) -> dict[str, Any]:
         self._write_to_redis(product)
         self._write_to_mongo(product)
         return deepcopy(product)
