@@ -55,7 +55,8 @@ export interface HealthStatus {
         llm: {
             enabled: boolean;
             provider: string;
-            circuit_breaker: string;
+            circuit_breaker?: string;
+            circuitBreakerState?: string;
         };
         [key: string]: unknown;
     };

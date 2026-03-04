@@ -1,14 +1,23 @@
 import React, { useEffect, useState } from "react";
 import { BrainCircuit, Loader2, Sparkles, Trash2, Info } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
-import { request } from "../../api/client";
+import { deleteMemoryPreference, fetchMemory } from "../../api/memory";
 
 interface MemoryItem {
     id: string;
     key: string;
     value: unknown;
-    created_at: string;
+    preferenceValue?: string;
 }
+
+type PreferencesPayload = {
+    size: string | null;
+    brandPreferences: string[];
+    categories: string[];
+    stylePreferences: string[];
+    colorPreferences: string[];
+    priceRange: { min: number; max: number };
+};
 
 export const AiMemoryTab: React.FC = () => {
     const [memories, setMemories] = useState<MemoryItem[]>([]);
@@ -18,8 +27,43 @@ export const AiMemoryTab: React.FC = () => {
     const fetchMemories = async () => {
         try {
             setIsLoading(true);
-            const data = await request<MemoryItem[]>("GET", "/memory");
-            setMemories(data);
+            const data = await fetchMemory();
+            const preferences = data.preferences as PreferencesPayload;
+            const flattened: MemoryItem[] = [];
+
+            const pushListItems = (key: keyof PreferencesPayload, values: string[]) => {
+                values.forEach((value, index) => {
+                    const normalized = String(value).trim();
+                    if (!normalized) {
+                        return;
+                    }
+                    flattened.push({
+                        id: `${String(key)}_${index}_${normalized}`,
+                        key: String(key),
+                        value: normalized,
+                        preferenceValue: normalized,
+                    });
+                });
+            };
+
+            if (preferences.size) {
+                flattened.push({ id: "size", key: "size", value: preferences.size });
+            }
+            pushListItems("brandPreferences", preferences.brandPreferences || []);
+            pushListItems("categories", preferences.categories || []);
+            pushListItems("stylePreferences", preferences.stylePreferences || []);
+            pushListItems("colorPreferences", preferences.colorPreferences || []);
+
+            const priceRange = preferences.priceRange;
+            if (priceRange && (Number(priceRange.min) > 0 || Number(priceRange.max) > 0)) {
+                flattened.push({
+                    id: "priceRange",
+                    key: "priceRange",
+                    value: `$${Number(priceRange.min || 0)} - $${Number(priceRange.max || 0)}`,
+                });
+            }
+
+            setMemories(flattened);
         } catch {
             setMemories([]);
         } finally {
@@ -31,9 +75,9 @@ export const AiMemoryTab: React.FC = () => {
         fetchMemories();
     }, []);
 
-    const handleDelete = async (key: string) => {
+    const handleDelete = async (item: MemoryItem) => {
         try {
-            await request("DELETE", `/memory/${key}`);
+            await deleteMemoryPreference(item.key, item.preferenceValue);
             addToast("Memory cleared", "success");
             fetchMemories();
         } catch {
@@ -88,7 +132,7 @@ export const AiMemoryTab: React.FC = () => {
                                 </div>
                             </div>
                             <button
-                                onClick={() => handleDelete(m.key)}
+                                onClick={() => handleDelete(m)}
                                 aria-label={`Delete memory ${m.key.replace(/_/g, " ")}`}
                                 title="Delete memory"
                                 className="p-2 text-slate-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-all opacity-0 group-hover:opacity-100"

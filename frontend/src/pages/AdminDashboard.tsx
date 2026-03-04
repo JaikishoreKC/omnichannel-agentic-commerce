@@ -271,16 +271,26 @@ const AdminDashboard: React.FC = () => {
                                         )}
                                     </div>
                                     <div className="space-y-2 text-xs">
+                                        {(() => {
+                                            const circuitState =
+                                                health?.services?.llm?.circuitBreakerState ??
+                                                health?.services?.llm?.circuit_breaker ??
+                                                "";
+                                            return (
+                                                <>
                                         <div className="flex justify-between">
                                             <span className="text-slate-500">Provider</span>
                                             <span className="font-medium text-slate-900 capitalize">{health?.services?.llm?.provider || "—"}</span>
                                         </div>
                                         <div className="flex justify-between">
                                             <span className="text-slate-500">Circuit Breaker</span>
-                                            <span className={`font-medium ${health?.services?.llm?.circuit_breaker === 'closed' ? 'text-emerald-600' : 'text-amber-600'}`}>
-                                                {health?.services?.llm?.circuit_breaker || "—"}
+                                            <span className={`font-medium ${circuitState === 'closed' ? 'text-emerald-600' : 'text-amber-600'}`}>
+                                                {circuitState || "—"}
                                             </span>
                                         </div>
+                                                </>
+                                            );
+                                        })()}
                                     </div>
                                     <div className="pt-2 border-t border-slate-100">
                                         <p className="text-[10px] text-slate-400 text-center">

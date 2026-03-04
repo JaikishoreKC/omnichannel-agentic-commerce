@@ -121,6 +121,3 @@ class InventoryService:
 
     def _sync_variant_stock_flag(self, *, variant_id: str, available: int) -> None:
         self.product_repository.set_variant_stock_flag(variant_id=variant_id, in_stock=available > 0)
-
-    def _sync_variant_stock_flag(self, *, variant_id: str, available: int) -> None:
-        self.product_repository.set_variant_stock_flag(variant_id=variant_id, in_stock=available > 0)

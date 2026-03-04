@@ -11,3 +11,5 @@ pyotp==2.9.0
 structlog==24.4.0
 scikit-learn==1.6.1
 numpy==2.2.3
+mongomock==4.3.0
+fakeredis==2.30.1
