@@ -52,58 +52,82 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         loadHistory();
 
-        const socket = connectChat({
-            sessionId,
-            onOpen: () => setIsConnected(true),
-            onClose: () => setIsConnected(false),
-            onError: (err) => console.error("Chat WS error", err),
-            onSession: (sid) => console.log("Session updated via WS", sid),
-            onTyping: ({ isTyping }) => setIsTyping(isTyping),
-            onMessage: (payload, streamId) => {
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        id: streamId || Date.now().toString(),
-                        role: "assistant",
-                        content: payload.message,
-                        agent: payload.agent,
-                        timestamp: new Date().toISOString(),
-                        suggestedActions: payload.suggestedActions,
-                    },
-                ]);
-                window.dispatchEvent(new CustomEvent("cart:refresh"));
-            },
-            onStreamStart: ({ streamId, agent }) => {
-                setMessages((prev) => [
-                    ...prev,
-                    {
-                        id: streamId,
-                        role: "assistant",
-                        content: "",
-                        agent,
-                        timestamp: new Date().toISOString(),
-                        isStreaming: true,
-                    },
-                ]);
-            },
-            onStreamDelta: ({ streamId, delta }) => {
-                setMessages((prev) =>
-                    prev.map((m) =>
-                        m.id === streamId ? { ...m, content: m.content + delta } : m
-                    )
-                );
-            },
-            onStreamEnd: ({ streamId }) => {
-                setMessages((prev) =>
-                    prev.map((m) =>
-                        m.id === streamId ? { ...m, isStreaming: false } : m
-                    )
-                );
-            },
-        });
+        let reconnectTimer: any;
+        let attempts = 0;
 
-        socketRef.current = socket;
-        return () => socket.close();
+        const connect = () => {
+            console.log(`Attempting to connect chat (attempt ${attempts + 1})...`);
+            const socket = connectChat({
+                sessionId,
+                onOpen: () => {
+                    setIsConnected(true);
+                    attempts = 0;
+                },
+                onClose: () => {
+                    setIsConnected(false);
+                    // Reconnect with exponential backoff (max 30s)
+                    const delay = Math.min(1000 * Math.pow(2, attempts), 30000);
+                    reconnectTimer = setTimeout(() => {
+                        attempts++;
+                        connect();
+                    }, delay);
+                },
+                onError: (err) => console.error("Chat WS error", err),
+                onSession: (sid) => console.log("Session updated via WS", sid),
+                onTyping: ({ isTyping }) => setIsTyping(isTyping),
+                onMessage: (payload, streamId) => {
+                    setMessages((prev) => [
+                        ...prev,
+                        {
+                            id: streamId || Date.now().toString(),
+                            role: "assistant",
+                            content: payload.message,
+                            agent: payload.agent,
+                            timestamp: new Date().toISOString(),
+                            suggestedActions: payload.suggestedActions,
+                        },
+                    ]);
+                    window.dispatchEvent(new CustomEvent("cart:refresh"));
+                },
+                onStreamStart: ({ streamId, agent }) => {
+                    setMessages((prev) => [
+                        ...prev,
+                        {
+                            id: streamId,
+                            role: "assistant",
+                            content: "",
+                            agent,
+                            timestamp: new Date().toISOString(),
+                            isStreaming: true,
+                        },
+                    ]);
+                },
+                onStreamDelta: ({ streamId, delta }) => {
+                    setMessages((prev) =>
+                        prev.map((m) =>
+                            m.id === streamId ? { ...m, content: (m.content || "") + delta } : m
+                        )
+                    );
+                },
+                onStreamEnd: ({ streamId }) => {
+                    setMessages((prev) =>
+                        prev.map((m) =>
+                            m.id === streamId ? { ...m, isStreaming: false } : m
+                        )
+                    );
+                },
+            });
+            socketRef.current = socket;
+        };
+
+        connect();
+
+        return () => {
+            clearTimeout(reconnectTimer);
+            if (socketRef.current) {
+                socketRef.current.close();
+            }
+        };
     }, [sessionId, loadHistory]);
 
     const sendMessage = (text: string) => {

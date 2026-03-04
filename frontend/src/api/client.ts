@@ -181,6 +181,10 @@ export function connectChat(params: {
                 params.onSession(parsed.payload.sessionId);
                 return;
             }
+            if (parsed.type === "ping") {
+                socket.send(JSON.stringify({ type: "pong", payload: parsed.payload }));
+                return;
+            }
             if (parsed.type === "typing" && parsed.payload && typeof parsed.payload.isTyping === "boolean") {
                 params.onTyping?.({
                     actor: parsed.payload.actor as string | undefined,

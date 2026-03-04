@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.infrastructure.logging import get_logger
 import asyncio
 from time import time
 from contextlib import suppress
@@ -11,6 +12,8 @@ from app.container import (
     session_service,
     settings,
 )
+
+logger = get_logger(__name__)
 
 def _stream_text_chunks(text: str, max_chars: int = 28) -> list[str]:
     cleaned = text.strip()
@@ -138,11 +141,13 @@ async def _resolve_and_sync_user_session(
 async def websocket_endpoint(websocket: WebSocket) -> None:
     origin = str(websocket.headers.get("origin", "")).strip()
     if origin and "*" not in settings.cors_origin_list and origin not in settings.cors_origin_list:
+        logger.warning(f"WebSocket rejected: Origin {origin} not in {settings.cors_origin_list}")
         _record_security_event(event_type="ws_origin_rejected", severity="warning")
         await websocket.close(code=1008, reason="origin not allowed")
         return
 
     await websocket.accept()
+    logger.info(f"WebSocket connection accepted from origin: {origin or 'None'}")
     session_service.cleanup_expired()
     
     session_id, active_session = await _ensure_active_session(

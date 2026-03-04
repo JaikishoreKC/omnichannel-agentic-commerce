@@ -13,7 +13,7 @@ class Settings:
     refresh_token_ttl_seconds: int = 7 * 24 * 60 * 60
     cart_tax_rate: float = 0.08
     default_shipping_fee: float = 5.99
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     mongodb_uri: str = "mongodb://localhost:27017/commerce"
     redis_url: str = "redis://localhost:6379/0"
     enable_external_services: bool = True
