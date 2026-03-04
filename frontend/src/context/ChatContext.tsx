@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { connectChat, fetchChatHistory } from "../api";
 import { useSession } from "./SessionContext";
-import type { ChatResponsePayload } from "../api/types";
 
 export type Message = {
     id: string;
@@ -17,6 +16,7 @@ interface ChatContextType {
     messages: Message[];
     isTyping: boolean;
     isConnected: boolean;
+    isConnecting: boolean;
     sendMessage: (text: string) => void;
     clearMessages: () => void;
 }
@@ -28,7 +28,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
+    const [isConnecting, setIsConnecting] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
+    const connectingRef = useRef(false);  // Track connecting state to avoid race conditions
 
     const loadHistory = useCallback(async () => {
         if (!sessionId) return;
@@ -48,7 +50,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [sessionId]);
 
     useEffect(() => {
-        if (!sessionId || isSessionLoading) return;
+        if (!sessionId || isSessionLoading) {
+            return;
+        }
 
         loadHistory();
 
@@ -56,15 +60,25 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
         let attempts = 0;
 
         const connect = () => {
+            // Don't attempt if already connecting or connected - use ref to avoid race condition
+            if (connectingRef.current || socketRef.current?.readyState === WebSocket.OPEN) {
+                return;
+            }
             console.log(`Attempting to connect chat (attempt ${attempts + 1})...`);
+            connectingRef.current = true;
+            setIsConnecting(true);
             const socket = connectChat({
                 sessionId,
                 onOpen: () => {
+                    connectingRef.current = false;
                     setIsConnected(true);
+                    setIsConnecting(false);
                     attempts = 0;
                 },
                 onClose: () => {
+                    connectingRef.current = false;
                     setIsConnected(false);
+                    setIsConnecting(false);
                     // Reconnect with exponential backoff (max 30s)
                     const delay = Math.min(1000 * Math.pow(2, attempts), 30000);
                     reconnectTimer = setTimeout(() => {
@@ -131,8 +145,15 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, [sessionId, loadHistory]);
 
     const sendMessage = (text: string) => {
-        if (socketRef.current && isConnected) {
-            socketRef.current.send(JSON.stringify({ type: "message", payload: { content: text } }));
+        // Only send when socket is actually open - checking readyState for reliability
+        if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            socketRef.current.send(JSON.stringify({ 
+                type: "message", 
+                payload: { 
+                    content: text,
+                    stream: true  // Enable streaming for proper LLM responses
+                } 
+            }));
             setMessages((prev) => [
                 ...prev,
                 {
@@ -149,7 +170,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return (
         <ChatContext.Provider
-            value={{ messages, isTyping, isConnected, sendMessage, clearMessages }}
+            value={{ messages, isTyping, isConnected, isConnecting, sendMessage, clearMessages }}
         >
             {children}
         </ChatContext.Provider>

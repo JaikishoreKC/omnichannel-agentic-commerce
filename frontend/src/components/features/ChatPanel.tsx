@@ -10,7 +10,7 @@ const ChatPanel: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
     const [inputValue, setInputValue] = useState("");
-    const { messages, sendMessage, isTyping, isConnected } = useChat();
+    const { messages, sendMessage, isTyping, isConnected, isConnecting } = useChat();
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -73,13 +73,13 @@ const ChatPanel: React.FC = () => {
                                     <h4 className="font-medium text-sm">AI Assistant</h4>
                                     {isMinimized ? (
                                         <div className="flex items-center gap-1.5" data-testid="chat-ready">
-                                            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-400" : "bg-red-400")} />
-                                            <span className="text-[10px] opacity-80">{isConnected ? "connected" : "disconnected"}</span>
+                                            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-400" : isConnecting ? "bg-yellow-400 animate-pulse" : "bg-red-400")} />
+                                            <span className="text-[10px] opacity-80">{isConnected ? "connected" : isConnecting ? "connecting..." : "disconnected"}</span>
                                         </div>
                                     ) : (
                                         <div className="flex items-center gap-1.5" data-testid="chat-ready">
-                                            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-400" : "bg-red-400")} />
-                                            <span className="text-[10px] opacity-80">{isConnected ? "connected" : "disconnected"}</span>
+                                            <div className={cn("w-1.5 h-1.5 rounded-full", isConnected ? "bg-emerald-400" : isConnecting ? "bg-yellow-400 animate-pulse" : "bg-red-400")} />
+                                            <span className="text-[10px] opacity-80">{isConnected ? "connected" : isConnecting ? "connecting..." : "disconnected"}</span>
                                         </div>
                                     )}
                                 </div>

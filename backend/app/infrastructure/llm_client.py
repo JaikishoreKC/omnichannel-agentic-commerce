@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
 import re
 from dataclasses import dataclass
 from typing import Any
@@ -10,6 +12,8 @@ import httpx
 from app.core.config import Settings
 from app.infrastructure.circuit_breaker import CircuitBreaker, CircuitBreakerOpenError
 from app.infrastructure.prompts import ACTION_PLANNING_PROMPT, INTENT_CLASSIFICATION_PROMPT
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -334,82 +338,193 @@ class LLMClient:
         return None
 
     def _call_llm(self, *, user_prompt: str, system_prompt: str) -> str:
+        """Synchronous wrapper for LLM calls. Handles both sync and async contexts safely."""
+        try:
+            # Check if we're already in an async context
+            loop = asyncio.get_running_loop()
+            # If we get here, we're in an async context - this shouldn't happen for sync method
+            # but we handle it gracefully by raising an error
+            raise RuntimeError("Synchronous _call_llm called from async context. Use async methods instead.")
+        except RuntimeError:
+            # No running event loop - safe to create one
+            return asyncio.run(self._call_llm_async(user_prompt=user_prompt, system_prompt=system_prompt))
+
+    async def _call_llm_async(self, *, user_prompt: str, system_prompt: str) -> str:
+        """Async method to call the LLM with retry logic for rate limiting."""
         api_key = self.settings.openrouter_api_key
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
-        response = httpx.post(
-            f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": "http://localhost:5173",
-                "X-Title": "Omnichannel Agentic Commerce",
-            },
-            json={
-                "model": self.settings.llm_model,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                "temperature": self.settings.llm_temperature,
-                "max_tokens": self.settings.llm_max_tokens,
-                "response_format": {"type": "json_object"},
-            },
-            timeout=self.settings.llm_timeout_seconds,
-        )
-        response.raise_for_status()
-        payload = response.json()
-        choices = payload.get("choices", [])
-        if not choices:
-            raise ValueError("No choices returned from OpenRouter")
-        content = choices[0].get("message", {}).get("content")
-        if not isinstance(content, str):
-            raise ValueError("Invalid OpenRouter response content")
-        return content
+        max_retries = 5
+        base_delay = 5.0  # Increased base delay for free tier
+
+        for attempt in range(max_retries):
+            try:
+                response = httpx.post(
+                    f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                        "HTTP-Referer": "http://localhost:5173",
+                        "X-Title": "Omnichannel Agentic Commerce",
+                    },
+                    json={
+                        "model": self.settings.llm_model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt},
+                        ],
+                        "temperature": self.settings.llm_temperature,
+                        "max_tokens": self.settings.llm_max_tokens,
+                        "response_format": {"type": "json_object"},
+                    },
+                    timeout=self.settings.llm_timeout_seconds,
+                )
+                # Handle rate limiting with retry
+                if response.status_code == 429:
+                    # Try to get Retry-After header first
+                    retry_after = response.headers.get("retry-after")
+                    if retry_after:
+                        try:
+                            delay = int(retry_after)
+                            logger.info(f"[LLM] Rate limited (429), using Retry-After header: {delay}s")
+                        except ValueError:
+                            delay = base_delay * (2 ** attempt)
+                    else:
+                        delay = base_delay * (2 ** attempt)
+                    
+                    if attempt < max_retries - 1:
+                        logger.info(f"[LLM] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                    else:
+                        raise Exception("Rate limited after all retries")
+                
+                response.raise_for_status()
+                payload = response.json()
+                choices = payload.get("choices", [])
+                if not choices:
+                    raise ValueError("No choices returned from OpenRouter")
+                content = choices[0].get("message", {}).get("content")
+                if not isinstance(content, str):
+                    raise ValueError("Invalid OpenRouter response content")
+                return content
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429:
+                    # Try to get Retry-After header
+                    retry_after = e.response.headers.get("retry-after")
+                    if retry_after:
+                        try:
+                            delay = int(retry_after)
+                            logger.info(f"[LLM] HTTPStatusError 429, using Retry-After header: {delay}s")
+                        except ValueError:
+                            delay = base_delay * (2 ** attempt)
+                    else:
+                        delay = base_delay * (2 ** attempt)
+                    
+                    if attempt < max_retries - 1:
+                        logger.info(f"[LLM] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        await asyncio.sleep(delay)
+                        continue
+                raise
+
+    def generate_response(self, *, user_prompt: str, system_prompt: str) -> str | None:
+        """Synchronous method to generate a response from the LLM."""
+        try:
+            response = self._call_llm(user_prompt=user_prompt, system_prompt=system_prompt)
+            if response:
+                # The LLM returns JSON, try to parse it and extract the message
+                try:
+                    data = json.loads(response)
+                    # Look for common message fields
+                    if isinstance(data, dict):
+                        message = data.get("message") or data.get("answer") or data.get("response")
+                        if message:
+                            return message
+                    # If no standard field found, return the JSON as string
+                    return response
+                except json.JSONDecodeError:
+                    return response
+            return response
+        except Exception as e:
+            logger.error(f"LLM generate_response failed: {e}")
+            return None
 
     async def stream_response(self, *, user_prompt: str, system_prompt: str):
         api_key = self.settings.openrouter_api_key
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "POST",
-                f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                    "HTTP-Referer": "http://localhost:5173",
-                    "X-Title": "Omnichannel Agentic Commerce",
-                },
-                json={
-                    "model": self.settings.llm_model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "temperature": self.settings.llm_temperature,
-                    "max_tokens": self.settings.llm_max_tokens,
-                    "stream": True,
-                },
-                timeout=self.settings.llm_timeout_seconds,
-            ) as response:
-                response.raise_for_status()
-                async for line in response.aiter_lines():
-                    if not line.strip():
-                        continue
-                    if line.startswith("data: "):
-                        data_str = line[6:].strip()
-                        if data_str == "[DONE]":
-                            break
-                        try:
-                            data = json.loads(data_str)
-                            delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
-                            if delta:
-                                yield delta
-                        except json.JSONDecodeError:
-                            continue
+        max_retries = 5
+        base_delay = 5.0  # Increased base delay for free tier
+
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                            "HTTP-Referer": "http://localhost:5173",
+                            "X-Title": "Omnichannel Agentic Commerce",
+                        },
+                        json={
+                            "model": self.settings.llm_model,
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": user_prompt},
+                            ],
+                            "temperature": self.settings.llm_temperature,
+                            "max_tokens": self.settings.llm_max_tokens,
+                            "stream": True,
+                        },
+                        timeout=self.settings.llm_timeout_seconds,
+                    ) as response:
+                        # Handle rate limiting with retry
+                        if response.status_code == 429:
+                            # Try to get Retry-After header
+                            retry_after = response.headers.get("retry-after")
+                            if retry_after:
+                                try:
+                                    delay = int(retry_after)
+                                    logger.info(f"[LLM Stream] Rate limited (429), using Retry-After header: {delay}s")
+                                except ValueError:
+                                    delay = base_delay * (2 ** attempt)
+                            else:
+                                delay = base_delay * (2 ** attempt)
+                            
+                            if attempt < max_retries - 1:
+                                logger.info(f"[LLM Stream] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                                await asyncio.sleep(delay)
+                                continue
+                            else:
+                                raise Exception("Rate limited after all retries")
+
+                        response.raise_for_status()
+                        async for line in response.aiter_lines():
+                            if not line.strip():
+                                continue
+                            if line.startswith("data: "):
+                                data_str = line[6:].strip()
+                                if data_str == "[DONE]":
+                                    break
+                                try:
+                                    data = json.loads(data_str)
+                                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    if delta:
+                                        yield delta
+                                except json.JSONDecodeError:
+                                    continue
+                break  # Success, exit retry loop
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 429 and attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.info(f"[LLM Stream] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                    continue
+                raise
 
     def _build_classification_prompt(self, *, message: str, recent_messages: list[dict[str, Any]]) -> str:
         recent_snippets = []

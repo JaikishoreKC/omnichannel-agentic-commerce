@@ -11,8 +11,10 @@ interface SessionContextType {
 const SessionContext = createContext<SessionContextType | undefined>(undefined);
 
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const [sessionId, setSessionId] = useState<string | null>(currentSessionId());
-    const [isLoading, setIsLoading] = useState(true);
+    const storedSessionId = currentSessionId();
+    const [sessionId, setSessionId] = useState<string | null>(storedSessionId);
+    // If we already have a valid session, we're not loading
+    const [isLoading, setIsLoading] = useState(!storedSessionId);
     const [error, setError] = useState<string | null>(null);
 
     const initSession = async () => {
