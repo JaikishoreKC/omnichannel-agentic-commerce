@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { connectChat, fetchChatHistory } from "../api";
+import type { ChatResponsePayload } from "../api/types";
 import { useSession } from "./SessionContext";
 
 export type Message = {
@@ -31,6 +32,21 @@ type HistoryMessage = {
 };
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
+
+function shouldRefreshCart(payload: ChatResponsePayload): boolean {
+    const agent = String(payload.agent || "").toLowerCase();
+    if (agent === "cart" || agent === "order") {
+        return true;
+    }
+    if (agent !== "orchestrator") {
+        return false;
+    }
+    const data = payload.data;
+    if (!data || typeof data !== "object") {
+        return false;
+    }
+    return "cart" in data || "order" in data;
+}
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { sessionId, isLoading: isSessionLoading } = useSession();
@@ -109,7 +125,9 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                             suggestedActions: payload.suggestedActions,
                         },
                     ]);
-                    window.dispatchEvent(new CustomEvent("cart:refresh"));
+                    if (shouldRefreshCart(payload)) {
+                        window.dispatchEvent(new CustomEvent("cart:refresh"));
+                    }
                 },
                 onStreamStart: ({ streamId, agent }) => {
                     setMessages((prev) => [

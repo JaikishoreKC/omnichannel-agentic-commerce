@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from threading import Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,6 +22,15 @@ class ProductService:
         self.product_repository = product_repository
         self.category_repository = category_repository
         self.inventory_repository = inventory_repository
+        self._search_index_lock = Lock()
+        self._search_index_cache: dict[str, Any] = {
+            "key": None,
+            "products": [],
+            "corpus": [],
+            "vectorizer": None,
+            "matrix": None,
+            "enabled": False,
+        }
 
     def list_products(
         self,
@@ -70,39 +80,10 @@ class ProductService:
 
         # Phase 2: Search (Semantic vs Basic)
         if normalized_query:
-            try:
-                from sklearn.feature_extraction.text import TfidfVectorizer
-                from sklearn.metrics.pairwise import cosine_similarity
-                import numpy as np
-
-                # Prepare corpus
-                corpus = []
-                for item in candidates:
-                    tags = item.get("tags", [])
-                    features = item.get("features", [])
-                    tag_text = " ".join(str(token) for token in tags) if isinstance(tags, list) else ""
-                    feature_text = " ".join(str(token) for token in features) if isinstance(features, list) else ""
-                    text = f"{item['name']} {item['description']} {item.get('brand', '')} {tag_text} {feature_text}".lower()
-                    corpus.append(text)
-
-                vectorizer = TfidfVectorizer(stop_words='english')
-                tfidf_matrix = vectorizer.fit_transform(corpus)
-                query_vec = vectorizer.transform([normalized_query])
-                
-                similarities = cosine_similarity(query_vec, tfidf_matrix).flatten()
-                
-                # Zip and filter by minimum similarity threshold (e.g. 0.05) 
-                # or just use it for ranking
-                scored_candidates = []
-                for idx, score in enumerate(similarities):
-                    # We keep items that have some overlap or if the name literally matches
-                    if score > 0.0 or normalized_query in corpus[idx]:
-                        scored_candidates.append((score, candidates[idx]))
-
-                # Sort by score descending
-                scored_candidates.sort(key=lambda x: x[0], reverse=True)
-                filtered = [item for _, item in scored_candidates]
-            except Exception:
+            ranked = self._semantic_rank_products(query=normalized_query, products=candidates)
+            if ranked is not None:
+                filtered = ranked
+            else:
                 # Fallback to basic search if scikit-learn fails
                 def basic_match(item: dict[str, Any]) -> bool:
                     haystack = f"{item['name']} {item.get('description', '')} {item.get('brand', '')}".lower()
@@ -125,6 +106,90 @@ class ProductService:
                 "pages": (total + safe_limit - 1) // safe_limit if total else 0,
             },
         }
+
+    def _semantic_rank_products(self, *, query: str, products: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer
+            from sklearn.metrics.pairwise import cosine_similarity
+        except Exception:
+            return None
+
+        index = self._build_or_get_search_index(products=products, vectorizer_cls=TfidfVectorizer)
+        if not index.get("enabled"):
+            return None
+
+        vectorizer = index.get("vectorizer")
+        matrix = index.get("matrix")
+        corpus = index.get("corpus", [])
+        indexed_products = index.get("products", [])
+        if vectorizer is None or matrix is None or not indexed_products:
+            return None
+
+        query_vec = vectorizer.transform([query])
+        similarities = cosine_similarity(query_vec, matrix).flatten()
+        scored: list[tuple[float, dict[str, Any]]] = []
+        for idx, score in enumerate(similarities):
+            if idx >= len(indexed_products):
+                continue
+            if score > 0.0 or query in str(corpus[idx]):
+                scored.append((float(score), indexed_products[idx]))
+        scored.sort(key=lambda item: item[0], reverse=True)
+        return [item for _, item in scored]
+
+    def _build_or_get_search_index(self, *, products: list[dict[str, Any]], vectorizer_cls: Any) -> dict[str, Any]:
+        key = self._search_index_key(products)
+        cached_key = self._search_index_cache.get("key")
+        if cached_key == key:
+            return self._search_index_cache
+
+        with self._search_index_lock:
+            cached_key = self._search_index_cache.get("key")
+            if cached_key == key:
+                return self._search_index_cache
+
+            corpus = [self._search_text(item) for item in products]
+            try:
+                vectorizer = vectorizer_cls(stop_words="english")
+                matrix = vectorizer.fit_transform(corpus)
+                self._search_index_cache = {
+                    "key": key,
+                    "products": products,
+                    "corpus": corpus,
+                    "vectorizer": vectorizer,
+                    "matrix": matrix,
+                    "enabled": True,
+                }
+            except Exception:
+                self._search_index_cache = {
+                    "key": key,
+                    "products": products,
+                    "corpus": corpus,
+                    "vectorizer": None,
+                    "matrix": None,
+                    "enabled": False,
+                }
+            return self._search_index_cache
+
+    @staticmethod
+    def _search_text(item: dict[str, Any]) -> str:
+        tags = item.get("tags", [])
+        features = item.get("features", [])
+        tag_text = " ".join(str(token) for token in tags) if isinstance(tags, list) else ""
+        feature_text = " ".join(str(token) for token in features) if isinstance(features, list) else ""
+        return f"{item['name']} {item['description']} {item.get('brand', '')} {tag_text} {feature_text}".lower()
+
+    @staticmethod
+    def _search_index_key(products: list[dict[str, Any]]) -> tuple[int, tuple[tuple[str, str], ...]]:
+        signature = tuple(
+            sorted(
+                (
+                    str(item.get("id", "")),
+                    str(item.get("updatedAt", "")),
+                )
+                for item in products
+            )
+        )
+        return (len(products), signature)
 
     def get_product(self, product_id: str) -> dict[str, Any]:
         product = self.product_repository.get_by_id(product_id)

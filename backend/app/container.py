@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from threading import Lock
 
 from app.core.config import Settings
 from app.agents.cart_agent import CartAgent
@@ -56,6 +57,8 @@ class Container:
     def __init__(self) -> None:
         self.settings = Settings.from_env()
         self.store = InMemoryStore()
+        self._baseline_seeded = False
+        self._baseline_seed_lock = Lock()
         self.mongo_manager = MongoClientManager(
             uri=self.settings.mongodb_uri, 
             enabled=self.settings.enable_external_services
@@ -229,7 +232,7 @@ class Container:
     async def start(self) -> None:
         self.mongo_manager.connect()
         self.redis_manager.connect()
-        self._seed_external_baseline_if_empty()
+        self._seed_external_baseline_if_empty(force=True)
 
     async def stop(self) -> None:
         self.mongo_manager.disconnect()
@@ -238,31 +241,39 @@ class Container:
     def ensure_external_baseline(self) -> None:
         self._seed_external_baseline_if_empty()
 
-    def _seed_external_baseline_if_empty(self) -> None:
+    def _seed_external_baseline_if_empty(self, *, force: bool = False) -> None:
+        if self._baseline_seeded and not force:
+            return
+
         if not (self.mongo_manager.enabled or self.redis_manager.enabled):
             return
         if self.mongo_manager.client is None:
             return
 
-        try:
-            if not self.auth_repository.list_all_users(limit=1):
-                for user in self.store.users_by_id.values():
-                    self.auth_repository.create_user(deepcopy(user))
+        with self._baseline_seed_lock:
+            if self._baseline_seeded and not force:
+                return
 
-            if not self.product_repository.list_all():
-                for product in self.store.products_by_id.values():
-                    self.product_repository.create(deepcopy(product))
+            try:
+                if not self.auth_repository.list_all_users(limit=1):
+                    for user in self.store.users_by_id.values():
+                        self.auth_repository.create_user(deepcopy(user))
 
-            if not self.category_repository.list_all():
-                for category in self.store.categories_by_id.values():
-                    self.category_repository.create(deepcopy(category))
+                if not self.product_repository.list_all():
+                    for product in self.store.products_by_id.values():
+                        self.product_repository.create(deepcopy(product))
 
-            for stock in self.store.inventory_by_variant.values():
-                self.inventory_repository.upsert(deepcopy(stock))
+                if not self.category_repository.list_all():
+                    for category in self.store.categories_by_id.values():
+                        self.category_repository.create(deepcopy(category))
 
-            voice_settings.ensure_defaults(self.voice_repository, self.settings)
-        except Exception:
-            pass
+                for stock in self.store.inventory_by_variant.values():
+                    self.inventory_repository.upsert(deepcopy(stock))
+
+                voice_settings.ensure_defaults(self.voice_repository, self.settings)
+                self._baseline_seeded = True
+            except Exception:
+                pass
 
 container = Container()
 

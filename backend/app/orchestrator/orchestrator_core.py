@@ -5,7 +5,6 @@ import hashlib
 from dataclasses import asdict
 from typing import Any
 from app.infrastructure.logging import get_logger
-from app.infrastructure.logging import get_logger
 
 from app.agents.base_agent import BaseAgent
 from app.infrastructure.llm_client import LLMActionPlan, LLMClient

@@ -49,6 +49,6 @@ def init_test_services():
 
 @pytest.fixture(autouse=True)
 def reset_db_state():
-    # If necessary, we can clean up between tests here, but for now integration tests 
-    # might expect clean slate or manage their own records via unique IDs.
-    pass
+    # Keep tests isolated: force baseline reseed on first request in each test.
+    # This avoids cross-test state bleed after runtime seeding was optimized.
+    container._baseline_seeded = False

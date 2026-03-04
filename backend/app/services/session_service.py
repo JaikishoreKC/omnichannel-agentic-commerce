@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from threading import Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -13,6 +14,9 @@ class SessionService:
     def __init__(self, session_repository: SessionRepository) -> None:
         self.session_repository = session_repository
         self._expiry_minutes = 30
+        self._cleanup_interval_seconds = 30
+        self._last_cleanup_at: datetime | None = None
+        self._cleanup_lock = Lock()
 
     def create_session(
         self,
@@ -111,7 +115,7 @@ class SessionService:
         ip_address: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        self.cleanup_expired()
+        self.cleanup_expired(force=False)
         existing = self.session_repository.find_latest_for_user(user_id)
         if existing:
             expires_at = self._parse_iso(existing.get("expiresAt"))
@@ -197,8 +201,16 @@ class SessionService:
         self._mark_active(session)
         self.session_repository.update(session)
 
-    def cleanup_expired(self) -> int:
+    def cleanup_expired(self, *, force: bool = True) -> int:
         now = utc_now()
+        if not force:
+            with self._cleanup_lock:
+                if self._last_cleanup_at is not None:
+                    delta = (now - self._last_cleanup_at).total_seconds()
+                    if delta < self._cleanup_interval_seconds:
+                        return 0
+                self._last_cleanup_at = now
+
         to_delete: list[str] = []
         sessions = self.session_repository.list_all()
         for payload in sessions:

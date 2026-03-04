@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime
 from typing import Any
@@ -115,42 +116,53 @@ class VoiceRecoveryService:
         ]
         
         updates = 0
-        for call in active_calls:
+
+        def _fetch_latest(call: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]] | None, RuntimeError | None]:
             provider_call_id = str(call.get("providerCallId", "")).strip()
             try:
                 rows = self.superu_client.fetch_call_logs(call_id=provider_call_id, limit=1)
+                return call, rows, None
             except RuntimeError as exc:
-                voice_alerts.append_alert(
-                    code="VOICE_POLL_FAILED",
-                    message=f"Failed to poll SuperU call logs: {exc}",
-                    severity="warning",
-                    details={"callId": call.get("id"), "providerCallId": provider_call_id},
-                    voice_repository=self.voice_repository,
-                )
-                continue
-            if not rows:
-                continue
-            latest = rows[-1]
-            normalized_status = voice_helpers.normalize_provider_status(latest)
-            outcome = voice_helpers.extract_outcome(latest)
-            if normalized_status in {"completed", "failed"}:
-                voice_calls.update_call_terminal(
-                    voice_repository=self.voice_repository,
-                    call_id=str(call["id"]),
-                    status=normalized_status,
-                    outcome=outcome,
-                    payload=latest,
-                    voice_service=self,
-                )
-                updates += 1
-            elif normalized_status in {"ringing", "in_progress"}:
-                voice_calls.update_call_progress(
-                    voice_repository=self.voice_repository,
-                    call_id=str(call["id"]),
-                    status=normalized_status,
-                    payload=latest,
-                )
-                updates += 1
+                return call, None, exc
+
+        max_workers = min(8, max(1, len(active_calls)))
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            futures = [pool.submit(_fetch_latest, call) for call in active_calls]
+            for future in as_completed(futures):
+                call, rows, error = future.result()
+                provider_call_id = str(call.get("providerCallId", "")).strip()
+                if error is not None:
+                    voice_alerts.append_alert(
+                        code="VOICE_POLL_FAILED",
+                        message=f"Failed to poll SuperU call logs: {error}",
+                        severity="warning",
+                        details={"callId": call.get("id"), "providerCallId": provider_call_id},
+                        voice_repository=self.voice_repository,
+                    )
+                    continue
+                if not rows:
+                    continue
+                latest = rows[-1]
+                normalized_status = voice_helpers.normalize_provider_status(latest)
+                outcome = voice_helpers.extract_outcome(latest)
+                if normalized_status in {"completed", "failed"}:
+                    voice_calls.update_call_terminal(
+                        voice_repository=self.voice_repository,
+                        call_id=str(call["id"]),
+                        status=normalized_status,
+                        outcome=outcome,
+                        payload=latest,
+                        voice_service=self,
+                    )
+                    updates += 1
+                elif normalized_status in {"ringing", "in_progress"}:
+                    voice_calls.update_call_progress(
+                        voice_repository=self.voice_repository,
+                        call_id=str(call["id"]),
+                        status=normalized_status,
+                        payload=latest,
+                    )
+                    updates += 1
         return updates
 
     def ingest_provider_callback(self, *, payload: dict[str, Any]) -> dict[str, Any]:
@@ -163,14 +175,8 @@ class VoiceRecoveryService:
                 "reason": "missing_provider_call_id",
             }
 
-        matched_call_id: str | None = None
-        # Efficient lookup by provider_call_id would be better
-        # For now, list recent calls.
-        calls = self.voice_repository.list_calls(limit=1000)
-        for call in calls:
-            if str(call.get("providerCallId", "")).strip() == provider_call_id:
-                matched_call_id = str(call.get("id", "")).strip() or None
-                break
+        matched = self.voice_repository.find_call_by_provider_id(provider_call_id)
+        matched_call_id = str(matched.get("id", "")).strip() if isinstance(matched, dict) else None
                 
         if not matched_call_id:
             return {
@@ -283,10 +289,8 @@ class VoiceRecoveryService:
         return self.cart_repository.get_by_id(key)
 
     def _has_newer_order(self, *, user_id: str, since: datetime) -> bool:
-        orders = self.order_repository.list_all()
+        orders = self.order_repository.list_by_user(user_id)
         for order in orders:
-            if str(order.get("userId", "")) != user_id:
-                continue
             created_at = voice_helpers.parse_iso(order.get("createdAt"))
             if created_at and created_at > since:
                 return True

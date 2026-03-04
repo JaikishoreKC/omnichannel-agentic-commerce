@@ -16,27 +16,6 @@ from app.container import (
 
 logger = get_logger(__name__)
 
-def _stream_text_chunks(text: str, max_chars: int = 28) -> list[str]:
-    cleaned = text.strip()
-    if not cleaned:
-        return []
-    words = cleaned.split()
-    if not words:
-        return [cleaned[:max_chars]]
-    chunks: list[str] = []
-    current = ""
-    for word in words:
-        candidate = word if not current else f"{current} {word}"
-        if len(candidate) <= max_chars:
-            current = candidate
-            continue
-        if current:
-            chunks.append(current + " ")
-        current = word
-    if current:
-        chunks.append(current)
-    return chunks
-
 def _record_security_event(*, event_type: str, severity: str) -> None:
     with suppress(RuntimeError):
         metrics_collector.record_security_event(event_type=event_type, severity=severity)
@@ -63,7 +42,7 @@ async def _ensure_active_session(
     
     if resolved_session_id:
         try:
-            existing = session_service.get_session(resolved_session_id)
+            existing = await asyncio.to_thread(session_service.get_session, resolved_session_id)
             logger.info(f"Found existing session: {resolved_session_id}")
             return resolved_session_id, existing
         except HTTPException as e:
@@ -71,7 +50,8 @@ async def _ensure_active_session(
             resolved_session_id = ""
 
     logger.info("Creating new session...")
-    created = session_service.create_session(
+    created = await asyncio.to_thread(
+        session_service.create_session,
         channel="websocket",
         initial_context={},
         anonymous_id=websocket.headers.get("x-anonymous-id"),
@@ -103,7 +83,7 @@ async def _resolve_and_sync_user_session(
             try:
                 scheme, token = auth_header.split(" ", 1)
                 if scheme.lower() == "bearer":
-                    user = auth_service.get_user_from_access_token(token)
+                    user = await asyncio.to_thread(auth_service.get_user_from_access_token, token)
                     user_id = str(user["id"])
             except Exception:
                 user_id = None
@@ -114,9 +94,14 @@ async def _resolve_and_sync_user_session(
     if user_id:
         anonymous_id = str(active_session.get("anonymousId", "")).strip() or None
         if session_id:
-            cart_service.merge_guest_cart_into_user(session_id=session_id, user_id=user_id)
+            await asyncio.to_thread(
+                cart_service.merge_guest_cart_into_user,
+                session_id=session_id,
+                user_id=user_id,
+            )
         
-        resolved_session = session_service.resolve_user_session(
+        resolved_session = await asyncio.to_thread(
+            session_service.resolve_user_session,
             user_id=user_id,
             preferred_session_id=session_id,
             channel="websocket",
@@ -130,7 +115,8 @@ async def _resolve_and_sync_user_session(
         )
         
         with suppress(LookupError, ValueError):
-            auth_service.link_identity(
+            await asyncio.to_thread(
+                auth_service.link_identity,
                 user_id=user_id,
                 channel="websocket",
                 external_id=str(resolved_session["id"]),
@@ -159,7 +145,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
     await websocket.accept()
     logger.info(f"WebSocket connection accepted from origin: {origin or 'None'}")
-    session_service.cleanup_expired()
+    await asyncio.to_thread(session_service.cleanup_expired, force=False)
     
     session_id, active_session = await _ensure_active_session(
         websocket,

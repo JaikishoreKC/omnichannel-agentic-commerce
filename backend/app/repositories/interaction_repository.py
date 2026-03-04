@@ -67,7 +67,22 @@ class InteractionRepository:
     def _redis_key(self, session_id: str) -> str:
         return f"interaction:session:{session_id}"
 
+    def _redis_list_key(self, session_id: str) -> str:
+        return f"interaction:session:list:{session_id}"
+
     def _append_to_redis(self, session_id: str, payload: dict[str, Any]) -> None:
+        client = self._redis_client()
+        if client is None:
+            return
+        serialized = json.dumps(payload)
+        list_key = self._redis_list_key(session_id)
+        if hasattr(client, "lpush") and hasattr(client, "ltrim"):
+            client.lpush(list_key, serialized)
+            client.ltrim(list_key, 0, 499)
+            if hasattr(client, "expire"):
+                client.expire(list_key, 24 * 60 * 60)
+            return
+
         entries = self._read_session_from_redis(session_id)
         entries.append(deepcopy(payload))
         if len(entries) > 500:
@@ -78,12 +93,38 @@ class InteractionRepository:
         client = self._redis_client()
         if client is None:
             return
+        list_key = self._redis_list_key(session_id)
+        if hasattr(client, "delete") and hasattr(client, "rpush"):
+            client.delete(list_key)
+            serialized = [json.dumps(item) for item in entries if isinstance(item, dict)]
+            if serialized:
+                client.rpush(list_key, *serialized)
+                if hasattr(client, "expire"):
+                    client.expire(list_key, 24 * 60 * 60)
+            return
         client.set(self._redis_key(session_id), json.dumps(entries), ex=24 * 60 * 60)
 
     def _read_session_from_redis(self, session_id: str) -> list[dict[str, Any]]:
         client = self._redis_client()
         if client is None:
             return []
+
+        list_key = self._redis_list_key(session_id)
+        if hasattr(client, "lrange"):
+            rows = client.lrange(list_key, 0, -1)
+            if rows:
+                parsed: list[dict[str, Any]] = []
+                for row in rows:
+                    payload = row.decode("utf-8") if isinstance(row, bytes) else row
+                    try:
+                        decoded = json.loads(payload)
+                    except json.JSONDecodeError:
+                        continue
+                    if isinstance(decoded, dict):
+                        parsed.append(decoded)
+                parsed.reverse()
+                return parsed
+
         payload = client.get(self._redis_key(session_id))
         if not payload:
             return []

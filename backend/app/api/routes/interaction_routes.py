@@ -1,4 +1,5 @@
 from __future__ import annotations
+import asyncio
 from app.infrastructure.logging import get_logger
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -26,9 +27,10 @@ async def process_message(
     user: dict[str, object] | None = Depends(get_optional_user),
 ) -> dict[str, object]:
     try:
-        session = session_service.get_session(payload.sessionId)
+        session = await asyncio.to_thread(session_service.get_session, payload.sessionId)
     except HTTPException:
-        session = session_service.create_session(
+        session = await asyncio.to_thread(
+            session_service.create_session,
             channel=payload.channel,
             initial_context={},
             anonymous_id=request.headers.get("X-Anonymous-Id"),
@@ -44,8 +46,13 @@ async def process_message(
     if user_id:
         anonymous_id = str(session.get("anonymousId", "")).strip() or None
         if payload.sessionId:
-            cart_service.merge_guest_cart_into_user(session_id=payload.sessionId, user_id=str(user_id))
-        session = session_service.resolve_user_session(
+            await asyncio.to_thread(
+                cart_service.merge_guest_cart_into_user,
+                session_id=payload.sessionId,
+                user_id=str(user_id),
+            )
+        session = await asyncio.to_thread(
+            session_service.resolve_user_session,
             user_id=str(user_id),
             preferred_session_id=session.get("id"),
             channel=payload.channel,
@@ -58,7 +65,8 @@ async def process_message(
             },
         )
         try:
-            auth_service.link_identity(
+            await asyncio.to_thread(
+                auth_service.link_identity,
                 user_id=str(user_id),
                 channel=payload.channel,
                 external_id=str(session["id"]),

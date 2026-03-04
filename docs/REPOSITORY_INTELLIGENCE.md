@@ -1,6 +1,7 @@
 # Repository Intelligence Report
 
 Generated: 2026-03-05
+Last Updated: 2026-03-05
 Scope: `omnichannel-agentic-commerce` (branch `main`)
 Purpose: durable “repository brain” for safe future development.
 
@@ -39,7 +40,7 @@ Purpose: durable “repository brain” for safe future development.
 
 ### Test/Quality Structure
 - Backend: `backend/tests/unit`, `backend/tests/integration`, `backend/tests/nl_eval`
-- Frontend: `frontend/tests/e2e/p0-shopping-flows.spec.ts`
+- Frontend: `frontend/tests/e2e/p0-shopping-flows.spec.ts` + API contract unit tests in `frontend/src/api/*.test.ts`
 - CI: backend tests + coverage, NL eval, security scans, frontend build + e2e
 
 ---
@@ -191,12 +192,13 @@ Purpose: durable “repository brain” for safe future development.
    - Security doc references static code semantics.
    - Auth service uses TOTP secret validation path (with fallback behavior).
 
-3. **Frontend memory API contract mismatch**
-   - Frontend `api/memory.ts` expects shapes/endpoints not matching backend memory route contracts.
-   - `AiMemoryTab` currently calls `/memory` as if returning an array and deletes `/memory/{key}`, which does not match backend route definitions.
+3. **Frontend memory/admin contract drift (remediated on 2026-03-05)**
+  - Memory API wrapper and `AiMemoryTab` now align with backend memory snapshot/history/delete contracts.
+  - Admin health typing/UI now supports backend `circuitBreakerState` while retaining snake_case compatibility as a transitional fallback.
 
-4. **Frontend admin health typing mismatch**
-   - Frontend expects fields like `circuit_breaker` while backend health currently exposes `circuitBreakerState` structure.
+4. **Test-runtime dependency on local Mongo/Redis (remediated on 2026-03-05)**
+  - Backend tests now fall back to in-memory `mongomock` + `fakeredis` clients when local services are unavailable.
+  - This removed environment-coupled false negatives and restored deterministic suite execution.
 
 These are key risk zones for future feature work.
 
@@ -278,3 +280,40 @@ When implementation changes materially, update this file in the same PR under:
 - flow changes,
 - new coupling hotspots,
 - docs alignment notes.
+
+---
+
+## 11) Change Log (2026-03-05)
+
+### Implemented
+- Frontend memory contract alignment: `frontend/src/api/memory.ts` and `frontend/src/components/account/AiMemoryTab.tsx`
+- Frontend admin health compatibility: `frontend/src/api/admin.ts` and `frontend/src/pages/AdminDashboard.tsx`
+- Frontend unit test harness + adapter contract tests: `frontend/package.json`, `frontend/vitest.config.ts`, `frontend/src/api/admin.test.ts`, `frontend/src/api/memory.test.ts`
+- Backend test determinism fallback: `backend/tests/conftest.py` with added test dependencies in `backend/requirements.txt`
+- Duplicate helper removal in inventory service: `backend/app/services/inventory_service.py`
+
+### Validation Snapshot
+- Backend tests: `167 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+---
+
+## 12) Change Log (2026-03-05, Performance Pass)
+
+### Implemented
+- Product semantic search artifact caching to avoid repeated TF-IDF rebuilds: `backend/app/services/product_service.py`
+- Session cleanup throttling and hot-path cleanup removal: `backend/app/services/session_service.py`, `backend/app/api/deps.py`
+- Voice recovery polling and lookup optimizations (bounded concurrent polling, provider-call indexed callback matching, user-scoped newer-order checks): `backend/app/services/voice_recovery_service.py`
+- Async route hot-path offloading of blocking service calls (`asyncio.to_thread`) for interactions and websocket handlers: `backend/app/api/routes/interaction_routes.py`, `backend/app/api/routes/ws_route.py`
+- Short-TTL cart read-path cache with write invalidation: `backend/app/services/cart_service.py`
+
+### Validation Snapshot
+- Backend tests (unit + integration): `146 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Notes
+- Backend test fallback dependencies (`fakeredis`, `mongomock`) were required in the local virtual environment for deterministic execution when local Redis/Mongo are unavailable.

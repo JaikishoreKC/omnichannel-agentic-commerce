@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+from threading import RLock
+from time import monotonic
 from typing import Any
 
 from fastapi import HTTPException
@@ -25,9 +27,18 @@ class CartService:
         self.product_repository = product_repository
         self.session_repository = session_repository
         self._cart_ttl_hours = 24
+        self._read_cache_ttl_seconds = 2.0
+        self._cart_read_cache: dict[str, tuple[float, dict[str, Any]]] = {}
+        self._cart_read_cache_lock = RLock()
 
     def get_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
+        cache_key = self._cache_key(user_id=user_id, session_id=session_id)
+        cached = self._read_cache_get(cache_key)
+        if cached is not None:
+            return cached
+
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
+        self._read_cache_set(cache_key, cart)
         return deepcopy(cart)
 
     def add_item(
@@ -67,6 +78,7 @@ class CartService:
             cart["items"].append(item)
         self._recalculate_cart(cart)
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id=session_id)
         return deepcopy(cart)
 
     def update_item(
@@ -79,6 +91,7 @@ class CartService:
         target["quantity"] = quantity
         self._recalculate_cart(cart)
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id=session_id)
         return deepcopy(cart)
 
     def remove_item(self, user_id: str | None, session_id: str, item_id: str) -> None:
@@ -89,6 +102,7 @@ class CartService:
             raise HTTPException(status_code=404, detail="Cart item not found")
         self._recalculate_cart(cart)
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id=session_id)
 
     def clear_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         cart = self._get_or_create_cart(user_id=user_id, session_id=session_id)
@@ -96,6 +110,7 @@ class CartService:
         cart["appliedDiscount"] = None
         self._recalculate_cart(cart)
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id=session_id)
         return deepcopy(cart)
 
     def apply_discount(
@@ -111,6 +126,7 @@ class CartService:
             }
             self._recalculate_cart(cart)
             self.cart_repository.update(cart)
+            self._invalidate_cache(user_id=user_id, session_id=session_id)
             return deepcopy(cart)
         raise HTTPException(status_code=400, detail="Invalid discount code")
 
@@ -123,6 +139,8 @@ class CartService:
         session_cart["expiresAt"] = self._next_cart_expiry()
         self._recalculate_cart(session_cart)
         self.cart_repository.update(session_cart)
+        self._invalidate_cache(user_id=None, session_id=session_id)
+        self._invalidate_cache(user_id=user_id, session_id="")
 
     def merge_guest_cart_into_user(self, *, session_id: str, user_id: str) -> dict[str, Any] | None:
         guest_cart = self.cart_repository.get_for_user_or_session(user_id=None, session_id=session_id)
@@ -136,6 +154,8 @@ class CartService:
             guest_cart["expiresAt"] = self._next_cart_expiry()
             self._recalculate_cart(guest_cart)
             self.cart_repository.update(guest_cart)
+            self._invalidate_cache(user_id=None, session_id=session_id)
+            self._invalidate_cache(user_id=user_id, session_id="")
             return deepcopy(guest_cart)
 
         by_key: dict[tuple[str, str], dict[str, Any]] = {
@@ -169,6 +189,8 @@ class CartService:
         self._recalculate_cart(user_cart)
         self.cart_repository.update(user_cart)
         self.cart_repository.delete(str(guest_cart["id"]))
+        self._invalidate_cache(user_id=None, session_id=session_id)
+        self._invalidate_cache(user_id=user_id, session_id="")
         return deepcopy(user_cart)
 
     def clear_cart_for_user(self, user_id: str) -> dict[str, Any] | None:
@@ -181,6 +203,7 @@ class CartService:
         cart["expiresAt"] = self._next_cart_expiry()
         self._recalculate_cart(cart)
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id="")
         return deepcopy(cart)
 
     def mark_cart_converted_for_user(self, user_id: str) -> dict[str, Any] | None:
@@ -191,7 +214,37 @@ class CartService:
         cart["updatedAt"] = iso_now()
         cart["expiresAt"] = self._next_cart_expiry()
         self.cart_repository.update(cart)
+        self._invalidate_cache(user_id=user_id, session_id="")
         return deepcopy(cart)
+
+    def _cache_key(self, *, user_id: str | None, session_id: str) -> str:
+        if user_id:
+            return f"user:{user_id}"
+        return f"session:{session_id}"
+
+    def _read_cache_get(self, cache_key: str) -> dict[str, Any] | None:
+        now = monotonic()
+        with self._cart_read_cache_lock:
+            entry = self._cart_read_cache.get(cache_key)
+            if not entry:
+                return None
+            expires_at, cart = entry
+            if expires_at <= now:
+                self._cart_read_cache.pop(cache_key, None)
+                return None
+            return deepcopy(cart)
+
+    def _read_cache_set(self, cache_key: str, cart: dict[str, Any]) -> None:
+        with self._cart_read_cache_lock:
+            self._cart_read_cache[cache_key] = (
+                monotonic() + self._read_cache_ttl_seconds,
+                deepcopy(cart),
+            )
+
+    def _invalidate_cache(self, *, user_id: str | None, session_id: str) -> None:
+        cache_key = self._cache_key(user_id=user_id, session_id=session_id)
+        with self._cart_read_cache_lock:
+            self._cart_read_cache.pop(cache_key, None)
 
     def _get_or_create_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         existing = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id=session_id)
