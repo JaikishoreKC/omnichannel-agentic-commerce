@@ -877,14 +877,12 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) includes:
 Primary docs in `docs/`:
 
 - `docs/REPOSITORY_INTELLIGENCE.md`
-- `docs/idea.txt`
-- `docs/prd.txt`
-- `docs/sdd.txt`
-- `docs/architecture.txt`
+- `docs/PRODUCT_AND_DELIVERY_SPEC.md`
+- `docs/ARCHITECTURE.md`
+- `docs/ARCHITECTURE_TARGET_STRUCTURE.md`
 - `docs/API_Contracts.txt`
 - `docs/Database_Schema.txt`
 - `docs/Agent_Logic_Specs.txt`
-- `docs/implementation_blueprint.txt`
 - `docs/SECURITY.txt`
 - `docs/TESTING_STRATEGY.txt`
 - `docs/RELEASE_CHECKLIST.txt`

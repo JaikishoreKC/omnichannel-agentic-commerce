@@ -30,20 +30,15 @@ Scope: Full tracked repository (`git ls-files`) plus architecture docs under `do
 - `docs/`: intended architecture, API contracts, design, security, testing, release guidance.
 - `monitoring/`: Prometheus + Grafana dashboards/provisioning.
 - `scripts/`: local validation automation.
-- `tmp/`: ad-hoc utility scripts (currently tracked).
+- `tmp/`: transient analysis workspace (artifacts removed from tracked files on 2026-03-05 cleanup pass).
 - root controls: `docker-compose.yml`, `README.md`, `.gitignore`.
 
 ## 3) File Inventory
-- Complete grouped inventory artifact: `tmp/file_inventory.md`.
-- Coverage: all tracked files in repository (235 files at analysis time).
+- Historical inventory artifact was generated during the 2026-03-04 review pass and later removed from tracked files.
+- Coverage reference: all tracked files in repository at analysis time (235 files).
 
 ## 4) File-by-File Deep Analysis
-- Backend per-file deep analysis (purpose, key logic, dependencies, issues, layer validation):
-  - `tmp/backend_analysis_report.md`
-- Frontend per-file deep analysis (same dimensions):
-  - `tmp/frontend_analysis_report.md`
-- Platform/non-app files analysis (`docs`, monitoring, scripts, CI, root, tmp):
-  - `tmp/platform_analysis_report.md`
+- Backend/frontend/platform deep analysis artifacts were produced during this review and later removed from tracked files as temporary working outputs.
 
 ## 5) System Dependency Graph
 
@@ -58,7 +53,7 @@ Scope: Full tracked repository (`git ls-files`) plus architecture docs under `do
 - Duplicate stem warning: `frontend/src/types.ts` and `frontend/src/api/types.ts` (not necessarily incorrect; maintainability signal).
 
 ## 6) Global Change Plan
-- Coordinated per-file plan recorded in `tmp/global_change_plan_2026-03-04.md`.
+- Coordinated per-file plan was recorded during review and later removed from tracked files as a temporary planning artifact.
 - Plan focused on:
   - accessibility hardening for icon-only controls and OTP inputs,
   - runtime logging hygiene in persistence clients,
@@ -101,4 +96,4 @@ Notes:
 - Priority 2: Normalize frontend domain typing to reduce `any`, starting in `ChatContext` and account/cart pages.
 - Priority 3: Move reusable `tmp/` operational scripts into a governed `scripts/ops/` area (or exclude from tracked production path) with minimal docs.
 - Priority 4: Resolve Vite chunking warning by choosing either static import or lazy split for admin API path.
-- Priority 5: Keep this report and analysis artifacts as baseline for the next stabilization iteration.
+- Priority 5: Keep this report as baseline and regenerate disposable analysis artifacts when needed.
