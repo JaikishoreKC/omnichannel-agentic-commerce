@@ -113,7 +113,9 @@ class CategoryRepository:
         client = self._redis_client()
         if client is None:
             return
-        category_id = str(payload["id"])
+        category_id = str(payload.get("id", "")).strip()
+        if not category_id:
+            return
         slug = str(payload.get("slug", "")).strip()
         encoded = json.dumps(payload)
         client.set(self._redis_key(category_id), encoded, ex=60 * 60)
@@ -145,9 +147,12 @@ class CategoryRepository:
         collection = self._mongo_collection()
         if collection is None:
             return
+        category_id = str(payload.get("id", "")).strip()
+        if not category_id:
+            return
         collection.update_one(
-            {"categoryId": payload["id"]},
-            {"$set": {"categoryId": payload["id"], **deepcopy(payload)}},
+            {"categoryId": category_id},
+            {"$set": {"categoryId": category_id, **deepcopy(payload)}},
             upsert=True,
         )
 

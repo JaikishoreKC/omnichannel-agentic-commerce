@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
@@ -169,6 +170,16 @@ def test_call_llm_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: _DummyResponse({"choices": []}))
     with pytest.raises(ValueError):
         client._call_llm(user_prompt="?", system_prompt="?")
+
+
+def test_call_llm_raises_when_called_inside_running_loop() -> None:
+    client = LLMClient(settings=_base_settings())
+
+    async def _invoke_inside_loop() -> None:
+        with pytest.raises(RuntimeError, match="Synchronous _call_llm called from async context"):
+            client._call_llm(user_prompt="prompt", system_prompt="system")
+
+    asyncio.run(_invoke_inside_loop())
 
 def test_plan_actions_parses_multi_action_payload() -> None:
     client = LLMClient(settings=_planner_settings())

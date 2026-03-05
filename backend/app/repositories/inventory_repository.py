@@ -84,7 +84,10 @@ class InventoryRepository:
         client = self._redis_client()
         if client is None:
             return
-        client.set(self._redis_key(str(stock["variantId"])), json.dumps(stock), ex=60 * 60)
+        variant_id = str(stock.get("variantId", "")).strip()
+        if not variant_id:
+            return
+        client.set(self._redis_key(variant_id), json.dumps(stock), ex=60 * 60)
 
     def _read_from_redis(self, variant_id: str) -> dict[str, Any] | None:
         client = self._redis_client()
@@ -111,8 +114,11 @@ class InventoryRepository:
         collection = self._mongo_collection()
         if collection is None:
             return
+        variant_id = str(stock.get("variantId", "")).strip()
+        if not variant_id:
+            return
         collection.update_one(
-            {"variantId": stock["variantId"]},
+            {"variantId": variant_id},
             {"$set": deepcopy(stock)},
             upsert=True,
         )

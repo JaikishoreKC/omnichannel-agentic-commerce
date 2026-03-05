@@ -131,7 +131,10 @@ class ProductRepository:
         client = self._redis_client()
         if client is None:
             return
-        client.set(self._redis_key(str(product["id"])), json.dumps(product), ex=60 * 60)
+        product_id = str(product.get("id", "")).strip()
+        if not product_id:
+            return
+        client.set(self._redis_key(product_id), json.dumps(product), ex=60 * 60)
 
     def _read_from_redis(self, product_id: str) -> dict[str, Any] | None:
         client = self._redis_client()
@@ -158,9 +161,12 @@ class ProductRepository:
         collection = self._mongo_collection()
         if collection is None:
             return
+        product_id = str(product.get("id", "")).strip()
+        if not product_id:
+            return
         collection.update_one(
-            {"productId": product["id"]},
-            {"$set": {"productId": product["id"], **deepcopy(product)}},
+            {"productId": product_id},
+            {"$set": {"productId": product_id, **deepcopy(product)}},
             upsert=True,
         )
 

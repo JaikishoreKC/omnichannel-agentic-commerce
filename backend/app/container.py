@@ -280,14 +280,47 @@ class Container:
 
                 if not self.product_repository.list_all():
                     for product in self.store.products_by_id.values():
-                        self.product_repository.create(deepcopy(product))
+                        product_id = str(product.get("id", "")).strip() if isinstance(product, dict) else ""
+                        if not product_id:
+                            self.logger.warning("baseline_seed_skipped_product", reason="missing_id")
+                            continue
+                        try:
+                            self.product_repository.create(deepcopy(product))
+                        except Exception as product_exc:
+                            self.logger.warning(
+                                "baseline_seed_product_failed",
+                                product_id=product_id,
+                                error=str(product_exc),
+                            )
 
                 if not self.category_repository.list_all():
                     for category in self.store.categories_by_id.values():
-                        self.category_repository.create(deepcopy(category))
+                        category_id = str(category.get("id", "")).strip() if isinstance(category, dict) else ""
+                        if not category_id:
+                            self.logger.warning("baseline_seed_skipped_category", reason="missing_id")
+                            continue
+                        try:
+                            self.category_repository.create(deepcopy(category))
+                        except Exception as category_exc:
+                            self.logger.warning(
+                                "baseline_seed_category_failed",
+                                category_id=category_id,
+                                error=str(category_exc),
+                            )
 
                 for stock in self.store.inventory_by_variant.values():
-                    self.inventory_repository.upsert(deepcopy(stock))
+                    variant_id = str(stock.get("variantId", "")).strip() if isinstance(stock, dict) else ""
+                    if not variant_id:
+                        self.logger.warning("baseline_seed_skipped_inventory", reason="missing_variant_id")
+                        continue
+                    try:
+                        self.inventory_repository.upsert(deepcopy(stock))
+                    except Exception as stock_exc:
+                        self.logger.warning(
+                            "baseline_seed_inventory_failed",
+                            variant_id=variant_id,
+                            error=str(stock_exc),
+                        )
 
                 voice_settings.ensure_defaults(self.voice_repository, self.settings)
                 self._baseline_seeded = True

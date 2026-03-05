@@ -377,6 +377,36 @@ def test_auth_repository_skips_invalid_user_without_id() -> None:
     assert users_collection.find_one({"email": "missing-id@example.com"}) is None
 
 
+def test_product_repository_skips_payload_without_id() -> None:
+    mongo_manager, redis_manager = _fake_managers()
+    repo = ProductRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
+
+    repo.create({"name": "Broken Product", "price": 10.0})
+
+    products_collection = mongo_manager.client.get_default_database()["products"]
+    assert products_collection.find_one({"name": "Broken Product"}) is None
+
+
+def test_category_repository_skips_payload_without_id() -> None:
+    mongo_manager, redis_manager = _fake_managers()
+    repo = CategoryRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
+
+    repo.create({"name": "Broken Category", "slug": "broken-category"})
+
+    categories_collection = mongo_manager.client.get_default_database()["categories"]
+    assert categories_collection.find_one({"name": "Broken Category"}) is None
+
+
+def test_inventory_repository_skips_payload_without_variant_id() -> None:
+    mongo_manager, redis_manager = _fake_managers()
+    repo = InventoryRepository(mongo_manager=mongo_manager, redis_manager=redis_manager)
+
+    repo.upsert({"productId": "prod_test_missing_variant", "availableQuantity": 5})
+
+    inventory_collection = mongo_manager.client.get_default_database()["inventory"]
+    assert inventory_collection.find_one({"productId": "prod_test_missing_variant"}) is None
+
+
 def test_interaction_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
     mongo_manager, redis_manager = _fake_managers()

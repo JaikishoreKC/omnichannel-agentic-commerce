@@ -340,14 +340,11 @@ class LLMClient:
     def _call_llm(self, *, user_prompt: str, system_prompt: str) -> str:
         """Synchronous wrapper for LLM calls. Handles both sync and async contexts safely."""
         try:
-            # Check if we're already in an async context
-            loop = asyncio.get_running_loop()
-            # If we get here, we're in an async context - this shouldn't happen for sync method
-            # but we handle it gracefully by raising an error
-            raise RuntimeError("Synchronous _call_llm called from async context. Use async methods instead.")
+            asyncio.get_running_loop()
         except RuntimeError:
-            # No running event loop - safe to create one
+            # No running event loop in this thread; safe to drive the coroutine.
             return asyncio.run(self._call_llm_async(user_prompt=user_prompt, system_prompt=system_prompt))
+        raise RuntimeError("Synchronous _call_llm called from async context. Use async methods instead.")
 
     async def _call_llm_async(self, *, user_prompt: str, system_prompt: str) -> str:
         """Async method to call the LLM with retry logic for rate limiting."""
