@@ -73,6 +73,7 @@ Native mobile and native kiosk apps are intentionally deferred. The web app is r
 | Interaction history restore | Implemented | Session history + memory fallback for authenticated user |
 | Personalized recommendations | Implemented | Preference/affinity-aware ranking in product agent |
 | Outgoing voice cart recovery | Implemented | Queue/retry/guardrails/callback ingestion/admin controls |
+| Admin category/inventory operations UI | Implemented | Dashboard now supports category CRUD/status operations and variant inventory updates |
 | Mobile/kiosk native channels | Deferred | Responsive web only in current implementation |
 
 ## Architecture

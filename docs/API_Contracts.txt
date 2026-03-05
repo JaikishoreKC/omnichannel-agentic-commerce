@@ -245,6 +245,37 @@ Required headers:
 
 ## Authenticated Endpoints
 
+### Support
+
+- `GET /support/tickets`
+- `POST /support/tickets`
+- `PATCH /support/tickets/{ticket_id}`
+
+`GET /support/tickets` query params:
+
+- `status` (optional)
+- `limit` (default `20`, max `100`)
+
+`POST /support/tickets` request:
+
+```json
+{
+  "issue": "My order has not arrived",
+  "priority": "normal",
+  "category": "order_issue",
+  "channel": "web"
+}
+```
+
+`PATCH /support/tickets/{ticket_id}` request:
+
+```json
+{
+  "status": "resolved",
+  "note": "Issue resolved from account support tab"
+}
+```
+
 ### Orders
 
 - `POST /orders`

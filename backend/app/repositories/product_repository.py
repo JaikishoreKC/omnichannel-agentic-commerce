@@ -5,20 +5,25 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
+from app.store.in_memory import InMemoryStore
+
+
 class ProductRepository:
     def __init__(
         self,
         *,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
+        store: InMemoryStore | None = None,
     ) -> None:
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
+        self.store = store
 
     def list_all(self) -> list[dict[str, Any]]:
         collection = self._mongo_collection()
         if collection is None:
-            return []
+            return self._list_from_in_memory()
         rows = list(collection.find({}).sort("name", 1))
         products: list[dict[str, Any]] = []
         for row in rows:
@@ -36,7 +41,7 @@ class ProductRepository:
 
         collection = self._mongo_collection()
         if collection is None:
-            return None
+            return self._read_from_in_memory(product_id)
         payload = collection.find_one({"productId": product_id})
         if not payload:
             return None
@@ -52,29 +57,41 @@ class ProductRepository:
         return self.get(product_id)
 
     def create(self, product: dict[str, Any]) -> dict[str, Any]:
+        use_in_memory_fallback = self._mongo_collection() is None
         self._write_to_redis(product)
         self._write_to_mongo(product)
+        if use_in_memory_fallback:
+            self._write_to_in_memory(product)
         return deepcopy(product)
 
     def update(self, product: dict[str, Any]) -> dict[str, Any]:
+        use_in_memory_fallback = self._mongo_collection() is None
         self._write_to_redis(product)
         self._write_to_mongo(product)
+        if use_in_memory_fallback:
+            self._write_to_in_memory(product)
         return deepcopy(product)
 
     def delete(self, product_id: str) -> None:
+        use_in_memory_fallback = self._mongo_collection() is None
         self._delete_from_redis(product_id)
         self._delete_from_mongo(product_id)
+        if use_in_memory_fallback:
+            self._delete_from_in_memory(product_id)
 
     def list_categories(self) -> list[str]:
         collection = self._mongo_collection()
         if collection is None:
-            return []
+            rows = self._list_from_in_memory()
+            categories = sorted({str(row.get("category", "")).strip() for row in rows if row.get("category")})
+            return [c for c in categories if c]
         categories = sorted(collection.distinct("category"))
         return [str(c).strip() for c in categories if c]
 
     def set_variant_stock_flag(self, *, variant_id: str, in_stock: bool) -> None:
         collection = self._mongo_collection()
         if collection is None:
+            self._set_variant_stock_flag_in_memory(variant_id=variant_id, in_stock=in_stock)
             return
             
         # Update in Mongo
@@ -152,3 +169,47 @@ class ProductRepository:
         if collection is None:
             return
         collection.delete_one({"productId": product_id})
+
+    def _list_from_in_memory(self) -> list[dict[str, Any]]:
+        if self.store is None:
+            return []
+        with self.store.lock:
+            rows = [deepcopy(row) for row in self.store.products_by_id.values() if isinstance(row, dict)]
+        rows.sort(key=lambda row: str(row.get("name", "")).lower())
+        return rows
+
+    def _read_from_in_memory(self, product_id: str) -> dict[str, Any] | None:
+        if self.store is None:
+            return None
+        with self.store.lock:
+            row = self.store.products_by_id.get(product_id)
+            return deepcopy(row) if isinstance(row, dict) else None
+
+    def _write_to_in_memory(self, product: dict[str, Any]) -> None:
+        if self.store is None:
+            return
+        product_id = str(product.get("id", "")).strip()
+        if not product_id:
+            return
+        with self.store.lock:
+            self.store.products_by_id[product_id] = deepcopy(product)
+
+    def _delete_from_in_memory(self, product_id: str) -> None:
+        if self.store is None:
+            return
+        with self.store.lock:
+            self.store.products_by_id.pop(product_id, None)
+
+    def _set_variant_stock_flag_in_memory(self, *, variant_id: str, in_stock: bool) -> None:
+        if self.store is None:
+            return
+        with self.store.lock:
+            for product_id, product in self.store.products_by_id.items():
+                variants = product.get("variants") if isinstance(product, dict) else None
+                if not isinstance(variants, list):
+                    continue
+                for variant in variants:
+                    if isinstance(variant, dict) and str(variant.get("id", "")) == variant_id:
+                        variant["inStock"] = bool(in_stock)
+                        self.store.products_by_id[product_id] = deepcopy(product)
+                        return

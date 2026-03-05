@@ -436,6 +436,46 @@ When implementation changes materially, update this file in the same PR under:
 - Frontend lint: `passed`
 - Frontend build: `passed`
 
+### Local Runtime Voice Fallback Completion (2026-03-05)
+- Added mongo-first with in-memory fallback behavior for voice settings/jobs/calls/alerts/suppressions so admin voice endpoints work in local mode without Mongo connectivity: `backend/app/repositories/voice_repository.py`.
+- Added unit regression coverage for voice repository local fallback behavior (settings, jobs, calls, alerts, suppressions): `backend/tests/unit/test_repository_fallbacks.py`.
+
+### Local Runtime Voice Fallback Validation Snapshot
+- Backend tests (targeted): `9 passed` (`backend/tests/unit/test_repository_fallbacks.py`)
+- Frontend E2E (targeted): `2 passed` (`frontend/tests/e2e/p1-admin-management.spec.ts`)
+
+### Final Follow-up (2026-03-05)
+- Hardened customer support ticket UX with inline error surfacing, per-ticket busy state, resolve confirmation, and optimistic update rollback behavior: `frontend/src/components/account/SupportTicketsTab.tsx`.
+- Hardened admin dashboard actions with tab-scoped inline action errors, per-action disabled/loading states, destructive-action confirmations, and optimistic rollback patterns across support/category/voice/inventory workflows: `frontend/src/pages/AdminDashboard.tsx`.
+
+### Final Follow-up Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### QA Follow-up (2026-03-05)
+- Added frontend support API contract tests for list/create/update request-shape coverage: `frontend/src/api/support.test.ts`.
+
+### QA Follow-up Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `8 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Final QA + Local Runtime Follow-up (2026-03-05)
+- Restored in-memory fallback behavior in auth persistence paths (users, refresh tokens, password reset tokens) so local mode without Mongo/Redis correctly supports register/login/refresh/logout flows: `backend/app/repositories/auth_repository.py`, `backend/app/container.py`.
+- Restored in-memory fallback behavior in support repository so support ticket create/list/update works in local mode without Mongo: `backend/app/repositories/support_repository.py`, `backend/app/container.py`.
+- Added backend regression coverage for auth/support in-memory fallback behavior: `backend/tests/unit/test_repository_fallbacks.py`.
+- Added frontend e2e coverage for authenticated account support create/resolve flow and expanded admin API contract tests: `frontend/tests/e2e/p1-support-account.spec.ts`, `frontend/src/api/admin.test.ts`.
+
+### Final QA + Local Runtime Validation Snapshot
+- Backend tests (full suite): `174 passed`
+- Frontend tests: `11 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+- Frontend E2E (targeted): `1 passed` (`tests/e2e/p1-support-account.spec.ts`)
+
 ### Final Follow-up Completion (2026-03-05)
 - Tightened order payment rollback guard to expected failure types (`HTTPException`, conversion errors) while retaining rollback-on-failure semantics: `backend/app/services/order_service.py`.
 - Narrowed LLM classifier/planner/generate response exception handling and replaced generic retry exhaustion raises with `RuntimeError`: `backend/app/infrastructure/llm_client.py`.
@@ -474,6 +514,34 @@ When implementation changes materially, update this file in the same PR under:
 - Evaluated and retained remaining broad catches in `persistence_clients.connect`, `circuit_breaker.call`, and `container.ensure_baseline_seed_data` as intentional resilience boundaries for startup/runtime fault tolerance.
 
 ### Infrastructure Follow-up III Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+---
+
+## 17) Change Log (2026-03-05, Feature Gap Closure Pass)
+
+### Implemented
+- Added authenticated customer support ticket APIs for list/create/update flows: `backend/app/api/routes/support_routes.py`, wired in `backend/app/main.py`, with request schemas in `backend/app/models/schemas.py`.
+- Replaced account support mock UI with live backend-backed ticket management (list/filter/create/resolve): `frontend/src/components/account/SupportTicketsTab.tsx`, `frontend/src/api/support.ts`, `frontend/src/api/index.ts`.
+- Extended admin frontend integration to cover support and voice-control backend surfaces (ticket updates, voice settings/process/calls/jobs/stats): `frontend/src/api/admin.ts`, `frontend/src/pages/AdminDashboard.tsx`.
+- Extended frontend request helper to support `PATCH` for admin/support update flows: `frontend/src/api/client.ts`.
+- Updated API contract docs with authenticated support endpoints: `docs/API_Contracts.txt`.
+
+### Validation Snapshot
+- Backend tests (full suite): `172 passed`
+- Frontend tests: `5 passed`
+- Frontend lint: `passed`
+- Frontend build: `passed`
+
+### Follow-up Completion (2026-03-05)
+- Extended admin frontend API bindings and dashboard UI to cover category and inventory management flows backed by existing admin endpoints: `frontend/src/api/admin.ts`, `frontend/src/pages/AdminDashboard.tsx`.
+- Added category create/archive/activate/delete operations in admin dashboard.
+- Added inventory lookup/update controls by product variant in admin dashboard.
+
+### Follow-up Validation Snapshot
 - Backend tests (full suite): `172 passed`
 - Frontend tests: `5 passed`
 - Frontend lint: `passed`

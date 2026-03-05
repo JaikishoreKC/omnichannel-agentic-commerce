@@ -17,6 +17,7 @@ from app.api.routes.memory_routes import router as memory_router
 from app.api.routes.order_routes import router as order_router
 from app.api.routes.product_routes import router as product_router
 from app.api.routes.session_routes import router as session_router
+from app.api.routes.support_routes import router as support_router
 from app.api.routes.voice_webhook_routes import router as voice_webhook_router
 from app.api.routes.ws_route import websocket_endpoint
 
@@ -95,6 +96,7 @@ app.include_router(cart_router, prefix=settings.api_prefix)
 app.include_router(order_router, prefix=settings.api_prefix)
 app.include_router(session_router, prefix=settings.api_prefix)
 app.include_router(memory_router, prefix=settings.api_prefix)
+app.include_router(support_router, prefix=settings.api_prefix)
 app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(interaction_router, prefix=settings.api_prefix)
 app.include_router(voice_webhook_router, prefix=settings.api_prefix)

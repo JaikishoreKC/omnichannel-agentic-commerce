@@ -5,20 +5,25 @@ from copy import deepcopy
 from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
+from app.store.in_memory import InMemoryStore
+
+
 class CategoryRepository:
     def __init__(
         self,
         *,
         mongo_manager: MongoClientManager,
         redis_manager: RedisClientManager,
+        store: InMemoryStore | None = None,
     ) -> None:
         self.mongo_manager = mongo_manager
         self.redis_manager = redis_manager
+        self.store = store
 
     def list_all(self) -> list[dict[str, Any]]:
         collection = self._mongo_collection()
         if collection is None:
-            return []
+            return self._list_from_in_memory()
         rows = list(collection.find({}).sort("name", 1))
         categories: list[dict[str, Any]] = []
         for row in rows:
@@ -37,7 +42,7 @@ class CategoryRepository:
 
         collection = self._mongo_collection()
         if collection is None:
-            return None
+            return self._read_from_in_memory(category_id)
         payload = collection.find_one({"$or": [{"categoryId": category_id}, {"slug": category_id}]})
         if not payload:
             return None
@@ -49,16 +54,23 @@ class CategoryRepository:
         return payload
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
+        use_in_memory_fallback = self._mongo_collection() is None
         self._write_to_redis(payload)
         self._write_to_mongo(payload)
+        if use_in_memory_fallback:
+            self._write_to_in_memory(payload)
         return deepcopy(payload)
 
     def update(self, payload: dict[str, Any]) -> dict[str, Any]:
+        use_in_memory_fallback = self._mongo_collection() is None
         self._write_to_redis(payload)
         self._write_to_mongo(payload)
+        if use_in_memory_fallback:
+            self._write_to_in_memory(payload)
         return deepcopy(payload)
 
     def delete(self, category_id: str) -> None:
+        use_in_memory_fallback = self._mongo_collection() is None
         # We need the slug to properly clear Redis cache
         collection = self._mongo_collection()
         slug_value = ""
@@ -71,6 +83,8 @@ class CategoryRepository:
         if slug_value and slug_value != category_id:
             self._delete_from_redis(slug_value)
         self._delete_from_mongo(category_id)
+        if use_in_memory_fallback:
+            self._delete_from_in_memory(category_id)
 
     def active_slugs(self) -> set[str]:
         rows = self.list_all()
@@ -142,3 +156,46 @@ class CategoryRepository:
         if collection is None:
             return
         collection.delete_one({"$or": [{"categoryId": category_id}, {"slug": category_id}]})
+
+    def _write_to_in_memory(self, payload: dict[str, Any]) -> None:
+        if self.store is None:
+            return
+        category_id = str(payload.get("id", "")).strip()
+        if not category_id:
+            return
+        with self.store.lock:
+            self.store.categories_by_id[category_id] = deepcopy(payload)
+
+    def _read_from_in_memory(self, category_id: str) -> dict[str, Any] | None:
+        if self.store is None:
+            return None
+        key = str(category_id).strip().lower()
+        with self.store.lock:
+            direct = self.store.categories_by_id.get(category_id)
+            if isinstance(direct, dict):
+                return deepcopy(direct)
+            for row in self.store.categories_by_id.values():
+                if str(row.get("slug", "")).strip().lower() == key:
+                    return deepcopy(row)
+        return None
+
+    def _list_from_in_memory(self) -> list[dict[str, Any]]:
+        if self.store is None:
+            return []
+        with self.store.lock:
+            rows = [deepcopy(row) for row in self.store.categories_by_id.values() if isinstance(row, dict)]
+        rows.sort(key=lambda row: str(row.get("name", "")).lower())
+        return rows
+
+    def _delete_from_in_memory(self, category_id: str) -> None:
+        if self.store is None:
+            return
+        key = str(category_id).strip().lower()
+        with self.store.lock:
+            remove_keys = [
+                cat_id
+                for cat_id, row in self.store.categories_by_id.items()
+                if str(cat_id) == category_id or str(row.get("slug", "")).strip().lower() == key
+            ]
+            for cat_id in remove_keys:
+                self.store.categories_by_id.pop(cat_id, None)

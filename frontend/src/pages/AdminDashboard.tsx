@@ -3,14 +3,52 @@ import { useNavigate } from "react-router-dom";
 import {
     Users, Package, ShoppingCart, TrendingUp, Plus, Activity,
     Shield, LogOut, RefreshCw, CheckCircle2, AlertCircle,
-    Clock, ChevronRight, Boxes, BarChart3, List, Sparkles
+    Clock, ChevronRight, Boxes, BarChart3, List, Sparkles, PhoneCall, LifeBuoy, Tags, Warehouse
 } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
-import { getAdminStats, getAdminOrders, getAdminProducts, getAdminUsers, getActivityLogs, getHealth, verifyAdminIntegrity } from "../api/admin";
-import type { AdminStats, AdminOrder, AdminProduct, AdminUser, ActivityLog, HealthStatus } from "../api/admin";
+import {
+    getAdminStats,
+    getAdminOrders,
+    getAdminProducts,
+    getAdminUsers,
+    getActivityLogs,
+    getHealth,
+    verifyAdminIntegrity,
+    getAdminSupportTickets,
+    updateAdminSupportTicket,
+    getVoiceSettings,
+    updateVoiceSettings,
+    runVoiceRecoveryProcess,
+    getVoiceCalls,
+    getVoiceJobs,
+    getVoiceStats,
+    getAdminCategories,
+    createAdminCategory,
+    updateAdminCategory,
+    deleteAdminCategory,
+    getAdminInventory,
+    updateAdminInventory,
+} from "../api/admin";
+import type {
+    AdminStats,
+    AdminOrder,
+    AdminProduct,
+    AdminUser,
+    ActivityLog,
+    HealthStatus,
+    AdminSupportTicket,
+    VoiceSettings,
+    VoiceCall,
+    VoiceJob,
+    VoiceStats,
+    AdminCategory,
+    AdminInventory,
+} from "../api/admin";
+import { useToast } from "../context/ToastContext";
+import { Input } from "../components/ui/Input";
 
 // ─── Sub-nav tabs ────────────────────────────────────────────────────────────
-type Tab = "overview" | "orders" | "products" | "users" | "activity";
+type Tab = "overview" | "orders" | "products" | "users" | "activity" | "support" | "voice" | "categories" | "inventory";
 
 // ─── Status badge ─────────────────────────────────────────────────────────────
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
@@ -37,6 +75,7 @@ const Skeleton: React.FC<{ className?: string }> = ({ className = "" }) => (
 // ─── Main component ────────────────────────────────────────────────────────────
 const AdminDashboard: React.FC = () => {
     const { user, logout, isAdmin } = useAuth();
+    const { addToast } = useToast();
     const navigate = useNavigate();
 
     const [activeTab, setActiveTab] = useState<Tab>("overview");
@@ -46,10 +85,26 @@ const AdminDashboard: React.FC = () => {
     const [users, setUsers] = useState<AdminUser[]>([]);
     const [logs, setLogs] = useState<ActivityLog[]>([]);
     const [health, setHealth] = useState<HealthStatus | null>(null);
+    const [supportTickets, setSupportTickets] = useState<AdminSupportTicket[]>([]);
+    const [voiceSettings, setVoiceSettings] = useState<VoiceSettings | null>(null);
+    const [voiceCalls, setVoiceCalls] = useState<VoiceCall[]>([]);
+    const [voiceJobs, setVoiceJobs] = useState<VoiceJob[]>([]);
+    const [voiceStats, setVoiceStats] = useState<VoiceStats | null>(null);
+    const [categories, setCategories] = useState<AdminCategory[]>([]);
+    const [inventory, setInventory] = useState<AdminInventory | null>(null);
+    const [selectedProductId, setSelectedProductId] = useState<string>("");
+    const [selectedVariantId, setSelectedVariantId] = useState<string>("");
+    const [inventoryTotal, setInventoryTotal] = useState<string>("");
+    const [inventoryAvailable, setInventoryAvailable] = useState<string>("");
+    const [newCategoryName, setNewCategoryName] = useState("");
+    const [newCategorySlug, setNewCategorySlug] = useState("");
+    const [newCategoryDescription, setNewCategoryDescription] = useState("");
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [integrity, setIntegrity] = useState<{ ok: boolean; total: number } | null>(null);
+    const [tabActionError, setTabActionError] = useState<string | null>(null);
+    const [actionBusyKey, setActionBusyKey] = useState<string | null>(null);
 
     // Guard: only admin can see this
     useEffect(() => {
@@ -62,13 +117,19 @@ const AdminDashboard: React.FC = () => {
         else setRefreshing(true);
         setError(null);
         try {
-            const [s, o, p, u, l, h] = await Promise.allSettled([
+            const [s, o, p, u, l, h, st, vs, vc, vj, vst, cat] = await Promise.allSettled([
                 getAdminStats(),
                 getAdminOrders(10),
                 getAdminProducts(20),
                 getAdminUsers(20),
                 getActivityLogs(20),
                 getHealth(),
+                getAdminSupportTickets({ limit: 20 }),
+                getVoiceSettings(),
+                getVoiceCalls(20),
+                getVoiceJobs(20),
+                getVoiceStats(),
+                getAdminCategories(),
             ]);
             if (s.status === "fulfilled") setStats(s.value);
             if (o.status === "fulfilled") setOrders(o.value);
@@ -76,6 +137,12 @@ const AdminDashboard: React.FC = () => {
             if (u.status === "fulfilled") setUsers(u.value);
             if (l.status === "fulfilled") setLogs(l.value);
             if (h.status === "fulfilled") setHealth(h.value);
+            if (st.status === "fulfilled") setSupportTickets(st.value);
+            if (vs.status === "fulfilled") setVoiceSettings(vs.value);
+            if (vc.status === "fulfilled") setVoiceCalls(vc.value);
+            if (vj.status === "fulfilled") setVoiceJobs(vj.value);
+            if (vst.status === "fulfilled") setVoiceStats(vst.value);
+            if (cat.status === "fulfilled") setCategories(cat.value);
         } catch {
             setError("Failed to load admin data. Check your connection.");
         } finally {
@@ -85,6 +152,7 @@ const AdminDashboard: React.FC = () => {
     };
 
     useEffect(() => { loadData(); }, []);
+    useEffect(() => { setTabActionError(null); }, [activeTab]);
 
     const handleLogout = async () => {
         await logout();
@@ -104,7 +172,205 @@ const AdminDashboard: React.FC = () => {
         { id: "products", label: "Products", icon: Boxes },
         { id: "users", label: "Users", icon: Users },
         { id: "activity", label: "Activity Log", icon: List },
+        { id: "support", label: "Support", icon: LifeBuoy },
+        { id: "voice", label: "Voice", icon: PhoneCall },
+        { id: "categories", label: "Categories", icon: Tags },
+        { id: "inventory", label: "Inventory", icon: Warehouse },
     ];
+
+    const selectedProduct = products.find((product) => product.id === selectedProductId) ?? null;
+
+    const handleCreateCategory = async () => {
+        if (!newCategoryName.trim()) {
+            addToast("Category name is required", "warning");
+            return;
+        }
+        setActionBusyKey("category-create");
+        setTabActionError(null);
+        try {
+            await createAdminCategory({
+                name: newCategoryName.trim(),
+                slug: newCategorySlug.trim() || undefined,
+                description: newCategoryDescription.trim() || undefined,
+                status: "active",
+            });
+            addToast("Category created", "success");
+            setNewCategoryName("");
+            setNewCategorySlug("");
+            setNewCategoryDescription("");
+            setCategories(await getAdminCategories());
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to create category";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleCategoryStatus = async (category: AdminCategory, status: string) => {
+        const busyKey = `category-status-${category.id}`;
+        const previousCategories = [...categories];
+        setActionBusyKey(busyKey);
+        setTabActionError(null);
+        setCategories((prev) => prev.map((item) => item.id === category.id ? { ...item, status } : item));
+        try {
+            await updateAdminCategory(category.id, { status });
+            addToast("Category updated", "success");
+        } catch (err) {
+            setCategories(previousCategories);
+            const message = err instanceof Error ? err.message : "Failed to update category";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleDeleteCategory = async (categoryId: string) => {
+        const confirmed = window.confirm("Delete this category? This cannot be undone.");
+        if (!confirmed) {
+            return;
+        }
+        const busyKey = `category-delete-${categoryId}`;
+        const previousCategories = [...categories];
+        setActionBusyKey(busyKey);
+        setTabActionError(null);
+        setCategories((prev) => prev.filter((category) => category.id !== categoryId));
+        try {
+            await deleteAdminCategory(categoryId);
+            addToast("Category deleted", "success");
+        } catch (err) {
+            setCategories(previousCategories);
+            const message = err instanceof Error ? err.message : "Failed to delete category";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleLoadInventory = async () => {
+        if (!selectedVariantId) {
+            addToast("Choose a variant first", "warning");
+            return;
+        }
+        setActionBusyKey("inventory-load");
+        setTabActionError(null);
+        try {
+            const row = await getAdminInventory(selectedVariantId);
+            setInventory(row);
+            setInventoryTotal(String(row.totalQuantity));
+            setInventoryAvailable(String(row.availableQuantity));
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to load inventory";
+            setTabActionError(message);
+            addToast(message, "error");
+            setInventory(null);
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleSaveInventory = async () => {
+        if (!selectedVariantId) {
+            addToast("Choose a variant first", "warning");
+            return;
+        }
+        setActionBusyKey("inventory-save");
+        setTabActionError(null);
+        try {
+            const updated = await updateAdminInventory(selectedVariantId, {
+                totalQuantity: Number(inventoryTotal),
+                availableQuantity: Number(inventoryAvailable),
+            });
+            setInventory(updated);
+            addToast("Inventory updated", "success");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to update inventory";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleSupportStatus = async (ticketId: string, status: string) => {
+        if (status === "resolved") {
+            const confirmed = window.confirm("Mark this support ticket as resolved?");
+            if (!confirmed) {
+                return;
+            }
+        }
+        const busyKey = `support-${ticketId}-${status}`;
+        const previousTickets = [...supportTickets];
+        setActionBusyKey(busyKey);
+        setTabActionError(null);
+        setSupportTickets((prev) => prev.map((ticket) => ticket.id === ticketId ? { ...ticket, status } : ticket));
+        try {
+            await updateAdminSupportTicket(ticketId, { status, note: `Updated from admin dashboard to ${status}` });
+            addToast("Support ticket updated", "success");
+        } catch (err) {
+            setSupportTickets(previousTickets);
+            const message = err instanceof Error ? err.message : "Failed to update support ticket";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleVoiceProcessNow = async () => {
+        setActionBusyKey("voice-process");
+        setTabActionError(null);
+        try {
+            await runVoiceRecoveryProcess();
+            addToast("Voice recovery run triggered", "success");
+            const [calls, jobs, stats] = await Promise.all([
+                getVoiceCalls(20),
+                getVoiceJobs(20),
+                getVoiceStats(),
+            ]);
+            setVoiceCalls(calls);
+            setVoiceJobs(jobs);
+            setVoiceStats(stats);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to run voice recovery";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleToggleVoiceKillSwitch = async () => {
+        if (!voiceSettings) return;
+        const nextKillSwitch = !(voiceSettings.killSwitch ?? false);
+        const confirmed = window.confirm(
+            nextKillSwitch
+                ? "Enable voice kill switch and pause voice recovery actions?"
+                : "Disable voice kill switch and allow voice recovery actions?"
+        );
+        if (!confirmed) {
+            return;
+        }
+        const previousSettings = voiceSettings;
+        setActionBusyKey("voice-kill-switch");
+        setTabActionError(null);
+        setVoiceSettings({ ...voiceSettings, killSwitch: nextKillSwitch });
+        try {
+            const updated = await updateVoiceSettings({ killSwitch: nextKillSwitch });
+            setVoiceSettings(updated);
+            addToast("Voice kill switch updated", "success");
+        } catch (err) {
+            setVoiceSettings(previousSettings);
+            const message = err instanceof Error ? err.message : "Failed to update voice settings";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
 
     if (!user || !isAdmin) return null;
 
@@ -188,6 +454,13 @@ const AdminDashboard: React.FC = () => {
                     <div className="flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700">
                         <AlertCircle size={18} className="shrink-0" />
                         <span className="text-sm font-medium">{error}</span>
+                    </div>
+                )}
+
+                {tabActionError && (
+                    <div className="flex items-center gap-3 p-4 rounded-2xl bg-red-50 border border-red-200 text-red-700">
+                        <AlertCircle size={18} className="shrink-0" />
+                        <span className="text-sm font-medium">{tabActionError}</span>
                     </div>
                 )}
 
@@ -499,6 +772,282 @@ const AdminDashboard: React.FC = () => {
                                 </table>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {activeTab === "support" && (
+                    <div className="space-y-6 animate-fade-in">
+                        <h1 className="text-2xl font-bold text-slate-900">Support Tickets</h1>
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                            {loading ? (
+                                <div className="p-6 space-y-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+                            ) : supportTickets.length === 0 ? (
+                                <div className="p-16 text-center text-slate-400">No support tickets found</div>
+                            ) : (
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                        <tr className="text-xs uppercase tracking-wider text-slate-400">
+                                            <th className="text-left py-3.5 px-6">Ticket</th>
+                                            <th className="text-left py-3.5 px-4">Category</th>
+                                            <th className="text-left py-3.5 px-4">Priority</th>
+                                            <th className="text-left py-3.5 px-4">Status</th>
+                                            <th className="text-left py-3.5 px-4">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {supportTickets.map((ticket) => (
+                                            <tr key={ticket.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                                                <td className="py-4 px-6">
+                                                    <div className="font-mono text-xs text-slate-500">#{ticket.id.slice(-10).toUpperCase()}</div>
+                                                    <div className="text-xs text-slate-700 mt-1 line-clamp-1">{ticket.issue}</div>
+                                                </td>
+                                                <td className="py-4 px-4 text-xs text-slate-600">{ticket.category}</td>
+                                                <td className="py-4 px-4"><StatusBadge status={ticket.priority} /></td>
+                                                <td className="py-4 px-4"><StatusBadge status={ticket.status} /></td>
+                                                <td className="py-4 px-4">
+                                                    <div className="flex gap-2">
+                                                        <button
+                                                            className="px-2 py-1 rounded-lg text-xs bg-slate-100 hover:bg-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                            disabled={actionBusyKey === `support-${ticket.id}-in_progress` || actionBusyKey === `support-${ticket.id}-resolved`}
+                                                            onClick={() => handleSupportStatus(ticket.id, "in_progress")}
+                                                        >
+                                                            {actionBusyKey === `support-${ticket.id}-in_progress` ? "Updating..." : "In Progress"}
+                                                        </button>
+                                                        <button
+                                                            className="px-2 py-1 rounded-lg text-xs bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                            disabled={actionBusyKey === `support-${ticket.id}-in_progress` || actionBusyKey === `support-${ticket.id}-resolved`}
+                                                            onClick={() => handleSupportStatus(ticket.id, "resolved")}
+                                                        >
+                                                            {actionBusyKey === `support-${ticket.id}-resolved` ? "Updating..." : "Resolve"}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "voice" && (
+                    <div className="space-y-6 animate-fade-in">
+                        <div className="flex items-center justify-between">
+                            <h1 className="text-2xl font-bold text-slate-900">Voice Recovery</h1>
+                            <div className="flex gap-2">
+                                <button
+                                    onClick={handleToggleVoiceKillSwitch}
+                                    disabled={actionBusyKey === "voice-kill-switch"}
+                                    className="px-3 py-2 rounded-xl text-xs font-semibold bg-slate-100 hover:bg-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {actionBusyKey === "voice-kill-switch" ? "Updating..." : voiceSettings?.killSwitch ? "Disable Kill Switch" : "Enable Kill Switch"}
+                                </button>
+                                <button
+                                    onClick={handleVoiceProcessNow}
+                                    disabled={actionBusyKey === "voice-process"}
+                                    className="px-3 py-2 rounded-xl text-xs font-semibold bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                >
+                                    {actionBusyKey === "voice-process" ? "Processing..." : "Process Now"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
+                                <div className="text-xs text-slate-500">Voice Enabled</div>
+                                <div className="text-lg font-bold mt-1">{String(voiceSettings?.enabled ?? false)}</div>
+                            </div>
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
+                                <div className="text-xs text-slate-500">Kill Switch</div>
+                                <div className="text-lg font-bold mt-1">{String(voiceSettings?.killSwitch ?? false)}</div>
+                            </div>
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4">
+                                <div className="text-xs text-slate-500">Stats Snapshot</div>
+                                <div className="text-lg font-bold mt-1">{voiceStats ? "Available" : "—"}</div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                                <div className="px-4 py-3 border-b border-slate-100 font-semibold text-sm">Recent Voice Jobs</div>
+                                <div className="max-h-80 overflow-auto">
+                                    {voiceJobs.length === 0 ? (
+                                        <div className="p-4 text-sm text-slate-500">No jobs found.</div>
+                                    ) : voiceJobs.map((job) => (
+                                        <div key={job.id} className="px-4 py-3 border-b border-slate-50 last:border-0 text-xs flex items-center justify-between">
+                                            <span className="font-mono text-slate-500">{job.id}</span>
+                                            <StatusBadge status={job.status} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                                <div className="px-4 py-3 border-b border-slate-100 font-semibold text-sm">Recent Voice Calls</div>
+                                <div className="max-h-80 overflow-auto">
+                                    {voiceCalls.length === 0 ? (
+                                        <div className="p-4 text-sm text-slate-500">No calls found.</div>
+                                    ) : voiceCalls.map((call) => (
+                                        <div key={call.id} className="px-4 py-3 border-b border-slate-50 last:border-0 text-xs flex items-center justify-between">
+                                            <span className="font-mono text-slate-500">{call.id}</span>
+                                            <StatusBadge status={call.status} />
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "categories" && (
+                    <div className="space-y-6 animate-fade-in">
+                        <h1 className="text-2xl font-bold text-slate-900">Categories</h1>
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <Input label="Name" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="Running Shoes" />
+                            <Input label="Slug" value={newCategorySlug} onChange={(e) => setNewCategorySlug(e.target.value)} placeholder="running-shoes" />
+                            <Input label="Description" value={newCategoryDescription} onChange={(e) => setNewCategoryDescription(e.target.value)} placeholder="Category description" />
+                            <div className="flex items-end">
+                                <button
+                                    className="w-full px-3 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    disabled={actionBusyKey === "category-create"}
+                                    onClick={handleCreateCategory}
+                                >
+                                    {actionBusyKey === "category-create" ? "Creating..." : "Create Category"}
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
+                            {loading ? (
+                                <div className="p-6 space-y-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+                            ) : categories.length === 0 ? (
+                                <div className="p-16 text-center text-slate-400">No categories found</div>
+                            ) : (
+                                <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 border-b border-slate-100">
+                                        <tr className="text-xs uppercase tracking-wider text-slate-400">
+                                            <th className="text-left py-3.5 px-6">Name</th>
+                                            <th className="text-left py-3.5 px-4">Slug</th>
+                                            <th className="text-left py-3.5 px-4">Status</th>
+                                            <th className="text-left py-3.5 px-4">Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {categories.map((category) => (
+                                            <tr key={category.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
+                                                <td className="py-4 px-6 font-medium text-slate-800">{category.name}</td>
+                                                <td className="py-4 px-4 text-xs text-slate-600">{category.slug}</td>
+                                                <td className="py-4 px-4"><StatusBadge status={category.status} /></td>
+                                                <td className="py-4 px-4">
+                                                    <div className="flex gap-2">
+                                                        {category.status === "active" ? (
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-amber-100 text-amber-700 hover:bg-amber-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                disabled={actionBusyKey === `category-status-${category.id}` || actionBusyKey === `category-delete-${category.id}`}
+                                                                onClick={() => handleCategoryStatus(category, "archived")}
+                                                            >
+                                                                {actionBusyKey === `category-status-${category.id}` ? "Updating..." : "Archive"}
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                disabled={actionBusyKey === `category-status-${category.id}` || actionBusyKey === `category-delete-${category.id}`}
+                                                                onClick={() => handleCategoryStatus(category, "active")}
+                                                            >
+                                                                {actionBusyKey === `category-status-${category.id}` ? "Updating..." : "Activate"}
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            className="px-2 py-1 rounded-lg text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                            disabled={actionBusyKey === `category-status-${category.id}` || actionBusyKey === `category-delete-${category.id}`}
+                                                            onClick={() => handleDeleteCategory(category.id)}
+                                                        >
+                                                            {actionBusyKey === `category-delete-${category.id}` ? "Deleting..." : "Delete"}
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    </div>
+                )}
+
+                {activeTab === "inventory" && (
+                    <div className="space-y-6 animate-fade-in">
+                        <h1 className="text-2xl font-bold text-slate-900">Inventory Control</h1>
+
+                        <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-slate-700 ml-1">Product</label>
+                                <select
+                                    className="h-11 w-full rounded-xl border border-line bg-surface-50 px-4 text-sm"
+                                    value={selectedProductId}
+                                    onChange={(e) => {
+                                        setSelectedProductId(e.target.value);
+                                        setSelectedVariantId("");
+                                        setInventory(null);
+                                    }}
+                                >
+                                    <option value="">Select product</option>
+                                    {products.map((product) => (
+                                        <option key={product.id} value={product.id}>{product.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="space-y-1.5">
+                                <label className="text-sm font-medium text-slate-700 ml-1">Variant</label>
+                                <select
+                                    className="h-11 w-full rounded-xl border border-line bg-surface-50 px-4 text-sm"
+                                    value={selectedVariantId}
+                                    onChange={(e) => {
+                                        setSelectedVariantId(e.target.value);
+                                        setInventory(null);
+                                    }}
+                                    disabled={!selectedProduct}
+                                >
+                                    <option value="">Select variant</option>
+                                    {(selectedProduct?.variants ?? []).map((variant) => (
+                                        <option key={variant.id} value={variant.id}>{variant.id}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="flex items-end">
+                                <button
+                                    className="w-full px-3 py-2.5 rounded-xl bg-slate-100 text-sm font-semibold hover:bg-slate-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                    disabled={actionBusyKey === "inventory-load"}
+                                    onClick={handleLoadInventory}
+                                >
+                                    {actionBusyKey === "inventory-load" ? "Loading..." : "Load Inventory"}
+                                </button>
+                            </div>
+                        </div>
+
+                        {inventory && (
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+                                <Input label="Total Quantity" type="number" min={0} value={inventoryTotal} onChange={(e) => setInventoryTotal(e.target.value)} />
+                                <Input label="Available Quantity" type="number" min={0} value={inventoryAvailable} onChange={(e) => setInventoryAvailable(e.target.value)} />
+                                <div className="space-y-1.5">
+                                    <label className="text-sm font-medium text-slate-700 ml-1">Reserved Quantity</label>
+                                    <div className="h-11 rounded-xl border border-line bg-surface-50 px-4 flex items-center text-sm text-slate-700">
+                                        {inventory.reservedQuantity}
+                                    </div>
+                                </div>
+                                <div className="flex items-end">
+                                    <button
+                                        className="w-full px-3 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={actionBusyKey === "inventory-save"}
+                                        onClick={handleSaveInventory}
+                                    >
+                                        {actionBusyKey === "inventory-save" ? "Saving..." : "Save Inventory"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
 

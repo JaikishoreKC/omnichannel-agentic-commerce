@@ -7,8 +7,13 @@ from typing import Any
 
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.category_repository import CategoryRepository
+from app.repositories.inventory_repository import InventoryRepository
 from app.repositories.order_repository import OrderRepository
+from app.repositories.product_repository import ProductRepository
 from app.repositories.session_repository import SessionRepository
+from app.repositories.support_repository import SupportRepository
+from app.repositories.voice_repository import VoiceRepository
 from app.store.in_memory import InMemoryStore
 from app.core.utils import utc_now, iso_now
 
@@ -223,3 +228,199 @@ def test_order_repository_external_fallbacks_and_idempotency() -> None:
     assert repo.get_idempotent("user_ext_9:key_a") == "order_ext_1"
     repo.set_idempotent(key="user_ext_9:key_b", order_id="order_ext_2")
     assert repo.get_idempotent("user_ext_9:key_b") == "order_ext_2"
+
+
+def test_auth_repository_in_memory_fallback_without_external_services() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    redis = RedisClientManager(url="redis://localhost:6379/0", enabled=False)
+    repo = AuthRepository(mongo_manager=mongo, redis_manager=redis, store=store)
+
+    user = {
+        "id": "user_mem_1",
+        "email": "memory@example.com",
+        "name": "Memory User",
+        "passwordHash": "hash",
+        "role": "customer",
+        "createdAt": iso_now(),
+        "updatedAt": iso_now(),
+        "lastLoginAt": iso_now(),
+    }
+    repo.create_user(user)
+
+    by_id = repo.get_user_by_id("user_mem_1")
+    by_email = repo.get_user_by_email("memory@example.com")
+    assert by_id is not None
+    assert by_email is not None
+    assert by_id["email"] == "memory@example.com"
+    assert by_email["id"] == "user_mem_1"
+
+    repo.set_refresh_token("token_mem_1", {"userId": "user_mem_1", "createdAt": iso_now()})
+    refresh = repo.get_refresh_token("token_mem_1")
+    assert refresh is not None
+    assert refresh["userId"] == "user_mem_1"
+
+    repo.revoke_refresh_token("token_mem_1")
+    assert repo.get_refresh_token("token_mem_1") is None
+
+
+def test_support_repository_in_memory_fallback_without_mongo() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    repo = SupportRepository(mongo_manager=mongo, store=store)
+
+    ticket = {
+        "id": "ticket_mem_1",
+        "userId": "user_mem_1",
+        "sessionId": "session_mem_1",
+        "issue": "Need help",
+        "category": "general",
+        "priority": "normal",
+        "status": "open",
+        "channel": "web",
+        "messages": [],
+        "createdAt": iso_now(),
+        "updatedAt": iso_now(),
+    }
+    repo.create(ticket)
+
+    loaded = repo.get("ticket_mem_1")
+    assert loaded is not None
+    assert loaded["issue"] == "Need help"
+
+    listed = repo.list(user_id="user_mem_1", limit=20)
+    assert len(listed) == 1
+    assert listed[0]["id"] == "ticket_mem_1"
+
+
+def test_category_repository_in_memory_fallback_without_external_services() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    redis = RedisClientManager(url="redis://localhost:6379/0", enabled=False)
+    repo = CategoryRepository(mongo_manager=mongo, redis_manager=redis, store=store)
+
+    payload = {
+        "id": "cat_mem_1",
+        "slug": "cat-mem-1",
+        "name": "Memory Category",
+        "description": "local fallback",
+        "status": "active",
+        "createdAt": iso_now(),
+        "updatedAt": iso_now(),
+    }
+    repo.create(payload)
+
+    listed = repo.list_all()
+    assert any(row.get("id") == "cat_mem_1" for row in listed)
+
+    by_id = repo.get("cat_mem_1")
+    by_slug = repo.get("cat-mem-1")
+    assert by_id is not None
+    assert by_slug is not None
+
+
+def test_inventory_repository_in_memory_fallback_without_external_services() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    redis = RedisClientManager(url="redis://localhost:6379/0", enabled=False)
+    repo = InventoryRepository(mongo_manager=mongo, redis_manager=redis, store=store)
+
+    stock = {
+        "variantId": "var_mem_1",
+        "productId": "prod_mem_1",
+        "totalQuantity": 100,
+        "reservedQuantity": 0,
+        "availableQuantity": 100,
+        "updatedAt": iso_now(),
+    }
+    repo.upsert(stock)
+
+    loaded = repo.get("var_mem_1")
+    assert loaded is not None
+    assert loaded["productId"] == "prod_mem_1"
+
+    by_product = repo.list_by_product("prod_mem_1")
+    assert len(by_product) == 1
+    assert by_product[0]["variantId"] == "var_mem_1"
+
+
+def test_product_repository_in_memory_fallback_without_external_services() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    redis = RedisClientManager(url="redis://localhost:6379/0", enabled=False)
+    repo = ProductRepository(mongo_manager=mongo, redis_manager=redis, store=store)
+
+    all_products = repo.list_all()
+    assert len(all_products) > 0
+
+    first_product = all_products[0]
+    loaded = repo.get(str(first_product["id"]))
+    assert loaded is not None
+    assert loaded["id"] == first_product["id"]
+
+
+def test_voice_repository_in_memory_fallback_without_mongo() -> None:
+    store = InMemoryStore()
+    mongo = MongoClientManager(uri="mongodb://localhost:27017/commerce", enabled=False)
+    repo = VoiceRepository(mongo_manager=mongo, store=store)
+
+    settings = {
+        "enabled": True,
+        "killSwitch": False,
+        "scriptVersion": "v2",
+    }
+    repo.upsert_settings(settings)
+    loaded_settings = repo.get_settings()
+    assert loaded_settings is not None
+    assert loaded_settings["enabled"] is True
+    assert loaded_settings["scriptVersion"] == "v2"
+
+    job = {
+        "id": "voice_job_mem_1",
+        "status": "queued",
+        "createdAt": iso_now(),
+    }
+    repo.upsert_job(job)
+    loaded_job = repo.get_job("voice_job_mem_1")
+    assert loaded_job is not None
+    assert loaded_job["status"] == "queued"
+    assert len(repo.list_jobs(status="queued", limit=10)) == 1
+
+    call = {
+        "id": "voice_call_mem_1",
+        "providerCallId": "provider-abc",
+        "status": "completed",
+        "createdAt": iso_now(),
+    }
+    repo.upsert_call(call)
+    loaded_call = repo.get_call("voice_call_mem_1")
+    assert loaded_call is not None
+    assert loaded_call["providerCallId"] == "provider-abc"
+    found_call = repo.find_call_by_provider_id("provider-abc")
+    assert found_call is not None
+    assert found_call["id"] == "voice_call_mem_1"
+
+    alert = {
+        "id": "alert_mem_1",
+        "severity": "high",
+        "createdAt": iso_now(),
+    }
+    repo.add_alert(alert)
+    alerts = repo.list_alerts(severity="high", limit=10)
+    assert len(alerts) == 1
+    assert alerts[0]["id"] == "alert_mem_1"
+
+    suppression = {
+        "userId": "user_mem_1",
+        "reason": "opt-out",
+        "createdAt": iso_now(),
+    }
+    repo.upsert_suppression("user_mem_1", suppression)
+    assert repo.is_suppressed("user_mem_1") is True
+    suppressions = repo.list_suppressions()
+    assert len(suppressions) == 1
+    assert suppressions[0]["userId"] == "user_mem_1"
+    assert repo.get_suppressed_user_ids() == {"user_mem_1"}
+
+    repo.delete_suppression("user_mem_1")
+    assert repo.is_suppressed("user_mem_1") is False

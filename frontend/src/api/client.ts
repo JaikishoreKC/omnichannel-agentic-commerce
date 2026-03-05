@@ -7,7 +7,7 @@ const SESSION_KEY = "commerce_session_id";
 let _accessTokenMemory: string | null = null;
 let _refreshTokenMemory: string | null = null;
 
-type Method = "GET" | "POST" | "PUT" | "DELETE";
+type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 type ValidationErrorItem = {
     loc?: Array<string | number>;

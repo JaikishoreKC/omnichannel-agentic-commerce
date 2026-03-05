@@ -182,6 +182,18 @@ class SupportTicketUpdateRequest(BaseModel):
     note: str | None = None
 
 
+class SupportTicketCreateRequest(BaseModel):
+    issue: str = Field(min_length=1, max_length=2000)
+    priority: str = Field(default="normal")
+    category: str = Field(default="general")
+    channel: str = Field(default="web")
+
+
+class SupportTicketCustomerUpdateRequest(BaseModel):
+    status: str | None = None
+    note: str | None = None
+
+
 class InventoryUpdateRequest(BaseModel):
     totalQuantity: int | None = Field(default=None, ge=0)
     availableQuantity: int | None = Field(default=None, ge=0)

@@ -81,6 +81,7 @@ class Container:
         self.auth_repository = AuthRepository(
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
+            store=self.store,
         )
         self.auth_service = AuthService(
             settings=self.settings,
@@ -89,14 +90,17 @@ class Container:
         self.product_repository = ProductRepository(
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
+            store=self.store,
         )
         self.category_repository = CategoryRepository(
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
+            store=self.store,
         )
         self.inventory_repository = InventoryRepository(
             mongo_manager=self.mongo_manager,
             redis_manager=self.redis_manager,
+            store=self.store,
         )
         self.notification_repository = NotificationRepository(
             mongo_manager=self.mongo_manager,
@@ -141,6 +145,7 @@ class Container:
         )
         self.support_repository = SupportRepository(
             mongo_manager=self.mongo_manager,
+            store=self.store,
         )
         self.admin_activity_repository = AdminActivityRepository(
             mongo_manager=self.mongo_manager,

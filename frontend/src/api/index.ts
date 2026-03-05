@@ -7,4 +7,5 @@ export * from "./sessions";
 export * from "./interactions";
 export * from "./admin";
 export * from "./memory";
+export * from "./support";
 export type { ChatResponsePayload } from "./types";
