@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
-import { currentSessionId, ensureSession } from "../api";
+import { currentSessionId, ensureSession, SESSION_CHANGED_EVENT } from "../api";
 
 interface SessionContextType {
     sessionId: string | null;
@@ -32,6 +32,30 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     useEffect(() => {
         initSession();
+    }, []);
+
+    useEffect(() => {
+        const syncSessionFromStorage = () => {
+            setSessionId(currentSessionId());
+        };
+
+        const handleStorage = (event: StorageEvent) => {
+            if (event.key === null || event.key === "commerce_session_id") {
+                syncSessionFromStorage();
+            }
+        };
+
+        const handleSessionChanged = () => {
+            syncSessionFromStorage();
+        };
+
+        window.addEventListener("storage", handleStorage);
+        window.addEventListener(SESSION_CHANGED_EVENT, handleSessionChanged);
+
+        return () => {
+            window.removeEventListener("storage", handleStorage);
+            window.removeEventListener(SESSION_CHANGED_EVENT, handleSessionChanged);
+        };
     }, []);
 
     return (

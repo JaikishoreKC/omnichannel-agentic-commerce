@@ -22,6 +22,9 @@ async function registerAndLandOnProfileCompletion(page: Page, prefix: string): P
 test("registration requires profile completion before normal navigation", async ({ page }) => {
   await registerAndLandOnProfileCompletion(page, "profile-gate");
 
+  await page.reload();
+  await expect(page).toHaveURL(/\/complete-profile$/);
+
   await page.goto("/products");
   await expect(page).toHaveURL(/\/complete-profile$/);
 

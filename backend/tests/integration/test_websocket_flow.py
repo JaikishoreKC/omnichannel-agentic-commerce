@@ -49,18 +49,22 @@ def test_websocket_streaming_flow_when_requested() -> None:
         saw_delta = False
         saw_end = False
         saw_response = False
+        stream_id = ""
 
         for _ in range(20):
             event = websocket.receive_json()
             event_type = event["type"]
             if event_type == "stream_start":
                 saw_start = True
-                assert event["payload"]["streamId"].startswith("stream_")
+                stream_id = str(event["payload"]["streamId"])
+                assert stream_id.startswith("stream_")
             elif event_type == "stream_delta":
                 saw_delta = True
+                assert event["payload"]["streamId"] == stream_id
                 assert len(str(event["payload"]["delta"])) >= 1
             elif event_type == "stream_end":
                 saw_end = True
+                assert event["payload"]["streamId"] == stream_id
             elif event_type == "response":
                 saw_response = True
                 assert event["payload"]["agent"] == "product"

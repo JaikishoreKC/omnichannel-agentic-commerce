@@ -4,7 +4,14 @@ import json
 from copy import deepcopy
 from typing import Any
 
+from app.infrastructure.logging import get_logger
 from app.infrastructure.persistence_clients import MongoClientManager, RedisClientManager
+
+
+logger = get_logger(__name__)
+SESSION_TTL_SECONDS = 60 * 60
+
+
 class SessionRepository:
     def __init__(
         self,
@@ -27,7 +34,7 @@ class SessionRepository:
     def create(self, session: dict[str, Any]) -> dict[str, Any]:
         client = self._redis_client()
         if client:
-            client.set(self._redis_key(session["id"]), json.dumps(session), ex=60 * 60)
+            client.set(self._redis_key(session["id"]), json.dumps(session), ex=SESSION_TTL_SECONDS)
             self._upsert_user_latest_index(client=client, session=session)
         return deepcopy(session)
 
@@ -97,7 +104,13 @@ class SessionRepository:
             payload = client.get(self._redis_key(latest_id))
             indexed = self._decode_dict_payload(payload)
             if isinstance(indexed, dict) and str(indexed.get("userId", "")).strip() == user_id:
+                client.set(self._redis_user_latest_key(user_id), latest_id, ex=SESSION_TTL_SECONDS)
                 return indexed
+            logger.info(
+                "session_repository.latest_index_stale",
+                user_id=user_id,
+                latest_id=latest_id,
+            )
             
         # For Redis, finding the latest session by user is an O(N) scan.
         # In a real enterprise system, we would maintain a reverse index (Set of sessions per user_id).
@@ -117,7 +130,14 @@ class SessionRepository:
                 continue
                 
         if not matching:
+            logger.info("session_repository.latest_scan_empty", user_id=user_id)
             return None
+
+        logger.info(
+            "session_repository.latest_scan_fallback",
+            user_id=user_id,
+            candidates=len(matching),
+        )
             
         matching.sort(
             key=lambda session: (
@@ -154,15 +174,15 @@ class SessionRepository:
             current_latest_id = current_latest_id.decode("utf-8")
         current_latest_id = str(current_latest_id or "").strip()
         if not current_latest_id:
-            client.set(latest_key, session_id, ex=60 * 60)
+            client.set(latest_key, session_id, ex=SESSION_TTL_SECONDS)
             return
         current_payload = client.get(self._redis_key(current_latest_id))
         current = self._decode_dict_payload(current_payload)
         if not isinstance(current, dict):
-            client.set(latest_key, session_id, ex=60 * 60)
+            client.set(latest_key, session_id, ex=SESSION_TTL_SECONDS)
             return
         if self._activity_rank(session) >= self._activity_rank(current):
-            client.set(latest_key, session_id, ex=60 * 60)
+            client.set(latest_key, session_id, ex=SESSION_TTL_SECONDS)
 
     @staticmethod
     def _decode_dict_payload(payload: Any) -> dict[str, Any] | None:

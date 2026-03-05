@@ -217,20 +217,28 @@ class AuthService:
         self,
         user_id: str,
         *,
-        name: str | None,
-        phone: str | None,
-        timezone: str | None,
-        default_shipping_address: dict[str, Any] | None,
+        updates: dict[str, Any],
     ) -> dict[str, Any]:
         user = self.auth_repository.get_user_by_id(user_id)
         if user is None:
             raise HTTPException(status_code=404, detail="User not found")
 
-        if isinstance(name, str) and name.strip():
-            user["name"] = name.strip()
-        user["phone"] = self._normalize_text(phone)
-        user["timezone"] = self._normalize_text(timezone)
-        user["defaultShippingAddress"] = self._normalize_profile_address(default_shipping_address)
+        if "name" in updates:
+            name = updates.get("name")
+            if isinstance(name, str) and name.strip():
+                user["name"] = name.strip()
+
+        if "phone" in updates:
+            user["phone"] = self._normalize_text(updates.get("phone"))
+
+        if "timezone" in updates:
+            user["timezone"] = self._normalize_text(updates.get("timezone"))
+
+        if "defaultShippingAddress" in updates:
+            user["defaultShippingAddress"] = self._normalize_profile_address(
+                updates.get("defaultShippingAddress")
+            )
+
         user["updatedAt"] = iso_now()
         self.auth_repository.update_user(user)
         return self._to_public_user(user)

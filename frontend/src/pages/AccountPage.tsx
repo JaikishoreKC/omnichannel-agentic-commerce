@@ -62,6 +62,12 @@ const AccountPage: React.FC = () => {
         });
     }, [user]);
 
+    useEffect(() => {
+        if (!user) {
+            navigate("/login", { replace: true });
+        }
+    }, [navigate, user]);
+
     type AccountTab = "orders" | "memory" | "support" | "wishlist" | "settings";
     const tabs: Array<{ id: AccountTab; label: string; icon: React.ElementType }> = [
         { id: "orders", label: "Orders", icon: Package },
@@ -72,7 +78,6 @@ const AccountPage: React.FC = () => {
     ];
 
     if (!user) {
-        navigate("/login");
         return null;
     }
 
@@ -101,7 +106,14 @@ const AccountPage: React.FC = () => {
             return;
         }
 
-        const requiredAddress = [profileForm.line1, profileForm.city, profileForm.state, profileForm.postalCode, profileForm.country];
+        const requiredAddress = [
+            profileForm.name,
+            profileForm.line1,
+            profileForm.city,
+            profileForm.state,
+            profileForm.postalCode,
+            profileForm.country,
+        ];
         if (requiredAddress.some((value) => !value.trim())) {
             setProfileError("Please complete your default shipping address.");
             return;

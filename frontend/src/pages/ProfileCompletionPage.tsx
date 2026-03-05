@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ArrowRight, Phone, MapPin } from "lucide-react";
 import { Input } from "../components/ui/Input";
@@ -37,13 +37,17 @@ const ProfileCompletionPage: React.FC = () => {
             .every((value) => String(value || "").trim().length > 0);
     }, [phone, address]);
 
-    if (!isAuthenticated || !user) {
-        navigate("/login", { replace: true });
-        return null;
-    }
+    useEffect(() => {
+        if (!isAuthenticated || !user) {
+            navigate("/login", { replace: true });
+            return;
+        }
+        if (user.profileComplete) {
+            navigate("/", { replace: true });
+        }
+    }, [isAuthenticated, navigate, user]);
 
-    if (user.profileComplete) {
-        navigate("/", { replace: true });
+    if (!isAuthenticated || !user || user.profileComplete) {
         return null;
     }
 

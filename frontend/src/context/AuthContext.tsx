@@ -61,6 +61,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return normalizeUser(JSON.parse(saved) as AuthUser);
     });
     const [profileCompletionRequired, setProfileCompletionRequired] = useState<boolean>(() => {
+        const saved = localStorage.getItem("commerce_user");
+        if (saved) {
+            const restoredUser = normalizeUser(JSON.parse(saved) as AuthUser);
+            return !isCustomerProfileComplete(restoredUser);
+        }
         return sessionStorage.getItem(PROFILE_COMPLETION_REQUIRED_KEY) === "1";
     });
 
@@ -72,6 +77,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     useEffect(() => {
         const handleExpired = () => {
             setUser(null);
+            sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
+            setProfileCompletionRequired(false);
             // Navigate to login with a "session expired" flag so we can show a notice
             window.location.href = "/login?expired=1";
         };
@@ -79,15 +86,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => window.removeEventListener("auth:expired", handleExpired);
     }, []);
 
-    const _applyAuth = (res: { user: AuthUser; sessionId?: string }, options?: { fromRegister?: boolean }) => {
+    const syncProfileCompletionRequirement = (nextUser: AuthUser) => {
+        const required = !isCustomerProfileComplete(nextUser);
+        if (required) {
+            sessionStorage.setItem(PROFILE_COMPLETION_REQUIRED_KEY, "1");
+        } else {
+            sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
+        }
+        setProfileCompletionRequired(required);
+    };
+
+    const _applyAuth = (res: { user: AuthUser; sessionId?: string }) => {
         const normalizedUser = normalizeUser(res.user);
         setUser(normalizedUser);
         if (res.sessionId) setSessionId(res.sessionId);
         localStorage.setItem("commerce_user", JSON.stringify(normalizedUser));
-        if (options?.fromRegister && !isCustomerProfileComplete(normalizedUser)) {
-            sessionStorage.setItem(PROFILE_COMPLETION_REQUIRED_KEY, "1");
-            setProfileCompletionRequired(true);
-        }
+        syncProfileCompletionRequirement(normalizedUser);
     };
 
     const login = async (email: string, pass: string) => {
@@ -108,7 +122,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const register = async (name: string, email: string, pass: string) => {
         const res = await apiRegister({ name, email, password: pass });
-        _applyAuth(res, { fromRegister: true });
+        _applyAuth(res);
     };
 
     const updateProfile = async (input: {
@@ -129,10 +143,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const normalized = normalizeUser(response.user);
         setUser(normalized);
         localStorage.setItem("commerce_user", JSON.stringify(normalized));
-        if (isCustomerProfileComplete(normalized)) {
-            sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
-            setProfileCompletionRequired(false);
-        }
+        syncProfileCompletionRequirement(normalized);
         return normalized;
     };
 

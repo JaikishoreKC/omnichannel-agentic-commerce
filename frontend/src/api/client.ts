@@ -3,6 +3,7 @@ import type { ChatResponsePayload } from "./types";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
 const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 const SESSION_KEY = "commerce_session_id";
+export const SESSION_CHANGED_EVENT = "commerce:session:changed";
 
 let _accessTokenMemory: string | null = null;
 let _refreshTokenMemory: string | null = null;
@@ -38,9 +39,14 @@ export { sessionId as currentSessionId };
 export function setSessionId(value: string | null): void {
     if (value) {
         localStorage.setItem(SESSION_KEY, value);
-        return;
+    } else {
+        localStorage.removeItem(SESSION_KEY);
     }
-    localStorage.removeItem(SESSION_KEY);
+    window.dispatchEvent(
+        new CustomEvent(SESSION_CHANGED_EVENT, {
+            detail: { sessionId: value },
+        })
+    );
 }
 
 export function setRefreshToken(value: string | null): void {

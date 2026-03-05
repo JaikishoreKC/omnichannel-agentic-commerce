@@ -178,10 +178,7 @@ def update_profile(
     updates = payload.model_dump(exclude_unset=True)
     profile = auth_service.update_profile(
         user_id=str(user["id"]),
-        name=updates.get("name"),
-        phone=updates.get("phone"),
-        timezone=updates.get("timezone"),
-        default_shipping_address=updates.get("defaultShippingAddress"),
+        updates=updates,
     )
     return {"user": profile}
 

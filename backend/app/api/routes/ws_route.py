@@ -32,15 +32,16 @@ def _record_security_event(*, event_type: str, severity: str) -> None:
         metrics_collector.record_security_event(event_type=event_type, severity=severity)
 
 async def _send_session_event(websocket: WebSocket, session: dict[str, object]) -> None:
-    await websocket.send_json(
-        {
-            "type": "session",
-            "payload": {
-                "sessionId": str(session["id"]),
-                "expiresAt": str(session["expiresAt"]),
-            },
-        }
-    )
+    with suppress(RuntimeError, OSError, WebSocketDisconnect):
+        await websocket.send_json(
+            {
+                "type": "session",
+                "payload": {
+                    "sessionId": str(session["id"]),
+                    "expiresAt": str(session["expiresAt"]),
+                },
+            }
+        )
 
 async def _ensure_active_session(
     websocket: WebSocket,
@@ -266,6 +267,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             
             stream_requested = bool(payload.get("payload", {}).get("stream", False))
             response = None
+            current_stream_id = ""
             
             try:
                 async for chunk in orchestrator.process_message_stream(
@@ -277,11 +279,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 ):
                     chunk_type = chunk.get("type")
                     if chunk_type == "stream_start":
+                        current_stream_id = f"stream_{int(time() * 1000)}"
                         await websocket.send_json(
                             {
                                 "type": "stream_start",
                                 "payload": {
-                                    "streamId": f"stream_{int(time() * 1000)}",
+                                    "streamId": current_stream_id,
                                     "agent": chunk["payload"].get("agent", "assistant"),
                                 },
                             }
@@ -291,12 +294,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             {
                                 "type": "stream_delta",
                                 "payload": {
+                                    "streamId": current_stream_id,
                                     "delta": chunk["payload"].get("delta", ""),
                                 },
                             }
                         )
                     elif chunk_type == "stream_end":
-                        await websocket.send_json({"type": "stream_end", "payload": {}})
+                        await websocket.send_json(
+                            {
+                                "type": "stream_end",
+                                "payload": {"streamId": current_stream_id},
+                            }
+                        )
                     elif chunk_type == "final_response":
                         response = chunk["payload"]
             finally:
