@@ -6,6 +6,7 @@ from app.infrastructure.llm_client import LLMClient
 
 class GeneralAgent(BaseAgent):
     name = "general"
+    _FALLBACK_MESSAGE = "I'm sorry, I couldn't provide a detailed answer at the moment."
 
     def __init__(self, llm_client: LLMClient) -> None:
         self.llm_client = llm_client
@@ -20,7 +21,7 @@ class GeneralAgent(BaseAgent):
         if not query:
             return AgentExecutionResult(
                 success=True,
-                message="I'm sorry, I couldn't provide a detailed answer at the moment.",
+                message=self._FALLBACK_MESSAGE,
                 data={},
             )
         
@@ -43,23 +44,37 @@ class GeneralAgent(BaseAgent):
             )
         return AgentExecutionResult(
             success=True,
-            message="I'm sorry, I couldn't provide a detailed answer at the moment.",
+            message=self._FALLBACK_MESSAGE,
             data={},
         )
 
     async def execute_stream(self, action: AgentAction, context: AgentContext) -> AsyncIterator[str]:
+        _ = context
         query = str(action.params.get("query", "")).strip()
         if not query:
-            return  # Return empty iterator
+            query = str(action.params.get("message", "")).strip()
+        if not query:
+            yield self._FALLBACK_MESSAGE
+            return
+
         system_prompt = (
             "You are a helpful commerce assistant for an Omnichannel Brand. "
             "Answer questions about products, orders, or general shopping advice. "
             "Keep it concise and friendly. "
             'Respond in JSON format: {"message": "your answer here"}'
         )
-        
-        async for chunk in self.llm_client.stream_response(
-            user_prompt=query,
-            system_prompt=system_prompt
-        ):
-            yield chunk
+
+        streamed_any_chunk = False
+        try:
+            async for chunk in self.llm_client.stream_response(
+                user_prompt=query,
+                system_prompt=system_prompt,
+            ):
+                if chunk:
+                    streamed_any_chunk = True
+                    yield chunk
+        except (RuntimeError, ValueError):
+            streamed_any_chunk = False
+
+        if not streamed_any_chunk:
+            yield self._FALLBACK_MESSAGE
