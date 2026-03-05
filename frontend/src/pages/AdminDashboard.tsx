@@ -984,6 +984,7 @@ const AdminDashboard: React.FC = () => {
                                 <label className="text-sm font-medium text-slate-700 ml-1">Product</label>
                                 <select
                                     className="h-11 w-full rounded-xl border border-line bg-surface-50 px-4 text-sm"
+                                    aria-label="Product"
                                     value={selectedProductId}
                                     onChange={(e) => {
                                         setSelectedProductId(e.target.value);
@@ -1002,6 +1003,7 @@ const AdminDashboard: React.FC = () => {
                                 <label className="text-sm font-medium text-slate-700 ml-1">Variant</label>
                                 <select
                                     className="h-11 w-full rounded-xl border border-line bg-surface-50 px-4 text-sm"
+                                    aria-label="Variant"
                                     value={selectedVariantId}
                                     onChange={(e) => {
                                         setSelectedVariantId(e.target.value);

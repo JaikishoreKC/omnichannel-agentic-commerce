@@ -15,7 +15,7 @@ import { AdminDashboard } from "./pages/AdminDashboard";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
-import { ProfileCompletionPage } from "./pages/ProfileCompletionPage";
+import { ProfileCompletionPage } from "./pages/profileCompletion";
 
 // Guard: redirect to admin login if not an admin
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
