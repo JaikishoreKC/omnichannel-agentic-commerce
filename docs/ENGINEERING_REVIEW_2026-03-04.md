@@ -97,3 +97,39 @@ Notes:
 - Priority 3: Move reusable `tmp/` operational scripts into a governed `scripts/ops/` area (or exclude from tracked production path) with minimal docs.
 - Priority 4: Resolve Vite chunking warning by choosing either static import or lazy split for admin API path.
 - Priority 5: Keep this report as baseline and regenerate disposable analysis artifacts when needed.
+
+## Addendum (2026-03-05): Flow Hardening Implementation
+
+Implemented slices completed in this pass:
+
+- Backend websocket stream contract hardening in `backend/app/api/routes/ws_route.py`.
+- Backend non-destructive profile patch semantics in:
+  - `backend/app/api/routes/auth_routes.py`
+  - `backend/app/services/auth_service.py`
+- Frontend profile gate and routing stabilization in:
+  - `frontend/src/context/AuthContext.tsx`
+  - `frontend/src/pages/ProfileCompletionPage.tsx`
+  - `frontend/src/pages/AccountPage.tsx`
+- Session synchronization and observability improvements in:
+  - `frontend/src/api/client.ts`
+  - `frontend/src/context/SessionContext.tsx`
+  - `backend/app/repositories/session_repository.py`
+- Contract updates in `docs/API_Contracts.txt` for:
+  - profile PATCH omitted-field behavior,
+  - websocket stream payload `streamId` consistency.
+
+Validation executed during this implementation:
+
+- Backend targeted suites:
+  - `pytest tests/integration/test_auth_profile.py -q`
+  - `pytest tests/integration/test_websocket_flow.py -q`
+  - `pytest tests/integration/test_session_continuity.py -q`
+- Frontend checks:
+  - `npm --prefix frontend run lint`
+  - `npm --prefix frontend run build`
+  - `npm --prefix frontend run test:e2e -- tests/e2e/p1-profile-completion.spec.ts`
+
+Result summary:
+
+- Targeted backend and frontend validations passed.
+- Websocket disconnect race noise observed in e2e logs was reduced by guarding session-event sends against disconnect exceptions.

@@ -78,7 +78,6 @@ class VoiceRepository:
 
     def upsert_call(self, call: dict[str, Any]) -> None:
         database = self._mongo_db()
-        use_in_memory_fallback = database is None
         if database is not None:
             collection = database["voice_calls"]
             collection.update_one(
@@ -86,7 +85,8 @@ class VoiceRepository:
                 {"$set": deepcopy(call)},
                 upsert=True,
             )
-        if use_in_memory_fallback:
+        if self.store is not None:
+            # Keep the in-memory mirror in sync for in-process consumers and tests.
             self._upsert_call_in_memory(call)
 
     def get_call(self, call_id: str) -> dict[str, Any] | None:

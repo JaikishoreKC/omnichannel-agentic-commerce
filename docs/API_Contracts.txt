@@ -155,6 +155,12 @@ Example register response (shape):
 - `timezone`
 - `defaultShippingAddress` (`name`, `line1`, optional `line2`, `city`, `state`, `postalCode`, `country`)
 
+Patch semantics:
+
+- Omitted fields are left unchanged.
+- Explicit `null` for `phone`, `timezone`, or `defaultShippingAddress` clears the field.
+- `name` is updated only when a non-empty string is provided.
+
 `GET /auth/profile` and `PATCH /auth/profile` both return `{ "user": AuthUser }` including computed `profileComplete`.
 
 ### Products
@@ -416,6 +422,15 @@ If omitted, server creates a session and sends:
 - `error`
 - `ping`
 - `pong`
+
+Streaming payload contract:
+
+- `stream_start.payload`: `{ "streamId": string, "agent": string }`
+- `stream_delta.payload`: `{ "streamId": string, "delta": string }`
+- `stream_end.payload`: `{ "streamId": string }`
+
+`streamId` is stable across `stream_start`, `stream_delta`, and `stream_end` for a
+single streamed assistant response.
 
 ## Contract Notes
 
