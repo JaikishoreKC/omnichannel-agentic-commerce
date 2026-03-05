@@ -49,6 +49,8 @@ class Settings:
     ws_heartbeat_timeout_seconds: float = 70.0
     ws_max_message_chars: int = 2000
     openrouter_api_key: str = ""
+    openrouter_api_key_planner: str = ""
+    openrouter_api_key_general: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     superu_enabled: bool = False
     superu_api_url: str = "https://api.superu.ai"
@@ -262,6 +264,14 @@ class Settings:
                 )
             ),
             openrouter_api_key=os.getenv("OPENROUTER_API_KEY", cls.openrouter_api_key),
+            openrouter_api_key_planner=os.getenv(
+                "OPENROUTER_API_KEY_PLANNER",
+                cls.openrouter_api_key_planner,
+            ),
+            openrouter_api_key_general=os.getenv(
+                "OPENROUTER_API_KEY_GENERAL",
+                cls.openrouter_api_key_general,
+            ),
             openrouter_base_url=os.getenv("OPENROUTER_BASE_URL", cls.openrouter_base_url),
             superu_enabled=os.getenv("SUPERU_ENABLED", "false").lower() in {"1", "true", "yes"},
             superu_api_url=os.getenv("SUPERU_API_URL", cls.superu_api_url),

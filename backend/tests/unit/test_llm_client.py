@@ -58,6 +58,39 @@ def test_enabled_flag_checks_api_key() -> None:
     enabled = LLMClient(settings=_base_settings())
     assert enabled.enabled is True
 
+
+def test_enabled_flag_accepts_role_specific_keys_without_primary() -> None:
+    planner_only = LLMClient(
+        settings=_base_settings(openrouter_api_key="", openrouter_api_key_planner="sk-plan", openrouter_api_key_general="")
+    )
+    assert planner_only.enabled is True
+
+    general_only = LLMClient(
+        settings=_base_settings(openrouter_api_key="", openrouter_api_key_planner="", openrouter_api_key_general="sk-gen")
+    )
+    assert general_only.enabled is True
+
+
+def test_resolve_openrouter_api_key_prefers_role_specific_then_fallback() -> None:
+    client = LLMClient(
+        settings=_base_settings(
+            openrouter_api_key="sk-primary",
+            openrouter_api_key_planner="sk-plan",
+            openrouter_api_key_general="sk-gen",
+        )
+    )
+    assert client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_PLANNER) == "sk-plan"
+    assert client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_GENERAL) == "sk-gen"
+
+    fallback_client = LLMClient(
+        settings=_base_settings(
+            openrouter_api_key="",
+            openrouter_api_key_planner="sk-plan",
+            openrouter_api_key_general="",
+        )
+    )
+    assert fallback_client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_GENERAL) == "sk-plan"
+
 def test_classify_intent_returns_none_when_disabled() -> None:
     client = LLMClient(settings=_base_settings(llm_enabled=False))
     assert client.classify_intent(message="show me shoes") is None
@@ -74,14 +107,14 @@ def test_classify_intent_enabled_when_classifier_first_policy() -> None:
             llm_decision_policy="classifier_first",
         )
     )
-    client._call_llm = lambda user_prompt, system_prompt: '{"intent":"checkout","confidence":0.9,"entities":{}}'  # type: ignore[method-assign]
+    client._call_llm = lambda user_prompt, system_prompt, role=None: '{"intent":"checkout","confidence":0.9,"entities":{}}'  # type: ignore[method-assign]
     prediction = client.classify_intent(message="checkout")
     assert prediction is not None
     assert prediction.intent == "checkout"
 
 def test_classify_intent_parses_valid_json_and_clamps_confidence() -> None:
     client = LLMClient(settings=_base_settings())
-    client._call_llm = lambda user_prompt, system_prompt: '{"intent":"apply_discount","confidence":4,"entities":{"code":"SAVE20"}}'  # type: ignore[method-assign]
+    client._call_llm = lambda user_prompt, system_prompt, role=None: '{"intent":"apply_discount","confidence":4,"entities":{"code":"SAVE20"}}'  # type: ignore[method-assign]
     prediction = client.classify_intent(message="apply code SAVE20")
     assert prediction is not None
     assert prediction.intent == "apply_discount"
@@ -90,10 +123,10 @@ def test_classify_intent_parses_valid_json_and_clamps_confidence() -> None:
 
 def test_classify_intent_rejects_unsupported_or_invalid_payload() -> None:
     client = LLMClient(settings=_base_settings())
-    client._call_llm = lambda user_prompt, system_prompt: '{"intent":"unknown","confidence":0.8}'  # type: ignore[method-assign]
+    client._call_llm = lambda user_prompt, system_prompt, role=None: '{"intent":"unknown","confidence":0.8}'  # type: ignore[method-assign]
     assert client.classify_intent(message="hello") is None
 
-    client._call_llm = lambda user_prompt, system_prompt: '{"intent":"checkout","confidence":"bad","entities":[]}'  # type: ignore[method-assign]
+    client._call_llm = lambda user_prompt, system_prompt, role=None: '{"intent":"checkout","confidence":"bad","entities":[]}'  # type: ignore[method-assign]
     parsed = client.classify_intent(message="checkout")
     assert parsed is not None
     assert parsed.confidence == 0.0
@@ -102,7 +135,7 @@ def test_classify_intent_rejects_unsupported_or_invalid_payload() -> None:
 def test_classify_intent_handles_wrapped_json_text() -> None:
     client = LLMClient(settings=_base_settings())
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: 'model said:\n{"intent":"checkout","confidence":0.73,"entities":{}}\nthanks'
+        lambda user_prompt, system_prompt, role=None: 'model said:\n{"intent":"checkout","confidence":0.73,"entities":{}}\nthanks'
     )
     prediction = client.classify_intent(message="buy now")
     assert prediction is not None
@@ -141,6 +174,37 @@ def test_call_llm_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert '"intent":"checkout"' in raw
     assert captured["url"].endswith("/chat/completions")
     assert captured["kwargs"]["headers"]["Authorization"] == "Bearer sk-test"
+
+
+def test_call_llm_uses_role_specific_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    def fake_post(url: str, **kwargs: Any) -> _DummyResponse:
+        captured["url"] = url
+        captured["kwargs"] = kwargs
+        return _DummyResponse(
+            {
+                "choices": [
+                    {
+                        "message": {
+                            "content": '{"intent":"checkout","confidence":0.9,"entities":{}}'
+                        }
+                    }
+                ]
+            }
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    client = LLMClient(
+        settings=_base_settings(
+            openrouter_api_key="sk-primary",
+            openrouter_api_key_planner="sk-plan",
+            openrouter_api_key_general="sk-gen",
+        )
+    )
+    _ = client._call_llm(user_prompt="prompt", system_prompt="system", role=LLMClient.KEY_ROLE_GENERAL)
+    assert captured["url"].endswith("/chat/completions")
+    assert captured["kwargs"]["headers"]["Authorization"] == "Bearer sk-gen"
 
 
 def test_extract_completion_content_supports_message_and_delta() -> None:
@@ -184,7 +248,7 @@ def test_call_llm_raises_when_called_inside_running_loop() -> None:
 def test_plan_actions_parses_multi_action_payload() -> None:
     client = LLMClient(settings=_planner_settings())
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"running shoes","quantity":2}},'
             '{"name":"add_item","targetAgent":"cart","params":{"query":"training backpack","quantity":1}}],'
             '"confidence":0.93,"needsClarification":false,"clarificationQuestion":""}'
@@ -203,7 +267,7 @@ def test_plan_actions_parses_multi_action_payload() -> None:
 def test_plan_actions_returns_clarification_when_requested() -> None:
     client = LLMClient(settings=_planner_settings())
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[],"confidence":0.9,"needsClarification":true,'
             '"clarificationQuestion":"Which size and color should I add?"}'
         )
@@ -217,7 +281,7 @@ def test_plan_actions_returns_clarification_when_requested() -> None:
 def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
     client = LLMClient(settings=_planner_settings())
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[{"name":"drop_database","targetAgent":"orchestrator","params":{}}],'
             '"confidence":0.99,"needsClarification":false,"clarificationQuestion":""}'
         )
@@ -225,7 +289,7 @@ def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
     assert client.plan_actions(message="do something unsafe") is None
 
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[{"name":"clear_cart","targetAgent":"cart","params":{}}],'
             '"confidence":0.2,"needsClarification":false,"clarificationQuestion":""}'
         )
@@ -235,7 +299,7 @@ def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
 def test_plan_actions_sanitizes_unknown_params() -> None:
     client = LLMClient(settings=_planner_settings())
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[{"name":"add_item","targetAgent":"cart",'
             '"params":{"query":"running shoes","quantity":2,"unsupported":"x",'
             '"items":[{"query":"bad"}]}}],'
@@ -254,7 +318,7 @@ def test_plan_actions_sanitizes_unknown_params() -> None:
 def test_plan_actions_respects_configured_limits() -> None:
     client = LLMClient(settings=_planner_settings(llm_planner_max_actions=1, llm_planner_min_confidence=0.9))
     client._call_llm = (  # type: ignore[method-assign]
-        lambda user_prompt, system_prompt: (
+        lambda user_prompt, system_prompt, role=None: (
             '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"running shoes","quantity":1}},'
             '{"name":"add_item","targetAgent":"cart","params":{"query":"hoodie","quantity":1}}],'
             '"confidence":0.91,"needsClarification":false,"clarificationQuestion":""}'

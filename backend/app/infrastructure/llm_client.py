@@ -39,6 +39,9 @@ class LLMActionPlan:
 
 
 class LLMClient:
+    KEY_ROLE_PLANNER = "planner"
+    KEY_ROLE_GENERAL = "general"
+
     SUPPORTED_INTENTS = {
         "product_search",
         "search_and_add_to_cart",
@@ -168,7 +171,22 @@ class LLMClient:
     def enabled(self) -> bool:
         if not self.settings.llm_enabled:
             return False
-        return bool(self.settings.openrouter_api_key)
+        return bool(
+            str(self.settings.openrouter_api_key).strip()
+            or str(self.settings.openrouter_api_key_planner).strip()
+            or str(self.settings.openrouter_api_key_general).strip()
+        )
+
+    def _resolve_openrouter_api_key(self, *, role: str) -> str:
+        primary = str(self.settings.openrouter_api_key or "").strip()
+        planner = str(self.settings.openrouter_api_key_planner or "").strip()
+        general = str(self.settings.openrouter_api_key_general or "").strip()
+
+        if role == self.KEY_ROLE_PLANNER:
+            return planner or primary or general
+        if role == self.KEY_ROLE_GENERAL:
+            return general or primary or planner
+        return primary or planner or general
 
     @property
     def intent_classification_enabled(self) -> bool:
@@ -189,7 +207,13 @@ class LLMClient:
             return None
         user_prompt = self._build_classification_prompt(message=message, recent_messages=recent_messages or [])
         try:
-            raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=INTENT_CLASSIFICATION_PROMPT))
+            raw = self.circuit_breaker.call(
+                lambda: self._call_llm(
+                    user_prompt=user_prompt,
+                    system_prompt=INTENT_CLASSIFICATION_PROMPT,
+                    role=self.KEY_ROLE_PLANNER,
+                )
+            )
         except CircuitBreakerOpenError:
             return None
         except (RuntimeError, ValueError, httpx.HTTPError):
@@ -229,7 +253,13 @@ class LLMClient:
             allowed_actions=sorted(self.SUPPORTED_PLANNER_ACTIONS.keys()),
         )
         try:
-            raw = self.circuit_breaker.call(lambda: self._call_llm(user_prompt=user_prompt, system_prompt=ACTION_PLANNING_PROMPT))
+            raw = self.circuit_breaker.call(
+                lambda: self._call_llm(
+                    user_prompt=user_prompt,
+                    system_prompt=ACTION_PLANNING_PROMPT,
+                    role=self.KEY_ROLE_PLANNER,
+                )
+            )
         except CircuitBreakerOpenError:
             return None
         except (RuntimeError, ValueError, httpx.HTTPError):
@@ -337,18 +367,26 @@ class LLMClient:
             return normalized_dict
         return None
 
-    def _call_llm(self, *, user_prompt: str, system_prompt: str) -> str:
+    def _call_llm(self, *, user_prompt: str, system_prompt: str, role: str = KEY_ROLE_PLANNER) -> str:
         """Synchronous wrapper for LLM calls. Handles both sync and async contexts safely."""
         try:
             asyncio.get_running_loop()
         except RuntimeError:
             # No running event loop in this thread; safe to drive the coroutine.
-            return asyncio.run(self._call_llm_async(user_prompt=user_prompt, system_prompt=system_prompt))
+            return asyncio.run(
+                self._call_llm_async(user_prompt=user_prompt, system_prompt=system_prompt, role=role)
+            )
         raise RuntimeError("Synchronous _call_llm called from async context. Use async methods instead.")
 
-    async def _call_llm_async(self, *, user_prompt: str, system_prompt: str) -> str:
+    async def _call_llm_async(
+        self,
+        *,
+        user_prompt: str,
+        system_prompt: str,
+        role: str = KEY_ROLE_PLANNER,
+    ) -> str:
         """Async method to call the LLM with retry logic for rate limiting."""
-        api_key = self.settings.openrouter_api_key
+        api_key = self._resolve_openrouter_api_key(role=role)
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
@@ -384,7 +422,9 @@ class LLMClient:
                     delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                     
                     if attempt < max_retries - 1:
-                        logger.info(f"[LLM] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        logger.info(
+                            f"[LLM:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                        )
                         await asyncio.sleep(delay)
                         continue
                     else:
@@ -402,7 +442,9 @@ class LLMClient:
                     delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                     
                     if attempt < max_retries - 1:
-                        logger.info(f"[LLM] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                        logger.info(
+                            f"[LLM:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                        )
                         await asyncio.sleep(delay)
                         continue
                 raise
@@ -410,7 +452,11 @@ class LLMClient:
     def generate_response(self, *, user_prompt: str, system_prompt: str) -> str | None:
         """Synchronous method to generate a response from the LLM."""
         try:
-            response = self._call_llm(user_prompt=user_prompt, system_prompt=system_prompt)
+            response = self._call_llm(
+                user_prompt=user_prompt,
+                system_prompt=system_prompt,
+                role=self.KEY_ROLE_GENERAL,
+            )
             if response:
                 # The LLM returns JSON, try to parse it and extract the message
                 try:
@@ -429,8 +475,14 @@ class LLMClient:
             logger.error(f"LLM generate_response failed: {e}")
             return None
 
-    async def stream_response(self, *, user_prompt: str, system_prompt: str):
-        api_key = self.settings.openrouter_api_key
+    async def stream_response(
+        self,
+        *,
+        user_prompt: str,
+        system_prompt: str,
+        role: str = KEY_ROLE_GENERAL,
+    ):
+        api_key = self._resolve_openrouter_api_key(role=role)
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
@@ -466,7 +518,9 @@ class LLMClient:
                             delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
                             
                             if attempt < max_retries - 1:
-                                logger.info(f"[LLM Stream] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                                logger.info(
+                                    f"[LLM Stream:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                                )
                                 await asyncio.sleep(delay)
                                 continue
                             else:
@@ -491,7 +545,9 @@ class LLMClient:
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429 and attempt < max_retries - 1:
                     delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=e.response.headers.get("retry-after"))
-                    logger.info(f"[LLM Stream] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    logger.info(
+                        f"[LLM Stream:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                    )
                     await asyncio.sleep(delay)
                     continue
                 raise
