@@ -1,14 +1,54 @@
 import React, { createContext, useContext, useState, useEffect } from "react";
-import { login as apiLogin, logout as apiLogout, register as apiRegister, setRefreshToken, setSessionId, setToken } from "../api";
+import {
+    login as apiLogin,
+    logout as apiLogout,
+    register as apiRegister,
+    updateProfile as apiUpdateProfile,
+    setRefreshToken,
+    setSessionId,
+    setToken,
+} from "../api";
 import type { AuthUser } from "../types";
+
+const PROFILE_COMPLETION_REQUIRED_KEY = "commerce_profile_completion_required";
+
+const isCustomerProfileComplete = (user: AuthUser | null): boolean => {
+    if (!user) return true;
+    if (String(user.role).toLowerCase() !== "customer") return true;
+    return Boolean(user.profileComplete);
+};
+
+const normalizeUser = (user: AuthUser): AuthUser => ({
+    ...user,
+    phone: user.phone ?? null,
+    timezone: user.timezone ?? null,
+    defaultShippingAddress: user.defaultShippingAddress ?? null,
+    profileComplete: Boolean(user.profileComplete),
+});
 
 interface AuthContextType {
     user: AuthUser | null;
     isAuthenticated: boolean;
     isAdmin: boolean;
+    profileCompletionRequired: boolean;
     login: (email: string, pass: string) => Promise<void>;
     loginAdmin: (email: string, pass: string, otp: string) => Promise<void>;
     register: (name: string, email: string, pass: string) => Promise<void>;
+    updateProfile: (input: {
+        name?: string;
+        phone?: string;
+        timezone?: string;
+        defaultShippingAddress?: {
+            name: string;
+            line1: string;
+            line2?: string;
+            city: string;
+            state: string;
+            postalCode: string;
+            country: string;
+        };
+    }) => Promise<AuthUser>;
+    clearProfileCompletionRequirement: () => void;
     logout: () => Promise<void>;
 }
 
@@ -17,7 +57,11 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const [user, setUser] = useState<AuthUser | null>(() => {
         const saved = localStorage.getItem("commerce_user");
-        return saved ? JSON.parse(saved) : null;
+        if (!saved) return null;
+        return normalizeUser(JSON.parse(saved) as AuthUser);
+    });
+    const [profileCompletionRequired, setProfileCompletionRequired] = useState<boolean>(() => {
+        return sessionStorage.getItem(PROFILE_COMPLETION_REQUIRED_KEY) === "1";
     });
 
     const isAuthenticated = !!user;
@@ -35,10 +79,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return () => window.removeEventListener("auth:expired", handleExpired);
     }, []);
 
-    const _applyAuth = (res: { user: AuthUser; sessionId?: string }) => {
-        setUser(res.user);
+    const _applyAuth = (res: { user: AuthUser; sessionId?: string }, options?: { fromRegister?: boolean }) => {
+        const normalizedUser = normalizeUser(res.user);
+        setUser(normalizedUser);
         if (res.sessionId) setSessionId(res.sessionId);
-        localStorage.setItem("commerce_user", JSON.stringify(res.user));
+        localStorage.setItem("commerce_user", JSON.stringify(normalizedUser));
+        if (options?.fromRegister && !isCustomerProfileComplete(normalizedUser)) {
+            sessionStorage.setItem(PROFILE_COMPLETION_REQUIRED_KEY, "1");
+            setProfileCompletionRequired(true);
+        }
     };
 
     const login = async (email: string, pass: string) => {
@@ -59,7 +108,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const register = async (name: string, email: string, pass: string) => {
         const res = await apiRegister({ name, email, password: pass });
-        _applyAuth(res);
+        _applyAuth(res, { fromRegister: true });
+    };
+
+    const updateProfile = async (input: {
+        name?: string;
+        phone?: string;
+        timezone?: string;
+        defaultShippingAddress?: {
+            name: string;
+            line1: string;
+            line2?: string;
+            city: string;
+            state: string;
+            postalCode: string;
+            country: string;
+        };
+    }): Promise<AuthUser> => {
+        const response = await apiUpdateProfile(input);
+        const normalized = normalizeUser(response.user);
+        setUser(normalized);
+        localStorage.setItem("commerce_user", JSON.stringify(normalized));
+        if (isCustomerProfileComplete(normalized)) {
+            sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
+            setProfileCompletionRequired(false);
+        }
+        return normalized;
+    };
+
+    const clearProfileCompletionRequirement = () => {
+        sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
+        setProfileCompletionRequired(false);
     };
 
     const logout = async () => {
@@ -72,11 +151,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setToken(null);
         setRefreshToken(null);
         setSessionId(null);
+        sessionStorage.removeItem(PROFILE_COMPLETION_REQUIRED_KEY);
+        setProfileCompletionRequired(false);
         localStorage.removeItem("commerce_user");
     };
 
     return (
-        <AuthContext.Provider value={{ user, isAuthenticated, isAdmin, login, loginAdmin, register, logout }}>
+        <AuthContext.Provider
+            value={{
+                user,
+                isAuthenticated,
+                isAdmin,
+                profileCompletionRequired,
+                login,
+                loginAdmin,
+                register,
+                updateProfile,
+                clearProfileCompletionRequirement,
+                logout,
+            }}
+        >
             {children}
         </AuthContext.Provider>
     );

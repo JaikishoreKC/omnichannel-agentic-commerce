@@ -26,10 +26,11 @@ const AuthPage: React.FC = () => {
         try {
             if (mode === "login") {
                 await login(formData.email, formData.password);
+                navigate(redirectUrl);
             } else {
                 await register(formData.name, formData.email, formData.password);
+                navigate("/complete-profile", { replace: true });
             }
-            navigate(redirectUrl);
         } catch (err) {
             setError(err instanceof Error ? err.message : "Authentication failed");
         } finally {

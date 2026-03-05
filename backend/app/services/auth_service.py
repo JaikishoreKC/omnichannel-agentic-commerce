@@ -52,6 +52,7 @@ class AuthService:
             "lastLoginAt": now,
             "phone": phone.strip() if isinstance(phone, str) and phone.strip() else None,
             "timezone": timezone.strip() if isinstance(timezone, str) and timezone.strip() else None,
+            "defaultShippingAddress": None,
         }
         self.auth_repository.create_user(user)
         return self._issue_tokens(user)
@@ -206,6 +207,85 @@ class AuthService:
         self.auth_repository.update_user(user)
         return user
 
+    def get_profile(self, user_id: str) -> dict[str, Any]:
+        user = self.auth_repository.get_user_by_id(user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        return self._to_public_user(user)
+
+    def update_profile(
+        self,
+        user_id: str,
+        *,
+        name: str | None,
+        phone: str | None,
+        timezone: str | None,
+        default_shipping_address: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        user = self.auth_repository.get_user_by_id(user_id)
+        if user is None:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        if isinstance(name, str) and name.strip():
+            user["name"] = name.strip()
+        user["phone"] = self._normalize_text(phone)
+        user["timezone"] = self._normalize_text(timezone)
+        user["defaultShippingAddress"] = self._normalize_profile_address(default_shipping_address)
+        user["updatedAt"] = iso_now()
+        self.auth_repository.update_user(user)
+        return self._to_public_user(user)
+
+    def _normalize_text(self, value: str | None) -> str | None:
+        if not isinstance(value, str):
+            return None
+        trimmed = value.strip()
+        return trimmed if trimmed else None
+
+    def _normalize_profile_address(self, address: dict[str, Any] | None) -> dict[str, Any] | None:
+        if not isinstance(address, dict):
+            return None
+        normalized: dict[str, Any] = {}
+        for key in ("name", "line1", "line2", "city", "state", "postalCode", "country"):
+            value = address.get(key)
+            if isinstance(value, str):
+                text = value.strip()
+                if text:
+                    normalized[key] = text
+            elif value is not None and key == "line2":
+                normalized[key] = value
+
+        required = ("name", "line1", "city", "state", "postalCode", "country")
+        if not all(isinstance(normalized.get(field), str) and str(normalized.get(field)).strip() for field in required):
+            return None
+        return normalized
+
+    def _is_profile_complete(self, user: dict[str, Any]) -> bool:
+        phone = user.get("phone")
+        default_address = user.get("defaultShippingAddress")
+        if not isinstance(phone, str) or not phone.strip():
+            return False
+        if not isinstance(default_address, dict):
+            return False
+        required = ("name", "line1", "city", "state", "postalCode", "country")
+        return all(isinstance(default_address.get(field), str) and str(default_address.get(field)).strip() for field in required)
+
+    def _to_public_user(self, user: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"],
+            "status": user.get("status", "active"),
+            "createdAt": user["createdAt"],
+            "phone": user.get("phone"),
+            "timezone": user.get("timezone"),
+            "defaultShippingAddress": deepcopy(user.get("defaultShippingAddress"))
+            if isinstance(user.get("defaultShippingAddress"), dict)
+            else None,
+            "profileComplete": self._is_profile_complete(user),
+            "identity": deepcopy(user.get("identity")) if isinstance(user.get("identity"), dict) else None,
+        }
+
     def _issue_tokens(self, user: dict[str, Any]) -> dict[str, Any]:
         access_token = create_token(
             subject=user["id"],
@@ -229,17 +309,7 @@ class AuthService:
             },
         )
 
-        public_user = {
-            "id": user["id"],
-            "email": user["email"],
-            "name": user["name"],
-            "role": user["role"],
-            "status": user.get("status", "active"),
-            "createdAt": user["createdAt"],
-            "phone": user.get("phone"),
-            "timezone": user.get("timezone"),
-            "identity": deepcopy(user.get("identity")) if isinstance(user.get("identity"), dict) else None,
-        }
+        public_user = self._to_public_user(user)
         return {
             "user": public_user,
             "accessToken": access_token,

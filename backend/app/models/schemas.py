@@ -32,6 +32,16 @@ class PasswordResetConfirmRequest(BaseModel):
     newPassword: str = Field(min_length=8)
 
 
+class ProfileAddress(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+    line1: str = Field(min_length=1, max_length=200)
+    city: str = Field(min_length=1, max_length=100)
+    state: str = Field(min_length=2, max_length=100)
+    postalCode: str = Field(min_length=3, max_length=16)
+    country: str = Field(min_length=2, max_length=2)
+    line2: str | None = None
+
+
 class AuthUser(BaseModel):
     id: str
     email: str
@@ -41,7 +51,16 @@ class AuthUser(BaseModel):
     createdAt: str
     phone: str | None = None
     timezone: str | None = None
+    defaultShippingAddress: ProfileAddress | None = None
+    profileComplete: bool = False
     identity: dict[str, Any] | None = None
+
+
+class AuthProfileUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1)
+    phone: str | None = None
+    timezone: str | None = None
+    defaultShippingAddress: ProfileAddress | None = None
 
 
 class AuthResponse(BaseModel):
@@ -82,14 +101,8 @@ class ApplyDiscountRequest(BaseModel):
     code: str
 
 
-class ShippingAddress(BaseModel):
-    name: str = Field(min_length=1, max_length=120)
-    line1: str = Field(min_length=1, max_length=200)
-    city: str = Field(min_length=1, max_length=100)
-    state: str = Field(min_length=2, max_length=100)
-    postalCode: str = Field(min_length=3, max_length=16)
-    country: str = Field(min_length=2, max_length=2)
-    line2: str | None = None
+class ShippingAddress(ProfileAddress):
+    pass
 
 
 class PaymentMethod(BaseModel):

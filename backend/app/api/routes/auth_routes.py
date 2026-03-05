@@ -2,10 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Cookie, HTTPException, Request, Response
+from fastapi import APIRouter, Cookie, Depends, HTTPException, Request, Response
 
-from app.api.deps import ACCESS_COOKIE_KEY, get_auth_service, get_cart_service, get_session_service, get_settings
+from app.api.deps import (
+    ACCESS_COOKIE_KEY,
+    get_auth_service,
+    get_cart_service,
+    get_current_user,
+    get_session_service,
+    get_settings,
+)
 from app.models.schemas import (
+    AuthProfileUpdateRequest,
     LoginRequest,
     PasswordResetConfirmRequest,
     PasswordResetRequest,
@@ -154,6 +162,28 @@ def refresh(
         refresh_token=str(result.get("refreshToken", "")),
     )
     return result
+
+
+@router.get("/profile")
+def get_profile(user: dict[str, Any] = Depends(get_current_user)) -> dict[str, object]:
+    profile = auth_service.get_profile(user_id=str(user["id"]))
+    return {"user": profile}
+
+
+@router.patch("/profile")
+def update_profile(
+    payload: AuthProfileUpdateRequest,
+    user: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, object]:
+    updates = payload.model_dump(exclude_unset=True)
+    profile = auth_service.update_profile(
+        user_id=str(user["id"]),
+        name=updates.get("name"),
+        phone=updates.get("phone"),
+        timezone=updates.get("timezone"),
+        default_shipping_address=updates.get("defaultShippingAddress"),
+    )
+    return {"user": profile}
 
 
 @router.post("/logout", status_code=204, response_class=Response)

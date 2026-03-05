@@ -267,6 +267,7 @@ class InMemoryStore:
             "lastLoginAt": now,
             "phone": None,
             "timezone": None,
+            "defaultShippingAddress": None,
         }
         self.users_by_id[admin_id] = admin
         self.user_ids_by_email[admin["email"]] = admin_id

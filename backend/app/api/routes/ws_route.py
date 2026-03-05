@@ -53,7 +53,13 @@ async def _ensure_active_session(
     logger.info("_ensure_active_session called", source=source)
 
     if resolved_session_id and cookie_session_id and resolved_session_id != cookie_session_id:
-        raise HTTPException(status_code=403, detail="Session mismatch")
+        logger.warning(
+            "WebSocket session mismatch detected; preferring cookie session",
+            source=source,
+            candidate_session_id=resolved_session_id,
+            cookie_session_id=cookie_session_id,
+        )
+        resolved_session_id = cookie_session_id
 
     if resolved_session_id:
         try:

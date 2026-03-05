@@ -56,6 +56,18 @@ export interface AuthUser {
   role: string;
   status?: string;
   createdAt: string;
+  phone?: string | null;
+  timezone?: string | null;
+  defaultShippingAddress?: {
+    name: string;
+    line1: string;
+    line2?: string | null;
+    city: string;
+    state: string;
+    postalCode: string;
+    country: string;
+  } | null;
+  profileComplete?: boolean;
   identity?: {
     anonymousId: string | null;
     linkedChannels: Array<{ provider: string; externalId: string }>;

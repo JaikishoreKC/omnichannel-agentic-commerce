@@ -87,6 +87,8 @@ Common codes:
 - `POST /auth/register`
 - `POST /auth/login`
 - `POST /auth/refresh`
+- `GET /auth/profile` (authenticated)
+- `PATCH /auth/profile` (authenticated)
 - `POST /auth/reset-password-request`
 - `POST /auth/reset-password`
 
@@ -116,6 +118,18 @@ Example register response (shape):
     "email": "user@example.com",
     "name": "John Doe",
     "role": "customer",
+    "phone": "+15551234567",
+    "timezone": "America/Chicago",
+    "defaultShippingAddress": {
+      "name": "John Doe",
+      "line1": "123 Commerce Street",
+      "line2": "Apt 4B",
+      "city": "Chicago",
+      "state": "IL",
+      "postalCode": "60601",
+      "country": "US"
+    },
+    "profileComplete": true,
     "createdAt": "2026-02-23T00:00:00+00:00",
     "identity": {
       "anonymousId": "anon_session_000001",
@@ -133,6 +147,15 @@ Example register response (shape):
   "sessionId": "session_000001"
 }
 ```
+
+`PATCH /auth/profile` accepts partial updates for:
+
+- `name`
+- `phone`
+- `timezone`
+- `defaultShippingAddress` (`name`, `line1`, optional `line2`, `city`, `state`, `postalCode`, `country`)
+
+`GET /auth/profile` and `PATCH /auth/profile` both return `{ "user": AuthUser }` including computed `profileComplete`.
 
 ### Products
 

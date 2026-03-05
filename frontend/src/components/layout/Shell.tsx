@@ -5,7 +5,7 @@ import { useLocation } from "react-router-dom";
 
 const Shell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const location = useLocation();
-    const isAuthPage = ["/login", "/register"].includes(location.pathname);
+    const isAuthPage = ["/login", "/register", "/complete-profile"].includes(location.pathname);
 
     return (
         <div className="min-h-screen flex flex-col">

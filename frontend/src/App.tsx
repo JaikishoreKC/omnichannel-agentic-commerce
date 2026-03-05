@@ -1,5 +1,5 @@
 import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { Shell } from "./components/layout/Shell";
 import { useAuth } from "./context/AuthContext";
 
@@ -15,6 +15,7 @@ import { AdminDashboard } from "./pages/AdminDashboard";
 import { AdminLoginPage } from "./pages/AdminLoginPage";
 import { ForgotPasswordPage } from "./pages/ForgotPasswordPage";
 import { ResetPasswordPage } from "./pages/ResetPasswordPage";
+import { ProfileCompletionPage } from "./pages/ProfileCompletionPage";
 
 // Guard: redirect to admin login if not an admin
 const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -24,9 +25,21 @@ const AdminRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
+const ProfileCompletionGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const location = useLocation();
+  const { isAuthenticated, profileCompletionRequired, user } = useAuth();
+  const isCustomer = String(user?.role || "").toLowerCase() === "customer";
+  const requiresCompletion = isAuthenticated && isCustomer && profileCompletionRequired;
+  if (requiresCompletion && location.pathname !== "/complete-profile") {
+    return <Navigate to="/complete-profile" replace />;
+  }
+  return <>{children}</>;
+};
+
 const App: React.FC = () => {
   return (
-    <Routes>
+    <ProfileCompletionGate>
+      <Routes>
       {/* ── Admin routes (no Shell, no Navbar, no ChatPanel) ── */}
       <Route path="/admin/login" element={<AdminLoginPage />} />
       <Route
@@ -50,6 +63,7 @@ const App: React.FC = () => {
               <Route path="/cart" element={<CartPage />} />
               <Route path="/login" element={<AuthPage />} />
               <Route path="/register" element={<AuthPage />} />
+              <Route path="/complete-profile" element={<ProfileCompletionPage />} />
               <Route path="/forgot-password" element={<ForgotPasswordPage />} />
               <Route path="/reset-password" element={<ResetPasswordPage />} />
               <Route path="/account" element={<AccountPage />} />
@@ -59,7 +73,8 @@ const App: React.FC = () => {
           </Shell>
         }
       />
-    </Routes>
+      </Routes>
+    </ProfileCompletionGate>
   );
 };
 

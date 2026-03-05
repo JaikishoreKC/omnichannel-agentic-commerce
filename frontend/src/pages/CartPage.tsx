@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ShoppingBag, Trash2, Plus, Minus, ArrowRight, CreditCard, Truck, ShieldCheck, X } from "lucide-react";
 import { useCart } from "../context/CartContext";
@@ -20,7 +20,7 @@ interface CheckoutFormData {
 
 const CartPage: React.FC = () => {
     const { cart, refreshCart, updateItemQuantity, removeItem, isLoading: isCartLoading } = useCart();
-    const { isAuthenticated } = useAuth();
+    const { isAuthenticated, user } = useAuth();
     const { addToast } = useToast();
     const navigate = useNavigate();
     const [isCheckingOut, setIsCheckingOut] = useState(false);
@@ -31,6 +31,19 @@ const CartPage: React.FC = () => {
     const [form, setForm] = useState<CheckoutFormData>({
         name: "", line1: "", city: "", state: "", postalCode: "", country: "US"
     });
+
+    useEffect(() => {
+        if (!user) return;
+        setForm((prev) => ({
+            ...prev,
+            name: user.defaultShippingAddress?.name ?? user.name ?? prev.name,
+            line1: user.defaultShippingAddress?.line1 ?? prev.line1,
+            city: user.defaultShippingAddress?.city ?? prev.city,
+            state: user.defaultShippingAddress?.state ?? prev.state,
+            postalCode: user.defaultShippingAddress?.postalCode ?? prev.postalCode,
+            country: user.defaultShippingAddress?.country ?? prev.country,
+        }));
+    }, [user]);
 
     const handleApplyDiscount = async () => {
         if (!discountCode.trim()) return;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { User, LogOut, Package, Shield, ExternalLink, QrCode, Clock, CheckCircle2, Truck, AlertCircle, BrainCircuit, LifeBuoy, Heart, Settings } from "lucide-react";
+import { User, LogOut, Package, Shield, ExternalLink, QrCode, Clock, CheckCircle2, Truck, AlertCircle, BrainCircuit, LifeBuoy, Heart, Settings, MapPin, Save } from "lucide-react";
 import { useAuth } from "../context/AuthContext";
 import { Button } from "../components/ui/Button";
 import { Badge } from "../components/ui/Badge";
@@ -10,13 +10,28 @@ import { cn } from "../utils/cn";
 import { AiMemoryTab } from "../components/account/AiMemoryTab";
 import { SupportTicketsTab } from "../components/account/SupportTicketsTab";
 import { WishlistTab } from "../components/account/WishlistTab";
+import { Input } from "../components/ui/Input";
 
 const AccountPage: React.FC = () => {
-    const { user, logout } = useAuth();
+    const { user, logout, updateProfile } = useAuth();
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState("orders");
     const [orders, setOrders] = useState<Order[]>([]);
     const [isLoadingOrders, setIsLoadingOrders] = useState(true);
+    const [profileForm, setProfileForm] = useState({
+        name: "",
+        phone: "",
+        timezone: "",
+        line1: "",
+        line2: "",
+        city: "",
+        state: "",
+        postalCode: "",
+        country: "",
+    });
+    const [isSavingProfile, setIsSavingProfile] = useState(false);
+    const [profileMessage, setProfileMessage] = useState<string | null>(null);
+    const [profileError, setProfileError] = useState<string | null>(null);
 
     useEffect(() => {
         const load = async () => {
@@ -31,6 +46,21 @@ const AccountPage: React.FC = () => {
         };
         load();
     }, []);
+
+    useEffect(() => {
+        if (!user) return;
+        setProfileForm({
+            name: user.name ?? "",
+            phone: user.phone ?? "",
+            timezone: user.timezone ?? "",
+            line1: user.defaultShippingAddress?.line1 ?? "",
+            line2: user.defaultShippingAddress?.line2 ?? "",
+            city: user.defaultShippingAddress?.city ?? "",
+            state: user.defaultShippingAddress?.state ?? "",
+            postalCode: user.defaultShippingAddress?.postalCode ?? "",
+            country: user.defaultShippingAddress?.country ?? "",
+        });
+    }, [user]);
 
     type AccountTab = "orders" | "memory" | "support" | "wishlist" | "settings";
     const tabs: Array<{ id: AccountTab; label: string; icon: React.ElementType }> = [
@@ -58,6 +88,46 @@ const AccountPage: React.FC = () => {
             case "shipped": return <Truck size={16} className="text-blue-500" />;
             case "delivered": return <CheckCircle2 size={16} className="text-emerald-500" />;
             default: return <AlertCircle size={16} className="text-slate-400" />;
+        }
+    };
+
+    const onSaveProfile = async (event: React.FormEvent) => {
+        event.preventDefault();
+        setProfileMessage(null);
+        setProfileError(null);
+
+        if (!profileForm.phone.trim()) {
+            setProfileError("Mobile number is required.");
+            return;
+        }
+
+        const requiredAddress = [profileForm.line1, profileForm.city, profileForm.state, profileForm.postalCode, profileForm.country];
+        if (requiredAddress.some((value) => !value.trim())) {
+            setProfileError("Please complete your default shipping address.");
+            return;
+        }
+
+        setIsSavingProfile(true);
+        try {
+            await updateProfile({
+                name: profileForm.name,
+                phone: profileForm.phone,
+                timezone: profileForm.timezone,
+                defaultShippingAddress: {
+                    name: profileForm.name,
+                    line1: profileForm.line1,
+                    line2: profileForm.line2 || undefined,
+                    city: profileForm.city,
+                    state: profileForm.state,
+                    postalCode: profileForm.postalCode,
+                    country: profileForm.country,
+                },
+            });
+            setProfileMessage("Profile updated successfully.");
+        } catch (error) {
+            setProfileError(error instanceof Error ? error.message : "Failed to update profile.");
+        } finally {
+            setIsSavingProfile(false);
         }
     };
 
@@ -211,6 +281,100 @@ const AccountPage: React.FC = () => {
 
             {activeTab === "settings" && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fade-in">
+                    <div className="premium-card space-y-6 md:col-span-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-xl bg-surface-100 flex items-center justify-center text-slate-600">
+                                <User size={20} />
+                            </div>
+                            <h3 className="text-lg font-bold">Profile Details</h3>
+                        </div>
+
+                        <form onSubmit={onSaveProfile} className="space-y-5">
+                            {profileError && (
+                                <div className="p-3 rounded-xl bg-red-50 border border-red-100 text-red-600 text-sm font-medium">
+                                    {profileError}
+                                </div>
+                            )}
+                            {profileMessage && (
+                                <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-700 text-sm font-medium">
+                                    {profileMessage}
+                                </div>
+                            )}
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <Input
+                                    label="Full Name"
+                                    value={profileForm.name}
+                                    onChange={(event) => setProfileForm((prev) => ({ ...prev, name: event.target.value }))}
+                                />
+                                <Input
+                                    label="Mobile Number"
+                                    value={profileForm.phone}
+                                    onChange={(event) => setProfileForm((prev) => ({ ...prev, phone: event.target.value }))}
+                                    required
+                                    data-testid="account-mobile-input"
+                                />
+                            </div>
+                            <Input
+                                label="Timezone"
+                                value={profileForm.timezone}
+                                onChange={(event) => setProfileForm((prev) => ({ ...prev, timezone: event.target.value }))}
+                                placeholder="UTC"
+                            />
+
+                            <div className="space-y-4 pt-2">
+                                <div className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                                    <MapPin size={16} /> Default Shipping Address
+                                </div>
+                                <Input
+                                    label="Address Line 1"
+                                    value={profileForm.line1}
+                                    onChange={(event) => setProfileForm((prev) => ({ ...prev, line1: event.target.value }))}
+                                    required
+                                />
+                                <Input
+                                    label="Address Line 2 (Optional)"
+                                    value={profileForm.line2}
+                                    onChange={(event) => setProfileForm((prev) => ({ ...prev, line2: event.target.value }))}
+                                />
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Input
+                                        label="City"
+                                        value={profileForm.city}
+                                        onChange={(event) => setProfileForm((prev) => ({ ...prev, city: event.target.value }))}
+                                        required
+                                    />
+                                    <Input
+                                        label="State"
+                                        value={profileForm.state}
+                                        onChange={(event) => setProfileForm((prev) => ({ ...prev, state: event.target.value }))}
+                                        required
+                                    />
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <Input
+                                        label="Postal Code"
+                                        value={profileForm.postalCode}
+                                        onChange={(event) => setProfileForm((prev) => ({ ...prev, postalCode: event.target.value }))}
+                                        required
+                                    />
+                                    <Input
+                                        label="Country"
+                                        value={profileForm.country}
+                                        onChange={(event) => setProfileForm((prev) => ({ ...prev, country: event.target.value }))}
+                                        required
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end">
+                                <Button type="submit" className="rounded-xl gap-2" isLoading={isSavingProfile}>
+                                    <Save size={16} /> Save Profile
+                                </Button>
+                            </div>
+                        </form>
+                    </div>
+
                     {sections.map((section, idx) => (
                         <div key={idx} className="premium-card space-y-6">
                             <div className="flex items-center gap-3">
