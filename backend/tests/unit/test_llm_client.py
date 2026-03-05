@@ -141,6 +141,25 @@ def test_call_llm_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert captured["url"].endswith("/chat/completions")
     assert captured["kwargs"]["headers"]["Authorization"] == "Bearer sk-test"
 
+
+def test_extract_completion_content_supports_message_and_delta() -> None:
+    assert (
+        LLMClient._extract_completion_content(
+            {"choices": [{"message": {"content": "message content"}}]}
+        )
+        == "message content"
+    )
+    assert (
+        LLMClient._extract_completion_content(
+            {"choices": [{"delta": {"content": "delta content"}}]}
+        )
+        == "delta content"
+    )
+
+
+def test_extract_stream_content_returns_empty_string_for_unknown_shape() -> None:
+    assert LLMClient._extract_stream_content({"choices": [{"foo": "bar"}]}) == ""
+
 def test_call_llm_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     client = LLMClient(settings=_base_settings())
 

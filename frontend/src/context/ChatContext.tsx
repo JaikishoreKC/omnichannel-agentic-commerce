@@ -49,18 +49,18 @@ function shouldRefreshCart(payload: ChatResponsePayload): boolean {
 }
 
 export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-    const { sessionId, isLoading: isSessionLoading } = useSession();
+    const { sessionId, isLoading: isSessionLoading, refreshSession } = useSession();
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
     const [isConnected, setIsConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
-    const connectingRef = useRef(false);  // Track connecting state to avoid race conditions
+    const connectingRef = useRef(false);
+    const recoveringHistoryRef = useRef(false);
 
-    const loadHistory = useCallback(async () => {
-        if (!sessionId) return;
+    const loadHistory = useCallback(async (activeSessionId: string) => {
         try {
-            const history = await fetchChatHistory({ sessionId });
+            const history = await fetchChatHistory({ sessionId: activeSessionId });
             const mapped: Message[] = history.messages.map((m: HistoryMessage) => ({
                 id: m.id,
                 role: m.role || (m.userId ? "user" : "assistant"),
@@ -69,23 +69,32 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 agent: m.agent,
             }));
             setMessages(mapped);
-        } catch {
+            recoveringHistoryRef.current = false;
+        } catch (err) {
+            const detail = err instanceof Error ? err.message : "";
+            const isSessionMismatch = /session mismatch/i.test(detail) || /^403\b/.test(detail);
+            if (isSessionMismatch && !recoveringHistoryRef.current) {
+                recoveringHistoryRef.current = true;
+                await refreshSession();
+                return;
+            }
+            recoveringHistoryRef.current = false;
             setMessages([]);
         }
-    }, [sessionId]);
+    }, [refreshSession]);
 
     useEffect(() => {
         if (!sessionId || isSessionLoading) {
             return;
         }
 
-        loadHistory();
+        void loadHistory(sessionId);
 
         let reconnectTimer: ReturnType<typeof setTimeout> | undefined;
         let attempts = 0;
 
         const connect = () => {
-            // Don't attempt if already connecting or connected - use ref to avoid race condition
+            // Guard against duplicate in-flight connection attempts.
             if (connectingRef.current || socketRef.current?.readyState === WebSocket.OPEN) {
                 return;
             }
@@ -110,7 +119,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                         connect();
                     }, delay);
                 },
-                onError: () => undefined,
+                onError: () => {
+                    connectingRef.current = false;
+                    setIsConnecting(false);
+                },
                 onSession: () => undefined,
                 onTyping: ({ isTyping }) => setIsTyping(isTyping),
                 onMessage: (payload, streamId) => {
@@ -170,16 +182,16 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 socketRef.current.close();
             }
         };
-    }, [sessionId, loadHistory]);
+    }, [isSessionLoading, loadHistory, sessionId]);
 
     const sendMessage = (text: string) => {
-        // Only send when socket is actually open - checking readyState for reliability
+        // Only send when socket is actually open.
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
             socketRef.current.send(JSON.stringify({ 
                 type: "message", 
                 payload: { 
                     content: text,
-                    stream: true  // Enable streaming for proper LLM responses
+                    stream: true
                 } 
             }));
             setMessages((prev) => [

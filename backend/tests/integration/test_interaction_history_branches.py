@@ -91,6 +91,31 @@ def test_guest_history_requires_session_id() -> None:
     assert "sessionId is required" in str(error.get("message", ""))
 
 
+def test_guest_history_prefers_explicit_session_over_cookie() -> None:
+    client = TestClient(app)
+    requested_session_id = _create_session(client)
+    cookie_session_id = _create_session(client)
+
+    client.cookies.set("session_id", cookie_session_id)
+    response = client.get(f"/v1/interactions/history?sessionId={requested_session_id}")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sessionId"] == requested_session_id
+
+
+def test_guest_history_uses_cookie_session_when_query_missing() -> None:
+    client = TestClient(app)
+    cookie_session_id = _create_session(client)
+
+    client.cookies.set("session_id", cookie_session_id)
+    response = client.get("/v1/interactions/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sessionId"] == cookie_session_id
+
+
 def test_process_message_creates_session_when_missing_and_handles_identity_link_failure(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

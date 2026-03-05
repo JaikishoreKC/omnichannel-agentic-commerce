@@ -357,6 +357,26 @@ def test_auth_repository_roundtrip_user_and_refresh() -> None:
     assert repo.get_refresh_token("refresh_token_1") is None
 
 
+def test_auth_repository_skips_invalid_user_without_id() -> None:
+    mongo_manager, redis_manager = _fake_managers()
+    repo = AuthRepository(
+        mongo_manager=mongo_manager,
+        redis_manager=redis_manager,
+    )
+
+    repo.create_user(
+        {
+            "email": "missing-id@example.com",
+            "name": "Missing Id",
+            "passwordHash": "hash",
+            "role": "customer",
+        }
+    )
+
+    users_collection = mongo_manager.client.get_default_database()["users"]
+    assert users_collection.find_one({"email": "missing-id@example.com"}) is None
+
+
 def test_interaction_repository_roundtrip_in_memory() -> None:
     store = InMemoryStore()
     mongo_manager, redis_manager = _fake_managers()

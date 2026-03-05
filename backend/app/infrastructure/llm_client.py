@@ -395,10 +395,7 @@ class LLMClient:
                 
                 response.raise_for_status()
                 payload = response.json()
-                choices = payload.get("choices", [])
-                if not choices:
-                    raise ValueError("No choices returned from OpenRouter")
-                content = choices[0].get("message", {}).get("content")
+                content = self._extract_completion_content(payload)
                 if not isinstance(content, str):
                     raise ValueError("Invalid OpenRouter response content")
                 return content
@@ -488,7 +485,7 @@ class LLMClient:
                                     break
                                 try:
                                     data = json.loads(data_str)
-                                    delta = data.get("choices", [{}])[0].get("delta", {}).get("content", "")
+                                    delta = self._extract_stream_content(data)
                                     if delta:
                                         yield delta
                                 except json.JSONDecodeError:
@@ -501,6 +498,31 @@ class LLMClient:
                     await asyncio.sleep(delay)
                     continue
                 raise
+
+    @staticmethod
+    def _extract_completion_content(payload: dict[str, Any]) -> str | None:
+        choices = payload.get("choices", [])
+        if not isinstance(choices, list) or not choices:
+            return None
+        first_choice = choices[0] if isinstance(choices[0], dict) else {}
+        message = first_choice.get("message")
+        if isinstance(message, dict):
+            content = message.get("content")
+            if isinstance(content, str):
+                return content
+        delta = first_choice.get("delta")
+        if isinstance(delta, dict):
+            content = delta.get("content")
+            if isinstance(content, str):
+                return content
+        return None
+
+    @staticmethod
+    def _extract_stream_content(payload: dict[str, Any]) -> str:
+        content = LLMClient._extract_completion_content(payload)
+        if isinstance(content, str):
+            return content
+        return ""
 
     @staticmethod
     def _retry_delay_seconds(*, attempt: int, base_delay: float, retry_after: str | None) -> float:

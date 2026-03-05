@@ -55,11 +55,13 @@ async def _ensure_active_session(
 
     if resolved_session_id and cookie_session_id and resolved_session_id != cookie_session_id:
         logger.warning(
-            "WebSocket session mismatch detected; preferring cookie session",
+            "WebSocket session mismatch detected; keeping explicit session id",
             source=source,
             candidate_session_id=resolved_session_id,
             cookie_session_id=cookie_session_id,
         )
+
+    if not resolved_session_id and cookie_session_id:
         resolved_session_id = cookie_session_id
 
     if resolved_session_id:

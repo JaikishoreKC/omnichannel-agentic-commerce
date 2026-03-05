@@ -38,6 +38,26 @@ def test_interaction_search_and_add_to_cart_guest() -> None:
     assert cart.json()["itemCount"] >= 1
 
 
+def test_interaction_message_prefers_explicit_session_over_cookie_for_guest() -> None:
+    client = TestClient(app)
+    explicit_session_id = _create_session(client)
+    cookie_session_id = _create_session(client)
+
+    client.cookies.set("session_id", cookie_session_id)
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": explicit_session_id,
+            "content": "show me running shoes",
+            "channel": "web",
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["sessionId"] == explicit_session_id
+
+
 def test_interaction_checkout_requires_auth_then_succeeds() -> None:
     client = TestClient(app)
     session_id = _create_session(client)

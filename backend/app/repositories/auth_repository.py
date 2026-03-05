@@ -213,9 +213,13 @@ class AuthRepository:
         collection = self._mongo_users_collection()
         if collection is None:
             return
+        user_id = str(user.get("id", "")).strip()
+        email = str(user.get("email", "")).strip().lower()
+        if not user_id or not email:
+            return
         collection.update_one(
-            {"userId": user["id"]},
-            {"$set": {"userId": user["id"], **deepcopy(user)}},
+            {"userId": user_id},
+            {"$set": {"userId": user_id, **deepcopy(user)}},
             upsert=True,
         )
 

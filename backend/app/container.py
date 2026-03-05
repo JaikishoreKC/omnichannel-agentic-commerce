@@ -265,7 +265,18 @@ class Container:
             try:
                 if not self.auth_repository.list_all_users(limit=1):
                     for user in self.store.users_by_id.values():
-                        self.auth_repository.create_user(deepcopy(user))
+                        user_id = str(user.get("id", "")).strip() if isinstance(user, dict) else ""
+                        if not user_id:
+                            self.logger.warning("baseline_seed_skipped_user", reason="missing_id")
+                            continue
+                        try:
+                            self.auth_repository.create_user(deepcopy(user))
+                        except Exception as user_exc:
+                            self.logger.warning(
+                                "baseline_seed_user_failed",
+                                user_id=user_id,
+                                error=str(user_exc),
+                            )
 
                 if not self.product_repository.list_all():
                     for product in self.store.products_by_id.values():

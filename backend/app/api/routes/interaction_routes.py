@@ -30,20 +30,43 @@ orchestrator = get_orchestrator()
 session_service = get_session_service()
 
 
+def _resolve_request_session_id(
+    *,
+    request: Request,
+    explicit_session_id: str | None,
+    source: str,
+) -> str:
+    requested_session_id = str(explicit_session_id or "").strip()
+    cookie_session_id = str(request.cookies.get("session_id") or "").strip()
+
+    if requested_session_id and cookie_session_id and requested_session_id != cookie_session_id:
+        logger.warning(
+            "Session mismatch detected; keeping explicit session id",
+            source=source,
+            requested_session_id=requested_session_id,
+            cookie_session_id=cookie_session_id,
+        )
+
+    if requested_session_id:
+        return requested_session_id
+    return cookie_session_id
+
+
 @router.post("/message")
 async def process_message(
     payload: InteractionMessageRequest,
     request: Request,
     user: dict[str, object] | None = Depends(get_optional_user),
 ) -> dict[str, object]:
-    cookie_session_id = str(request.cookies.get("session_id") or "").strip()
-    payload_session_id = str(payload.sessionId or "").strip()
-    if not user and cookie_session_id and payload_session_id and cookie_session_id != payload_session_id:
-        raise HTTPException(status_code=403, detail="Session mismatch")
+    resolved_session_id = _resolve_request_session_id(
+        request=request,
+        explicit_session_id=payload.sessionId,
+        source="interactions_message",
+    )
 
     session = await get_or_create_session(
         session_service=session_service,
-        session_id=payload.sessionId,
+        session_id=resolved_session_id or None,
         channel=payload.channel,
         anonymous_id=request.headers.get("X-Anonymous-Id"),
         user_agent=request.headers.get("User-Agent"),
@@ -61,10 +84,10 @@ async def process_message(
                 auth_service=auth_service,
                 user_id=str(user_id),
                 session=session,
-                preferred_session_id=payload.sessionId,
-            channel=payload.channel,
-            user_agent=request.headers.get("User-Agent"),
-            ip_address=request.client.host if request.client else None,
+                preferred_session_id=resolved_session_id or None,
+                channel=payload.channel,
+                user_agent=request.headers.get("User-Agent"),
+                ip_address=request.client.host if request.client else None,
                 source="interactions_message",
                 referrer=request.headers.get("referer", ""),
             )
@@ -135,12 +158,14 @@ def get_history(
             history = synthesized
         return {"sessionId": str(resolved["id"]), "messages": history}
 
-    if not session_id:
+    resolved_session_id = _resolve_request_session_id(
+        request=request,
+        explicit_session_id=session_id,
+        source="interactions_history",
+    )
+
+    if not resolved_session_id:
         raise HTTPException(status_code=400, detail="sessionId is required for guest history retrieval")
-    cookie_session_id = str(request.cookies.get("session_id") or "").strip()
-    requested_session_id = str(session_id or "").strip()
-    if cookie_session_id and requested_session_id and cookie_session_id != requested_session_id:
-        raise HTTPException(status_code=403, detail="Session mismatch")
-    session = session_service.get_session(session_id)
+    session = session_service.get_session(resolved_session_id)
     history = interaction_service.history_for_session(session_id=str(session["id"]), limit=limit)
     return {"sessionId": str(session["id"]), "messages": history}

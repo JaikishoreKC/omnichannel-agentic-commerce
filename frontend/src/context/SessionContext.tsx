@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { currentSessionId, ensureSession, SESSION_CHANGED_EVENT } from "../api";
 
 interface SessionContextType {
@@ -13,11 +13,10 @@ const SessionContext = createContext<SessionContextType | undefined>(undefined);
 export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const storedSessionId = currentSessionId();
     const [sessionId, setSessionId] = useState<string | null>(storedSessionId);
-    // If we already have a valid session, we're not loading
-    const [isLoading, setIsLoading] = useState(!storedSessionId);
+    const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
-    const initSession = async () => {
+    const initSession = useCallback(async () => {
         try {
             setIsLoading(true);
             const sid = await ensureSession();
@@ -28,11 +27,11 @@ export const SessionProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
         initSession();
-    }, []);
+    }, [initSession]);
 
     useEffect(() => {
         const syncSessionFromStorage = () => {
