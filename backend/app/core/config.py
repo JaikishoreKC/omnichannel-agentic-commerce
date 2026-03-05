@@ -34,6 +34,13 @@ class Settings:
     llm_timeout_seconds: float = 8.0
     llm_max_tokens: int = 200
     llm_temperature: float = 0.0
+    llm_general_max_retries: int = 2
+    llm_general_retry_base_seconds: float = 1.0
+    llm_general_retry_max_delay_seconds: float = 4.0
+    llm_general_stream_chunk_timeout_seconds: float = 15.0
+    llm_planner_max_retries: int = 5
+    llm_planner_retry_base_seconds: float = 5.0
+    llm_planner_retry_max_delay_seconds: float = 30.0
     llm_circuit_breaker_failure_threshold: int = 5
     llm_circuit_breaker_timeout_seconds: float = 60.0
     llm_intent_classifier_enabled: bool = False
@@ -158,6 +165,75 @@ class Settings:
             llm_timeout_seconds=float(os.getenv("LLM_TIMEOUT_SECONDS", str(cls.llm_timeout_seconds))),
             llm_max_tokens=int(os.getenv("LLM_MAX_TOKENS", str(cls.llm_max_tokens))),
             llm_temperature=float(os.getenv("LLM_TEMPERATURE", str(cls.llm_temperature))),
+            llm_general_max_retries=max(
+                1,
+                min(
+                    6,
+                    int(
+                        os.getenv(
+                            "LLM_GENERAL_MAX_RETRIES",
+                            str(cls.llm_general_max_retries),
+                        )
+                    ),
+                ),
+            ),
+            llm_general_retry_base_seconds=max(
+                0.1,
+                float(
+                    os.getenv(
+                        "LLM_GENERAL_RETRY_BASE_SECONDS",
+                        str(cls.llm_general_retry_base_seconds),
+                    )
+                ),
+            ),
+            llm_general_retry_max_delay_seconds=max(
+                0.5,
+                float(
+                    os.getenv(
+                        "LLM_GENERAL_RETRY_MAX_DELAY_SECONDS",
+                        str(cls.llm_general_retry_max_delay_seconds),
+                    )
+                ),
+            ),
+            llm_general_stream_chunk_timeout_seconds=max(
+                1.0,
+                float(
+                    os.getenv(
+                        "LLM_GENERAL_STREAM_CHUNK_TIMEOUT_SECONDS",
+                        str(cls.llm_general_stream_chunk_timeout_seconds),
+                    )
+                ),
+            ),
+            llm_planner_max_retries=max(
+                1,
+                min(
+                    8,
+                    int(
+                        os.getenv(
+                            "LLM_PLANNER_MAX_RETRIES",
+                            str(cls.llm_planner_max_retries),
+                        )
+                    ),
+                ),
+            ),
+            llm_planner_retry_base_seconds=max(
+                0.1,
+                float(
+                    os.getenv(
+                        "LLM_PLANNER_RETRY_BASE_SECONDS",
+                        str(cls.llm_planner_retry_base_seconds),
+                    )
+                ),
+            ),
+            llm_planner_retry_max_delay_seconds=max(
+                0.5,
+                float(
+                    os.getenv(
+                        "LLM_PLANNER_RETRY_MAX_DELAY_SECONDS",
+                        str(cls.llm_planner_retry_max_delay_seconds),
+                    )
+                ),
+            ),
             llm_circuit_breaker_failure_threshold=int(
                 os.getenv(
                     "LLM_CIRCUIT_BREAKER_FAILURE_THRESHOLD",

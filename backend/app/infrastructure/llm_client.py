@@ -42,6 +42,12 @@ class LLMClient:
     KEY_ROLE_PLANNER = "planner"
     KEY_ROLE_GENERAL = "general"
 
+    @dataclass(frozen=True)
+    class RetryPolicy:
+        max_retries: int
+        base_delay_seconds: float
+        max_delay_seconds: float
+
     SUPPORTED_INTENTS = {
         "product_search",
         "search_and_add_to_cart",
@@ -187,6 +193,19 @@ class LLMClient:
         if role == self.KEY_ROLE_GENERAL:
             return general or primary or planner
         return primary or planner or general
+
+    def _retry_policy(self, *, role: str) -> RetryPolicy:
+        if role == self.KEY_ROLE_GENERAL:
+            return self.RetryPolicy(
+                max_retries=max(1, int(self.settings.llm_general_max_retries)),
+                base_delay_seconds=max(0.1, float(self.settings.llm_general_retry_base_seconds)),
+                max_delay_seconds=max(0.1, float(self.settings.llm_general_retry_max_delay_seconds)),
+            )
+        return self.RetryPolicy(
+            max_retries=max(1, int(self.settings.llm_planner_max_retries)),
+            base_delay_seconds=max(0.1, float(self.settings.llm_planner_retry_base_seconds)),
+            max_delay_seconds=max(0.1, float(self.settings.llm_planner_retry_max_delay_seconds)),
+        )
 
     @property
     def intent_classification_enabled(self) -> bool:
@@ -390,10 +409,9 @@ class LLMClient:
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
-        max_retries = 5
-        base_delay = 5.0
+        retry_policy = self._retry_policy(role=role)
 
-        for attempt in range(max_retries):
+        for attempt in range(retry_policy.max_retries):
             try:
                 response = httpx.post(
                     f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
@@ -419,11 +437,16 @@ class LLMClient:
                 if status_code == 429:
                     headers = getattr(response, "headers", {}) or {}
                     retry_after = headers.get("retry-after") if hasattr(headers, "get") else None
-                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
+                    delay = self._retry_delay_seconds(
+                        attempt=attempt,
+                        base_delay=retry_policy.base_delay_seconds,
+                        retry_after=retry_after,
+                        max_delay=retry_policy.max_delay_seconds,
+                    )
                     
-                    if attempt < max_retries - 1:
+                    if attempt < retry_policy.max_retries - 1:
                         logger.info(
-                            f"[LLM:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                            f"[LLM:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{retry_policy.max_retries})"
                         )
                         await asyncio.sleep(delay)
                         continue
@@ -439,15 +462,21 @@ class LLMClient:
             except httpx.HTTPStatusError as e:
                 if e.response.status_code == 429:
                     retry_after = e.response.headers.get("retry-after")
-                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
+                    delay = self._retry_delay_seconds(
+                        attempt=attempt,
+                        base_delay=retry_policy.base_delay_seconds,
+                        retry_after=retry_after,
+                        max_delay=retry_policy.max_delay_seconds,
+                    )
                     
-                    if attempt < max_retries - 1:
+                    if attempt < retry_policy.max_retries - 1:
                         logger.info(
-                            f"[LLM:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                            f"[LLM:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{retry_policy.max_retries})"
                         )
                         await asyncio.sleep(delay)
                         continue
                 raise
+        raise RuntimeError("LLM request failed after retries")
 
     def generate_response(self, *, user_prompt: str, system_prompt: str) -> str | None:
         """Synchronous method to generate a response from the LLM."""
@@ -486,10 +515,10 @@ class LLMClient:
         if not api_key:
             raise ValueError("OPENROUTER_API_KEY is not configured")
 
-        max_retries = 5
-        base_delay = 5.0
+        retry_policy = self._retry_policy(role=role)
+        chunk_timeout_seconds = max(1.0, float(self.settings.llm_general_stream_chunk_timeout_seconds))
 
-        for attempt in range(max_retries):
+        for attempt in range(retry_policy.max_retries):
             try:
                 async with httpx.AsyncClient() as client:
                     async with client.stream(
@@ -515,11 +544,16 @@ class LLMClient:
                     ) as response:
                         if response.status_code == 429:
                             retry_after = response.headers.get("retry-after")
-                            delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=retry_after)
+                            delay = self._retry_delay_seconds(
+                                attempt=attempt,
+                                base_delay=retry_policy.base_delay_seconds,
+                                retry_after=retry_after,
+                                max_delay=retry_policy.max_delay_seconds,
+                            )
                             
-                            if attempt < max_retries - 1:
+                            if attempt < retry_policy.max_retries - 1:
                                 logger.info(
-                                    f"[LLM Stream:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                                    f"[LLM Stream:{role}] Rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{retry_policy.max_retries})"
                                 )
                                 await asyncio.sleep(delay)
                                 continue
@@ -527,7 +561,16 @@ class LLMClient:
                                 raise RuntimeError("Rate limited after all retries")
 
                         response.raise_for_status()
-                        async for line in response.aiter_lines():
+                        lines = response.aiter_lines()
+                        while True:
+                            try:
+                                line = await asyncio.wait_for(lines.__anext__(), timeout=chunk_timeout_seconds)
+                            except StopAsyncIteration:
+                                break
+                            except TimeoutError as exc:
+                                raise RuntimeError(
+                                    f"Stream chunk timeout after {chunk_timeout_seconds}s"
+                                ) from exc
                             if not line.strip():
                                 continue
                             if line.startswith("data: "):
@@ -543,14 +586,20 @@ class LLMClient:
                                     continue
                 break  # Success, exit retry loop
             except httpx.HTTPStatusError as e:
-                if e.response.status_code == 429 and attempt < max_retries - 1:
-                    delay = self._retry_delay_seconds(attempt=attempt, base_delay=base_delay, retry_after=e.response.headers.get("retry-after"))
+                if e.response.status_code == 429 and attempt < retry_policy.max_retries - 1:
+                    delay = self._retry_delay_seconds(
+                        attempt=attempt,
+                        base_delay=retry_policy.base_delay_seconds,
+                        retry_after=e.response.headers.get("retry-after"),
+                        max_delay=retry_policy.max_delay_seconds,
+                    )
                     logger.info(
-                        f"[LLM Stream:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{max_retries})"
+                        f"[LLM Stream:{role}] HTTPStatusError rate limited (429), retrying in {delay}s (attempt {attempt + 1}/{retry_policy.max_retries})"
                     )
                     await asyncio.sleep(delay)
                     continue
                 raise
+        raise RuntimeError("LLM stream failed after retries")
 
     @staticmethod
     def _extract_completion_content(payload: dict[str, Any]) -> str | None:
@@ -578,13 +627,25 @@ class LLMClient:
         return ""
 
     @staticmethod
-    def _retry_delay_seconds(*, attempt: int, base_delay: float, retry_after: str | None) -> float:
+    def _retry_delay_seconds(
+        *,
+        attempt: int,
+        base_delay: float,
+        retry_after: str | None,
+        max_delay: float | None = None,
+    ) -> float:
+        fallback_delay = float(base_delay * (2 ** attempt))
+        if max_delay is not None:
+            fallback_delay = min(fallback_delay, float(max_delay))
         if retry_after:
             try:
-                return float(retry_after)
+                parsed = float(retry_after)
+                if max_delay is not None:
+                    return min(parsed, float(max_delay))
+                return parsed
             except ValueError:
-                return float(base_delay * (2 ** attempt))
-        return float(base_delay * (2 ** attempt))
+                return fallback_delay
+        return fallback_delay
 
     def _build_classification_prompt(self, *, message: str, recent_messages: list[dict[str, Any]]) -> str:
         recent_snippets = []
