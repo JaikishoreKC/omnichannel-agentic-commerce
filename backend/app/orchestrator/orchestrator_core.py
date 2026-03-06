@@ -115,6 +115,7 @@ class Orchestrator:
 
         planner_used = False
         planner_steps: list[dict[str, Any]] = []
+        stream_general_only = False
         action_limit = self._max_actions_per_request()
         actions, truncated_action_count = self._apply_action_limit(actions=actions, limit=action_limit)
 
@@ -163,8 +164,18 @@ class Orchestrator:
             elif len(actions) == 1:
                 action = actions[0]
                 agent_name = action.target_agent or route_agent_name
-                agent = self.agents[agent_name]
-                result = await asyncio.to_thread(agent.execute, action, context)
+                # In stream mode, avoid calling non-stream and stream methods for general agent.
+                if stream and agent_name == "general":
+                    stream_general_only = True
+                    result = AgentExecutionResult(
+                        success=True,
+                        message="",
+                        data={},
+                        next_actions=[],
+                    )
+                else:
+                    agent = self.agents[agent_name]
+                    result = await asyncio.to_thread(agent.execute, action, context)
             else:
                 result, agent_name = await self._execute_multi_action(
                     route_agent_name=route_agent_name,
@@ -193,6 +204,7 @@ class Orchestrator:
         payload = self._to_transport_payload(response)
 
         if stream:
+            streamed_deltas: list[str] = []
             async for chunk in self._stream_agent_response(
                 context=context,
                 agent_name=agent_name,
@@ -201,7 +213,18 @@ class Orchestrator:
                 planner_plan=planner_plan,
                 planner_used=planner_used,
             ):
+                if stream_general_only and chunk.get("type") == "stream_delta":
+                    delta = str(chunk.get("payload", {}).get("delta", ""))
+                    if delta:
+                        streamed_deltas.append(delta)
                 yield chunk
+
+            if stream_general_only:
+                streamed_message = "".join(streamed_deltas).strip()
+                if streamed_message:
+                    payload["message"] = streamed_message
+                elif not str(payload.get("message", "")).strip():
+                    payload["message"] = "I'm sorry, I couldn't provide a detailed answer at the moment."
 
         self._persist_interaction(
             context=context,

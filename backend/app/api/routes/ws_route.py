@@ -370,6 +370,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
                 envelope: dict[str, object] = {"type": "response", "payload": response}
                 if stream_requested and streamed_any_delta:
+                    envelope["streamId"] = current_stream_id
                     # Keep legacy stream behavior only when deltas were already emitted.
                     envelope["payload"] = {**response, "message": ""}
                 if not await _safe_send_json(websocket, envelope):

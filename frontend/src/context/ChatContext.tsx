@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { connectChat, fetchChatHistory } from "../api";
 import type { ChatResponsePayload } from "../api/types";
+import type { InteractionHistoryMessage } from "../types";
 import { useSession } from "./SessionContext";
 
 export type Message = {
@@ -21,15 +22,6 @@ interface ChatContextType {
     sendMessage: (text: string) => void;
     clearMessages: () => void;
 }
-
-type HistoryMessage = {
-    id: string;
-    role?: "user" | "assistant";
-    userId?: string | null;
-    message: string;
-    timestamp: string;
-    agent?: string;
-};
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
 
@@ -58,16 +50,87 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const connectingRef = useRef(false);
     const recoveringHistoryRef = useRef(false);
 
+    const upsertAssistantFromFinalResponse = useCallback((payload: ChatResponsePayload, streamId?: string) => {
+        const finalMessage = String(payload.message || "");
+        const hasFinalText = finalMessage.trim().length > 0;
+
+        setMessages((prev) => {
+            if (streamId) {
+                const existingIndex = prev.findIndex((m) => m.id === streamId);
+                if (existingIndex >= 0) {
+                    const existing = prev[existingIndex];
+                    const next = [...prev];
+                    next[existingIndex] = {
+                        ...existing,
+                        content: hasFinalText && !existing.content ? finalMessage : existing.content,
+                        agent: payload.agent || existing.agent,
+                        isStreaming: false,
+                        suggestedActions: payload.suggestedActions,
+                    };
+                    return next;
+                }
+
+                if (!hasFinalText) {
+                    return prev;
+                }
+
+                return [
+                    ...prev,
+                    {
+                        id: streamId,
+                        role: "assistant",
+                        content: finalMessage,
+                        agent: payload.agent,
+                        timestamp: new Date().toISOString(),
+                        suggestedActions: payload.suggestedActions,
+                    },
+                ];
+            }
+
+            if (!hasFinalText) {
+                return prev;
+            }
+
+            return [
+                ...prev,
+                {
+                    id: Date.now().toString(),
+                    role: "assistant",
+                    content: finalMessage,
+                    agent: payload.agent,
+                    timestamp: new Date().toISOString(),
+                    suggestedActions: payload.suggestedActions,
+                },
+            ];
+        });
+    }, []);
+
     const loadHistory = useCallback(async (activeSessionId: string) => {
         try {
             const history = await fetchChatHistory({ sessionId: activeSessionId });
-            const mapped: Message[] = history.messages.map((m: HistoryMessage) => ({
-                id: m.id,
-                role: m.role || (m.userId ? "user" : "assistant"),
-                content: m.message,
-                timestamp: m.timestamp,
-                agent: m.agent,
-            }));
+            const mapped: Message[] = [];
+            for (const row of history.messages as InteractionHistoryMessage[]) {
+                const userText = String(row.message || "").trim();
+                if (userText) {
+                    mapped.push({
+                        id: `${row.id}:user`,
+                        role: "user",
+                        content: userText,
+                        timestamp: row.timestamp,
+                    });
+                }
+
+                const assistantText = String(row.response?.message || "").trim();
+                if (assistantText) {
+                    mapped.push({
+                        id: `${row.id}:assistant`,
+                        role: "assistant",
+                        content: assistantText,
+                        timestamp: row.timestamp,
+                        agent: String(row.response?.agent || row.agent || ""),
+                    });
+                }
+            }
             setMessages(mapped);
             recoveringHistoryRef.current = false;
         } catch (err) {
@@ -126,17 +189,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 onSession: () => undefined,
                 onTyping: ({ isTyping }) => setIsTyping(isTyping),
                 onMessage: (payload, streamId) => {
-                    setMessages((prev) => [
-                        ...prev,
-                        {
-                            id: streamId || Date.now().toString(),
-                            role: "assistant",
-                            content: payload.message,
-                            agent: payload.agent,
-                            timestamp: new Date().toISOString(),
-                            suggestedActions: payload.suggestedActions,
-                        },
-                    ]);
+                    upsertAssistantFromFinalResponse(payload, streamId);
                     if (shouldRefreshCart(payload)) {
                         window.dispatchEvent(new CustomEvent("cart:refresh"));
                     }
@@ -182,7 +235,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 socketRef.current.close();
             }
         };
-    }, [isSessionLoading, loadHistory, sessionId]);
+    }, [isSessionLoading, loadHistory, sessionId, upsertAssistantFromFinalResponse]);
 
     const sendMessage = (text: string) => {
         // Only send when socket is actually open.
