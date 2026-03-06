@@ -184,9 +184,9 @@ Purpose: durable “repository brain” for safe future development.
 - Metrics and health endpoints match stated observability model, including admin-gated detailed health diagnostics.
 
 ## Notable Drift / Mismatches
-1. **LLM provider docs vs runtime config**
-   - Docs emphasize OpenAI/Anthropic dual mode.
-   - Runtime currently centers OpenRouter fields in config/client paths.
+1. **LLM key policy (updated on 2026-03-06)**
+  - Runtime and test automation now use OpenRouter-only dual-key mode.
+  - `OPENROUTER_API_KEY_PLANNER` and `OPENROUTER_API_KEY_GENERAL` are required when LLM features are enabled.
 
 2. **Admin MFA docs now mostly aligned (remediated on 2026-03-05)**
   - Auth service now enforces TOTP-only verification when MFA is required.

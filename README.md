@@ -171,8 +171,8 @@ docker compose up --build
 Before running compose, set secrets in your shell or local `.env` (never commit real values):
 
 - `TOKEN_SECRET`
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
+- `OPENROUTER_API_KEY_PLANNER`
+- `OPENROUTER_API_KEY_GENERAL`
 
 Default local endpoints:
 
@@ -248,15 +248,6 @@ Copy examples first:
 - Backend: `backend/.env.example`
 - Frontend: `frontend/.env.example`
 
-### Why Both `OPENAI_API_KEY` And `ANTHROPIC_API_KEY`?
-
-The backend supports two LLM providers behind one abstraction. Only one is active at a time via `LLM_PROVIDER`:
-
-- `LLM_PROVIDER=openai` -> uses `OPENAI_API_KEY`
-- `LLM_PROVIDER=anthropic` -> uses `ANTHROPIC_API_KEY`
-
-Keeping both keys in `.env.example` allows provider switching without editing source.
-
 ### Frontend Variables
 
 | Variable | Default | Description |
@@ -312,8 +303,8 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 | Variable | Default | Description |
 | --- | --- | --- |
 | `LLM_ENABLED` | `false` | Enable external LLM calls |
-| `LLM_PROVIDER` | `openai` | `openai` or `anthropic` |
-| `LLM_MODEL` | `gpt-4o-mini` | Model name sent to provider |
+| `LLM_PROVIDER` | `openrouter` | LLM provider (runtime currently supports OpenRouter) |
+| `LLM_MODEL` | `meta-llama/llama-3.3-70b-instruct:free` | Model name sent to OpenRouter |
 | `LLM_TIMEOUT_SECONDS` | `8` | Provider call timeout |
 | `LLM_MAX_TOKENS` | `200` | Max response tokens |
 | `LLM_TEMPERATURE` | `0` | Sampling temperature |
@@ -330,8 +321,9 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 | `ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST` | `5` | Max executed actions per user request |
 | `ORCHESTRATOR_UNKNOWN_INTENT_MODE` | `fallback` | `fallback` (continue with general fallback) or `clarify` (return explicit clarification) for unknown intents |
 | `CHAT_STREAM_NON_GENERAL_ENABLED` | `true` | When `false`, only `general` agent responses are streamed; other agents return final response only |
-| `OPENAI_API_KEY` | `` | OpenAI key (when provider=openai) |
-| `ANTHROPIC_API_KEY` | `` | Anthropic key (when provider=anthropic) |
+| `OPENROUTER_API_KEY_PLANNER` | `` | OpenRouter API key for planner/classifier requests |
+| `OPENROUTER_API_KEY_GENERAL` | `` | OpenRouter API key for general chat responses |
+| `OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | OpenRouter API base URL |
 
 Planner/classifier decision policy:
 

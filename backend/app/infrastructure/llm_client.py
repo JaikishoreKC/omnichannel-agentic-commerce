@@ -179,21 +179,27 @@ class LLMClient:
         if not self.settings.llm_enabled:
             return False
         return bool(
-            str(self.settings.openrouter_api_key).strip()
-            or str(self.settings.openrouter_api_key_planner).strip()
-            or str(self.settings.openrouter_api_key_general).strip()
+            str(self.settings.openrouter_api_key_planner).strip()
+            and str(self.settings.openrouter_api_key_general).strip()
         )
 
     def _resolve_openrouter_api_key(self, *, role: str) -> str:
-        primary = str(self.settings.openrouter_api_key or "").strip()
         planner = str(self.settings.openrouter_api_key_planner or "").strip()
         general = str(self.settings.openrouter_api_key_general or "").strip()
 
         if role == self.KEY_ROLE_PLANNER:
-            return planner or primary or general
+            return planner
         if role == self.KEY_ROLE_GENERAL:
-            return general or primary or planner
-        return primary or planner or general
+            return general
+        return ""
+
+    @staticmethod
+    def _missing_key_error_message(role: str) -> str:
+        if role == LLMClient.KEY_ROLE_PLANNER:
+            return "OPENROUTER_API_KEY_PLANNER is not configured"
+        if role == LLMClient.KEY_ROLE_GENERAL:
+            return "OPENROUTER_API_KEY_GENERAL is not configured"
+        return "Unknown LLM role for OpenRouter API key resolution"
 
     def _retry_policy(self, *, role: str) -> RetryPolicy:
         if role == self.KEY_ROLE_GENERAL:
@@ -422,7 +428,7 @@ class LLMClient:
         """Async method to call the LLM with retry logic for rate limiting."""
         api_key = self._resolve_openrouter_api_key(role=role)
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY is not configured")
+            raise ValueError(self._missing_key_error_message(role))
 
         retry_policy = self._retry_policy(role=role)
 
@@ -529,7 +535,7 @@ class LLMClient:
     ):
         api_key = self._resolve_openrouter_api_key(role=role)
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY is not configured")
+            raise ValueError(self._missing_key_error_message(role))
 
         retry_policy = self._retry_policy(role=role)
         chunk_timeout_seconds = max(1.0, float(self.settings.llm_general_stream_chunk_timeout_seconds))

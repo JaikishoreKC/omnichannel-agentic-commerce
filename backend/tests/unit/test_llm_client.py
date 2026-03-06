@@ -28,7 +28,8 @@ def _base_settings(**overrides: Any) -> Settings:
         "llm_enabled": True,
         "llm_provider": "openrouter",
         "llm_model": "meta-llama/llama-3.1-8b-instruct:free",
-        "openrouter_api_key": "sk-test",
+        "openrouter_api_key_planner": "sk-plan",
+        "openrouter_api_key_general": "sk-gen",
         "llm_timeout_seconds": 3.0,
         "llm_max_tokens": 128,
         "llm_intent_classifier_enabled": True,
@@ -52,29 +53,32 @@ def test_enabled_flag_checks_api_key() -> None:
     disabled = LLMClient(settings=_base_settings(llm_enabled=False))
     assert disabled.enabled is False
 
-    key_missing = LLMClient(settings=_base_settings(openrouter_api_key=""))
+    key_missing = LLMClient(
+        settings=_base_settings(openrouter_api_key_planner="", openrouter_api_key_general="")
+    )
     assert key_missing.enabled is False
+
+    planner_missing = LLMClient(settings=_base_settings(openrouter_api_key_planner=""))
+    assert planner_missing.enabled is False
+
+    general_missing = LLMClient(settings=_base_settings(openrouter_api_key_general=""))
+    assert general_missing.enabled is False
 
     enabled = LLMClient(settings=_base_settings())
     assert enabled.enabled is True
 
 
-def test_enabled_flag_accepts_role_specific_keys_without_primary() -> None:
-    planner_only = LLMClient(
-        settings=_base_settings(openrouter_api_key="", openrouter_api_key_planner="sk-plan", openrouter_api_key_general="")
-    )
-    assert planner_only.enabled is True
+def test_enabled_requires_both_role_specific_keys() -> None:
+    planner_only = LLMClient(settings=_base_settings(openrouter_api_key_general=""))
+    assert planner_only.enabled is False
 
-    general_only = LLMClient(
-        settings=_base_settings(openrouter_api_key="", openrouter_api_key_planner="", openrouter_api_key_general="sk-gen")
-    )
-    assert general_only.enabled is True
+    general_only = LLMClient(settings=_base_settings(openrouter_api_key_planner=""))
+    assert general_only.enabled is False
 
 
-def test_resolve_openrouter_api_key_prefers_role_specific_then_fallback() -> None:
+def test_resolve_openrouter_api_key_uses_role_specific_only() -> None:
     client = LLMClient(
         settings=_base_settings(
-            openrouter_api_key="sk-primary",
             openrouter_api_key_planner="sk-plan",
             openrouter_api_key_general="sk-gen",
         )
@@ -82,14 +86,8 @@ def test_resolve_openrouter_api_key_prefers_role_specific_then_fallback() -> Non
     assert client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_PLANNER) == "sk-plan"
     assert client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_GENERAL) == "sk-gen"
 
-    fallback_client = LLMClient(
-        settings=_base_settings(
-            openrouter_api_key="",
-            openrouter_api_key_planner="sk-plan",
-            openrouter_api_key_general="",
-        )
-    )
-    assert fallback_client._resolve_openrouter_api_key(role=LLMClient.KEY_ROLE_GENERAL) == "sk-plan"
+    unknown_role_client = LLMClient(settings=_base_settings())
+    assert unknown_role_client._resolve_openrouter_api_key(role="other") == ""
 
 def test_classify_intent_returns_none_when_disabled() -> None:
     client = LLMClient(settings=_base_settings(llm_enabled=False))
@@ -173,7 +171,7 @@ def test_call_llm_success(monkeypatch: pytest.MonkeyPatch) -> None:
     raw = client._call_llm(user_prompt="prompt", system_prompt="system")
     assert '"intent":"checkout"' in raw
     assert captured["url"].endswith("/chat/completions")
-    assert captured["kwargs"]["headers"]["Authorization"] == "Bearer sk-test"
+    assert captured["kwargs"]["headers"]["Authorization"] == "Bearer sk-plan"
 
 
 def test_call_llm_uses_role_specific_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -197,7 +195,6 @@ def test_call_llm_uses_role_specific_api_key(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(httpx, "post", fake_post)
     client = LLMClient(
         settings=_base_settings(
-            openrouter_api_key="sk-primary",
             openrouter_api_key_planner="sk-plan",
             openrouter_api_key_general="sk-gen",
         )
@@ -228,8 +225,13 @@ def test_extract_stream_content_returns_empty_string_for_unknown_shape() -> None
 def test_call_llm_errors(monkeypatch: pytest.MonkeyPatch) -> None:
     client = LLMClient(settings=_base_settings())
 
-    with pytest.raises(ValueError):
-        LLMClient(settings=_base_settings(openrouter_api_key=""))._call_llm(user_prompt="?", system_prompt="?")
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY_PLANNER is not configured"):
+        LLMClient(settings=_base_settings(openrouter_api_key_planner=""))._call_llm(user_prompt="?", system_prompt="?")
+
+    with pytest.raises(ValueError, match="OPENROUTER_API_KEY_GENERAL is not configured"):
+        LLMClient(settings=_base_settings(openrouter_api_key_general=""))._call_llm(
+            user_prompt="?", system_prompt="?", role=LLMClient.KEY_ROLE_GENERAL
+        )
 
     monkeypatch.setattr(httpx, "post", lambda *_args, **_kwargs: _DummyResponse({"choices": []}))
     with pytest.raises(ValueError):

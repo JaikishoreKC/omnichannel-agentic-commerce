@@ -57,7 +57,6 @@ class Settings:
     ws_heartbeat_interval_seconds: float = 25.0
     ws_heartbeat_timeout_seconds: float = 70.0
     ws_max_message_chars: int = 2000
-    openrouter_api_key: str = ""
     openrouter_api_key_planner: str = ""
     openrouter_api_key_general: str = ""
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
@@ -109,6 +108,13 @@ class Settings:
             mfa_secret = str(self.admin_mfa_totp_secret or "").strip()
             if not mfa_secret or mfa_secret == "JBSWY3DPEHPK3PXP":
                 raise ValueError("ADMIN_MFA_TOTP_SECRET must be set to a non-default value when ADMIN_MFA_REQUIRED is enabled")
+        if self.llm_enabled:
+            planner_key = str(self.openrouter_api_key_planner or "").strip()
+            general_key = str(self.openrouter_api_key_general or "").strip()
+            if not planner_key or not general_key:
+                raise ValueError(
+                    "OPENROUTER_API_KEY_PLANNER and OPENROUTER_API_KEY_GENERAL must be set when LLM_ENABLED is true"
+                )
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -355,7 +361,6 @@ class Settings:
                     str(cls.ws_max_message_chars),
                 )
             ),
-            openrouter_api_key=os.getenv("OPENROUTER_API_KEY", cls.openrouter_api_key),
             openrouter_api_key_planner=os.getenv(
                 "OPENROUTER_API_KEY_PLANNER",
                 cls.openrouter_api_key_planner,
