@@ -61,7 +61,7 @@ class GeneralAgent(BaseAgent):
             "You are a helpful commerce assistant for an Omnichannel Brand. "
             "Answer questions about products, orders, or general shopping advice. "
             "Keep it concise and friendly. "
-            'Respond in JSON format: {"message": "your answer here"}'
+            "Respond as plain text only."
         )
 
         streamed_any_chunk = False
@@ -74,6 +74,9 @@ class GeneralAgent(BaseAgent):
                     streamed_any_chunk = True
                     yield chunk
         except (RuntimeError, ValueError):
+            # If we already streamed partial content, don't append fallback text.
+            if streamed_any_chunk:
+                return
             streamed_any_chunk = False
 
         if not streamed_any_chunk:
