@@ -17,6 +17,7 @@ export type Message = {
 interface ChatContextType {
     messages: Message[];
     isTyping: boolean;
+    assistantStatus: string | null;
     isConnected: boolean;
     isConnecting: boolean;
     sendMessage: (text: string) => void;
@@ -44,6 +45,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { sessionId, isLoading: isSessionLoading, refreshSession } = useSession();
     const [messages, setMessages] = useState<Message[]>([]);
     const [isTyping, setIsTyping] = useState(false);
+    const [assistantStatus, setAssistantStatus] = useState<string | null>(null);
     const [isConnected, setIsConnected] = useState(false);
     const [isConnecting, setIsConnecting] = useState(false);
     const socketRef = useRef<WebSocket | null>(null);
@@ -53,6 +55,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const upsertAssistantFromFinalResponse = useCallback((payload: ChatResponsePayload, streamId?: string) => {
         const finalMessage = String(payload.message || "");
         const hasFinalText = finalMessage.trim().length > 0;
+        setAssistantStatus(null);
 
         setMessages((prev) => {
             if (streamId) {
@@ -169,6 +172,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     connectingRef.current = false;
                     setIsConnected(true);
                     setIsConnecting(false);
+                    setAssistantStatus(null);
                     attempts = 0;
                 },
                 onClose: () => {
@@ -185,8 +189,10 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 onError: () => {
                     connectingRef.current = false;
                     setIsConnecting(false);
+                    setAssistantStatus("Connection issue. Reconnecting...");
                 },
                 onSession: () => undefined,
+                onStatus: ({ message }) => setAssistantStatus(message),
                 onTyping: ({ isTyping }) => setIsTyping(isTyping),
                 onMessage: (payload, streamId) => {
                     upsertAssistantFromFinalResponse(payload, streamId);
@@ -240,6 +246,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const sendMessage = (text: string) => {
         // Only send when socket is actually open.
         if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            setAssistantStatus("Assistant is thinking...");
             socketRef.current.send(JSON.stringify({ 
                 type: "message", 
                 payload: { 
@@ -263,7 +270,7 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     return (
         <ChatContext.Provider
-            value={{ messages, isTyping, isConnected, isConnecting, sendMessage, clearMessages }}
+            value={{ messages, isTyping, assistantStatus, isConnected, isConnecting, sendMessage, clearMessages }}
         >
             {children}
         </ChatContext.Provider>

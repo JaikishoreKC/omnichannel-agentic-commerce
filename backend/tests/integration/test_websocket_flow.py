@@ -68,6 +68,9 @@ def test_websocket_streaming_flow_when_requested() -> None:
             elif event_type == "response":
                 saw_response = True
                 assert event["payload"]["agent"] == "product"
+                assert event.get("streamId") == stream_id
+                # Final response should not duplicate streamed text content.
+                assert str(event["payload"].get("message", "")) == ""
                 break
 
         assert saw_start is True

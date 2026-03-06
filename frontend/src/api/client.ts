@@ -173,6 +173,7 @@ export function connectChat(params: {
     onMessage: (payload: ChatResponsePayload, streamId?: string) => void;
     onSession: (sessionId: string) => void;
     onError: (message: string) => void;
+    onStatus?: (payload: { code?: string; message: string }) => void;
     onTyping?: (payload: { actor?: string; isTyping: boolean }) => void;
     onStreamStart?: (payload: { streamId: string; agent?: string }) => void;
     onStreamDelta?: (payload: { streamId: string; delta: string }) => void;
@@ -208,6 +209,13 @@ export function connectChat(params: {
             }
             if (parsed.type === "response" && parsed.payload) {
                 params.onMessage(parsed.payload as unknown as ChatResponsePayload, parsed.streamId);
+                return;
+            }
+            if (parsed.type === "status" && parsed.payload) {
+                params.onStatus?.({
+                    code: typeof parsed.payload.code === "string" ? parsed.payload.code : undefined,
+                    message: typeof parsed.payload.message === "string" ? parsed.payload.message : "Working on your request...",
+                });
                 return;
             }
             if (parsed.type === "stream_start" && parsed.payload?.streamId) {

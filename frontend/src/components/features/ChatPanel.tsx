@@ -9,7 +9,7 @@ const ChatPanel: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
     const [inputValue, setInputValue] = useState("");
-    const { messages, sendMessage, isTyping, isConnected, isConnecting } = useChat();
+    const { messages, sendMessage, isTyping, assistantStatus, isConnected, isConnecting } = useChat();
     const scrollRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
@@ -164,6 +164,11 @@ const ChatPanel: React.FC = () => {
                                             <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce typing-dot-0" />
                                             <div className="w-1.5 h-1.5 bg-slate-400 rounded-full animate-bounce typing-dot-150" />
                                             <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce typing-dot-300" />
+                                        </div>
+                                    )}
+                                    {!isTyping && assistantStatus && (
+                                        <div className="px-2">
+                                            <span className="text-[11px] text-slate-500">{assistantStatus}</span>
                                         </div>
                                     )}
                                 </div>

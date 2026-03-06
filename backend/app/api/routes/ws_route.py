@@ -27,6 +27,7 @@ metrics_collector = get_metrics_collector()
 orchestrator = get_orchestrator()
 session_service = get_session_service()
 settings = get_settings()
+GENERAL_FALLBACK_MESSAGE = "I'm sorry, I couldn't provide a detailed answer at the moment."
 
 
 def _is_socket_connected(websocket: WebSocket) -> bool:
@@ -368,6 +369,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             if response:
                 # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
+                response_message = str(response.get("message", "")).strip()
+                if response_message == GENERAL_FALLBACK_MESSAGE:
+                    await _safe_send_json(
+                        websocket,
+                        {
+                            "type": "status",
+                            "payload": {
+                                "code": "provider_busy",
+                                "message": "AI provider is busy right now. Please retry in a moment.",
+                            },
+                        },
+                    )
                 envelope: dict[str, object] = {"type": "response", "payload": response}
                 if stream_requested and streamed_any_delta:
                     envelope["streamId"] = current_stream_id
