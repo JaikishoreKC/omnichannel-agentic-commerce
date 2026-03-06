@@ -1,5 +1,7 @@
 # Omnichannel Agentic AI Commerce
 
+Last updated: 2026-03-07
+
 Implementation repo for:
 
 Project statement: "An Agentic AI Framework for Persistent Omni-Channel Conversational Sales and Autonomous Retail Task Orchestration"
@@ -10,7 +12,7 @@ This repo currently delivers a production-style v1 web implementation with:
 - React + Vite + Tailwind frontend (`frontend/`)
 - REST + WebSocket conversational commerce flows
 - Session/cart continuity across guest -> authenticated transitions
-- Optional LLM-based intent classification (OpenAI or Anthropic)
+- Optional LLM-based classification/planning via OpenRouter
 - Abandoned-cart outgoing voice recovery orchestration (SuperU integration hooks)
 
 Native mobile and native kiosk apps are intentionally deferred. The web app is responsive and is the current channel implementation.
@@ -106,7 +108,7 @@ FastAPI API Layer
    |     - In-memory store + optional Mongo/Redis adapters
    |
    +--> Infra Integrations
-         - LLM client (OpenAI/Anthropic)
+         - LLM client (OpenRouter)
          - SuperU outbound voice client
          - Prometheus metrics + health
 ```
@@ -114,10 +116,12 @@ FastAPI API Layer
 ### Core Runtime Behavior
 
 - Rule-based intent classification always runs first.
-- Optional LLM classification can override rule result when confidence is higher.
+- Optional LLM decision path is controlled by `LLM_DECISION_POLICY` (`planner_first` or `classifier_first`) with planner canary and confidence gates.
 - Orchestrator records interaction history and updates session conversation state.
 - Memory recording runs asynchronously for authenticated users.
-- Mutating HTTP requests trigger state snapshot persistence when Mongo is connected.
+- Authenticated rate limiting uses stable user-id subject keys (admin role receives admin tier); invalid bearer tokens fall back to token-digest buckets.
+- Order creation requires `Idempotency-Key` and same-key concurrent requests are serialized in-process.
+- Inventory reservation/commit/rollback paths use a process lock to prevent local oversell races.
 
 ## Repository Layout
 
@@ -734,7 +738,9 @@ Implemented controls in current codebase:
 
 - WebSocket origin validation against allowed CORS origins
 - TOTP MFA for admin authentication (replacing static codes)
-- Structured logging (structlog) for tamper-evident activity monitoring
+- Authenticated rate limiting keyed by stable user identity (with safe fallback for invalid tokens)
+- In-process concurrency guards for inventory reservation and same-key order idempotency
+- Structured logging for tamper-evident activity monitoring
 - tamper-evident admin activity logging + integrity check endpoint
 
 ## Observability
@@ -745,9 +751,8 @@ Implemented controls in current codebase:
 
 - Mongo connectivity
 - Redis connectivity
-- state persistence enablement
-- LLM circuit breaker state
-- voice recovery runtime/provider flags
+- LLM enablement and circuit breaker state (admin view)
+- voice recovery scheduler/provider/runtime flags (admin view)
 
 ### Metrics
 
@@ -767,6 +772,8 @@ Implemented controls in current codebase:
 cd backend
 pytest tests -q
 ```
+
+Latest validated run (2026-03-07): `224 passed, 11 skipped`.
 
 Coverage gate:
 
@@ -879,13 +886,15 @@ GitHub Actions workflow (`.github/workflows/ci.yml`) includes:
 
 Primary docs in `docs/`:
 
+- `docs/README.md` (documentation index)
+
 - `docs/REPOSITORY_INTELLIGENCE.md`
 - `docs/PRODUCT_AND_DELIVERY_SPEC.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ARCHITECTURE_TARGET_STRUCTURE.md`
-- `docs/API_Contracts.txt`
-- `docs/Database_Schema.txt`
-- `docs/Agent_Logic_Specs.txt`
-- `docs/SECURITY.txt`
-- `docs/TESTING_STRATEGY.txt`
-- `docs/RELEASE_CHECKLIST.txt`
+- `docs/API_Contracts.md`
+- `docs/Database_Schema.md`
+- `docs/Agent_Logic_Specs.md`
+- `docs/SECURITY.md`
+- `docs/TESTING_STRATEGY.md`
+- `docs/RELEASE_CHECKLIST.md`

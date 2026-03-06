@@ -1,6 +1,6 @@
 # Product and Delivery Spec (Consolidated)
 
-Date: 2026-03-05
+Date: 2026-03-07
 Status: Canonical merged product/spec/blueprint document.
 
 ## Purpose
@@ -71,6 +71,13 @@ Out of scope (v1):
 - WebSocket origin validation
 - Prometheus metrics + health checks
 - Admin activity integrity verification
+- In-process reliability hardening for checkout/inventory race windows
+
+## Recently Delivered Reliability Hardening (2026-03-07)
+
+- Inventory reservation and inventory mutation paths are serialized in-process to reduce oversell races.
+- Order creation is serialized per `(user, Idempotency-Key)` in-process to reduce duplicate concurrent checkout execution.
+- Rate limiting now prefers validated user-id subjects for authenticated requests (with token-digest fallback for invalid bearer tokens).
 
 ## Runtime Blueprint
 

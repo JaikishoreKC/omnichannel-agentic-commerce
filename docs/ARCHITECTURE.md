@@ -1,6 +1,6 @@
 # Architecture (Consolidated)
 
-Date: 2026-03-05
+Date: 2026-03-07
 Status: Canonical architecture reference for current and target-state structure.
 
 ## Purpose
@@ -92,6 +92,9 @@ backend/app/
 
 - JWT auth + role checks on admin endpoints
 - Request hardening, per-tier rate limiting, WS origin checks
+- Authenticated rate limiting keyed by stable user identity (token digest fallback for invalid bearer values)
+- Inventory reservation/commit/rollback serialization in `InventoryService` to prevent in-process oversell races
+- Same-idempotency-key order creation serialization in `OrderService` to avoid duplicate in-process checkout execution
 - SuperU callback signature verification
 - LLM fallback with circuit breaker
 - `/health` and `/metrics` for runtime visibility

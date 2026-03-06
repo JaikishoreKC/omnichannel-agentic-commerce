@@ -1,5 +1,7 @@
 # Security Guidelines (v1 Current Implementation)
 
+Last updated: 2026-03-07
+
 This document describes security controls currently implemented in the codebase.
 It is implementation-first, not a policy wishlist.
 
@@ -87,7 +89,15 @@ Rate limit headers returned:
 Behavior:
 
 - Scope-aware keys (`/v1/<group>` + subject).
+- Authenticated subjects use stable user-id keys after token validation.
+- Invalid bearer token values fall back to token-digest subjects.
 - Progressive penalties are supported by limiter state.
+
+## Checkout And Inventory Concurrency Safeguards
+
+- `OrderService.create_order` serializes requests by `(user_id, Idempotency-Key)` in-process to reduce duplicate concurrent checkout execution.
+- `InventoryService` serializes inventory update/reserve/commit/rollback operations in-process to reduce local oversell races.
+- These protections are process-local and should be complemented by datastore-level atomic guarantees for multi-worker deployments.
 
 ## Security Response Headers
 

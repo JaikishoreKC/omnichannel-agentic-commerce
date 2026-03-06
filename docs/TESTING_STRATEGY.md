@@ -1,5 +1,15 @@
 # Testing Strategy
 
+Last updated: 2026-03-07
+
+## Current Validation Snapshot
+
+- Latest backend full-suite run: `224 passed, 11 skipped`.
+- Recently added high-signal hardening tests:
+  - `backend/tests/unit/test_inventory_service_concurrency.py`
+  - `backend/tests/unit/test_rate_limiting_middleware.py`
+  - `backend/tests/integration/test_order_idempotency_concurrency.py`
+
 This document outlines the comprehensive testing strategy for the omnichannel agentic commerce platform.
 
 ## Testing Philosophy

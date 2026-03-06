@@ -8,11 +8,11 @@ This document defines the responsibilities, inputs, outputs, and interaction pat
 
 ### Agent Base Class
 
-All agents inherit from a base agent class that provides:
-- Standard lifecycle methods (initialize, execute, cleanup)
-- Context injection mechanism
-- Logging and error handling
-- Response standardization
+All agents inherit from a base agent class that standardizes:
+- Action execution (`execute(action, context)`)
+- Context-aware domain invocation
+- Error handling and safe fallback response shaping
+- Agent response structure (`success`, `message`, `data`, `next_actions`)
 
 ## Specialized Agents
 

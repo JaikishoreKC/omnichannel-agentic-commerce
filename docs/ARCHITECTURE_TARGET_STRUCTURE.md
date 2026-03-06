@@ -1,6 +1,6 @@
 # Target Architecture Structure and Migration Plan
 
-Date: 2026-03-05
+Date: 2026-03-07
 Scope: backend + frontend architectural boundary hardening
 
 ## Target Layer Model
@@ -68,3 +68,7 @@ Disallowed direction:
 - Provider-backed route/middleware dependency boundary hardening.
 - Initial `application` layer extracted for session/interaction workflows.
 - Architecture guard tests for import boundary regressions.
+- In-process checkout and inventory concurrency hardening without architecture changes:
+  - `OrderService` same-idempotency-key serialization.
+  - `InventoryService` mutation/reservation serialization.
+  - Authenticated rate-limit keying by stable user identity.

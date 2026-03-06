@@ -1,5 +1,7 @@
 # API Contracts Specification (v1)
 
+Last updated: 2026-03-07
+
 ## Overview
 
 This document defines the current REST and WebSocket contracts implemented in the
@@ -72,6 +74,18 @@ Common codes:
 - `CONFLICT`
 - `RATE_LIMITED`
 - `INTERNAL_ERROR`
+
+## Rate Limiting Contract Notes
+
+- Response headers for rate-limited scopes:
+  - `X-RateLimit-Limit`
+  - `X-RateLimit-Remaining`
+  - `X-RateLimit-Reset`
+  - `Retry-After` (on `429`)
+- Subject semantics:
+  - Anonymous: keyed by client IP.
+  - Authenticated: keyed by validated user id (`admin` role uses admin tier).
+  - Invalid bearer token: falls back to token-digest subject key.
 
 ## REST Endpoints
 
@@ -318,6 +332,7 @@ Required headers:
 
 - Bearer token required.
 - `Idempotency-Key` header required.
+- Same `(user, Idempotency-Key)` concurrent requests are serialized in-process.
 
 `POST /orders` request:
 

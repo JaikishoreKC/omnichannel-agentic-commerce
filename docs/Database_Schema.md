@@ -4,6 +4,10 @@
 
 This document defines the database collections, fields, relationships, and design considerations for the omnichannel agentic commerce platform.
 
+Authoritative note:
+- This document is a design-level schema reference.
+- Runtime source of truth for persisted fields is the repository layer (`backend/app/repositories/*`) and index/bootstrap scripts (`backend/app/scripts/*`, `backend/app/infrastructure/mongo_indexes.py`).
+
 ## Database: MongoDB
 
 ### Design Principles

@@ -3,6 +3,11 @@
 Date: 2026-03-07  
 Scope: Full repository mental model for safe future development.
 
+Update note (2026-03-07):
+- Added in-process hardening for inventory reservation/mutation races and order idempotency concurrency.
+- Updated authenticated rate-limit keying to use stable user identity with invalid-token fallback.
+- Backend validation status: `224 passed, 11 skipped`.
+
 ## REPOSITORY MAP
 
 ### Root
@@ -219,15 +224,13 @@ Provider order in `frontend/src/main.tsx`:
 ### Aligned
 
 - `docs/ARCHITECTURE.md`: matches implemented layered design and migration targets.
-- `docs/API_Contracts.txt`: endpoint surface largely reflects route implementations.
+- `docs/API_Contracts.md`: endpoint surface largely reflects route implementations.
 - `docs/PRODUCT_AND_DELIVERY_SPEC.md`: scope and delivery status align with runtime capabilities.
-- `docs/RELEASE_CHECKLIST.txt`: aligns with available scripts/endpoints.
+- `docs/RELEASE_CHECKLIST.md`: aligns with available scripts/endpoints.
 
 ### Partial Gaps / Drift
 
-- `docs/SECURITY.txt` references `ADMIN_MFA_STATIC_CODE`; code uses TOTP secret (`ADMIN_MFA_TOTP_SECRET`) in `backend/app/core/config.py` and `backend/app/services/auth_service.py`.
-- `docs/Agent_Logic_Specs.txt` describes generic lifecycle semantics not directly mirrored by current `BaseAgent` implementation.
-- `docs/Database_Schema.txt` is broader than runtime shape in places; implementation details are repository-specific and somewhat leaner.
+- `docs/Database_Schema.md` is broader than runtime shape in places; implementation details are repository-specific and somewhat leaner.
 
 ### Missing Documentation Content
 
