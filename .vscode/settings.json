@@ -1,4 +1,0 @@
-{
-    "typescript.tsserver.experimental.enableProjectDiagnostics": true,
-    "python.analysis.typeCheckingMode": "standard"
-}
