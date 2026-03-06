@@ -13,6 +13,7 @@ from app.services.inventory_service import InventoryService
 from app.services.notification_service import NotificationService
 from app.services.payment_service import PaymentService
 from app.core.utils import generate_id, iso_now, utc_now
+from app.infrastructure.logging import get_logger
 
 
 class OrderService:
@@ -31,6 +32,7 @@ class OrderService:
         self.payment_service = payment_service
         self.notification_service = notification_service
         self.order_repository = order_repository
+        self.logger = get_logger(__name__)
 
     def create_order(
         self,
@@ -103,12 +105,28 @@ class OrderService:
             "createdAt": created_at,
             "updatedAt": created_at,
         }
-        self.order_repository.create(order)
-        self.order_repository.set_idempotent(key=key, order_id=order_id)
+        try:
+            self.order_repository.create(order)
+        except Exception as exc:
+            # Compensate reservations if persistence fails after payment authorization.
+            self.inventory_service.rollback_reservation(reservations)
+            self.logger.exception("order_persistence_failed", user_id=user_id, order_id=order_id, error=str(exc))
+            raise HTTPException(status_code=503, detail="Unable to create order at the moment") from exc
+
+        try:
+            self.order_repository.set_idempotent(key=key, order_id=order_id)
+        except Exception as exc:
+            # Idempotency backfill failure should not fail a successfully persisted order.
+            self.logger.warning("order_idempotency_record_failed", user_id=user_id, order_id=order_id, error=str(exc))
+
         self.cart_service.mark_cart_converted_for_user(user_id)
 
         self.inventory_service.commit_reservation(order["items"])
-        self.notification_service.send_order_confirmation(user_id=user_id, order=order)
+        try:
+            self.notification_service.send_order_confirmation(user_id=user_id, order=order)
+        except Exception as exc:
+            # Notification delivery is a side-effect and should not fail checkout.
+            self.logger.warning("order_confirmation_notification_failed", user_id=user_id, order_id=order_id, error=str(exc))
 
         return deepcopy(order)
 
