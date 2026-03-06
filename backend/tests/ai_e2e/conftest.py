@@ -13,8 +13,10 @@ from .harness import (
     get_ai_e2e_mode,
     get_real_llm_api_keys_from_env,
     install_llm_record_replay,
+    install_llm_provider_recorder,
     make_client,
     restore_llm_settings,
+    set_active_provider_recorder,
     seed_deterministic_catalog,
 )
 
@@ -42,9 +44,13 @@ def real_llm_mode(require_real_llm_keys: tuple[str, str] | None):
     else:
         original = configure_real_llm_settings()
     restore_llm = install_llm_record_replay()
+    restore_provider_recorder, provider_recorder = install_llm_provider_recorder()
+    set_active_provider_recorder(provider_recorder)
     try:
         yield
     finally:
+        set_active_provider_recorder(None)
+        restore_provider_recorder()
         restore_llm()
         restore_llm_settings(original)
 

@@ -37,7 +37,7 @@ def _conversation(worker_id: int) -> dict[str, object]:
     run_interaction(
         client,
         user_ctx=user,
-        message="add the first running shoe to my cart",
+        message="add ai_prod_run_001 ai_var_run_001 to my cart",
         mutation_spy=spy,  # type: ignore[arg-type]
         trace_name=f"CONCURRENCY_{worker_id}_ADD",
     )

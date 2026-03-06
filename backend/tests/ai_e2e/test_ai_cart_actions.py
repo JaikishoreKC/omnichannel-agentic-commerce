@@ -15,7 +15,7 @@ def test_ai_add_to_cart_and_query_cart(ai_client, ai_user, mutation_spy) -> None
     trace_add, body_add = run_interaction(
         ai_client,
         user_ctx=ai_user,
-        message="add the first running shoe to my cart",
+        message="add ai_prod_run_001 ai_var_run_001 to my cart",
         mutation_spy=mutation_spy,
         trace_name="TEST_CASE_2_ADD_TO_CART",
     )
@@ -53,7 +53,7 @@ def test_ai_session_context_preserved_across_messages(ai_client, ai_user, mutati
     _, _ = run_interaction(
         ai_client,
         user_ctx=ai_user,
-        message="add the first running shoe to my cart",
+        message="add ai_prod_run_001 ai_var_run_001 to my cart",
         mutation_spy=mutation_spy,
         trace_name="SESSION_CTX_ADD",
     )

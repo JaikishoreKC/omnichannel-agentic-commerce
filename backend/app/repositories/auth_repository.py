@@ -316,9 +316,12 @@ class AuthRepository:
         collection = self._mongo_refresh_collection()
         if collection is None:
             return
+        # Keep both tokenHash and token in sync so legacy unique index definitions
+        # (token) and current repository lookups (tokenHash) are both safe.
+        mongo_payload = {"tokenHash": token_hash, "token": token_hash, **deepcopy(payload)}
         collection.update_one(
             {"tokenHash": token_hash},
-            {"$set": {"tokenHash": token_hash, **deepcopy(payload)}},
+            {"$set": mongo_payload},
             upsert=True,
         )
 
@@ -328,9 +331,12 @@ class AuthRepository:
             return None
         payload = collection.find_one({"tokenHash": token_hash})
         if not payload:
+            payload = collection.find_one({"token": token_hash})
+        if not payload:
             return None
         payload.pop("_id", None)
         payload.pop("tokenHash", None)
+        payload.pop("token", None)
         return payload if isinstance(payload, dict) else None
 
     def _delete_refresh_from_mongo(self, token_hash: str) -> None:
@@ -338,6 +344,7 @@ class AuthRepository:
         if collection is None:
             return
         collection.delete_one({"tokenHash": token_hash})
+        collection.delete_one({"token": token_hash})
 
     def _mongo_password_reset_collection(self) -> Any | None:
         client = self.mongo_manager.client

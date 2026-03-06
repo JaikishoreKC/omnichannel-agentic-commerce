@@ -185,12 +185,23 @@ async def handle_validation_exception(_: Request, exc: RequestValidationError) -
 
 @app.exception_handler(Exception)
 async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:
-    logger.exception(
-        "unhandled_exception",
-        path=request.url.path,
-        method=request.method,
-        error=str(exc),
-    )
+    try:
+        logger.exception(
+            "unhandled_exception",
+            path=request.url.path,
+            method=request.method,
+            error=str(exc),
+        )
+    except UnicodeEncodeError:
+        # On some Windows consoles, rich traceback output can include glyphs that
+        # are not representable in cp1252. Log a safe fallback instead.
+        safe_error = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+        logger.error(
+            "unhandled_exception_ascii_fallback",
+            path=request.url.path,
+            method=request.method,
+            error=safe_error,
+        )
     return JSONResponse(
         status_code=500,
         content={

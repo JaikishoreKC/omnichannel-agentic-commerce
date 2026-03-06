@@ -13,3 +13,4 @@ scikit-learn==1.6.1
 numpy==2.2.3
 mongomock==4.3.0
 fakeredis==2.30.1
+python-dotenv==1.0.1

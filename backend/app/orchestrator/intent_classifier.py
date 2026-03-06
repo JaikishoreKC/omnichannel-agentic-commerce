@@ -302,8 +302,8 @@ class IntentClassifier:
         return {}
 
     def _extract_product_or_variant_id(self, text: str) -> dict[str, Any]:
-        product_match = re.search(r"(prod[_\-]?\d+)", text)
-        variant_match = re.search(r"(var[_\-]?\d+)", text)
+        product_match = re.search(r"\b((?:ai_)?prod(?:[_\-][a-z0-9]+)+)\b", text)
+        variant_match = re.search(r"\b((?:ai_)?var(?:[_\-][a-z0-9]+)+)\b", text)
         entities: dict[str, Any] = {}
         if product_match:
             entities["productId"] = product_match.group(1).replace("-", "_")
@@ -312,7 +312,7 @@ class IntentClassifier:
         return entities
 
     def _extract_product_or_item_id(self, text: str) -> dict[str, Any]:
-        item_match = re.search(r"(item[_\-]?\d+)", text)
+        item_match = re.search(r"\b(item(?:[_\-][a-z0-9]+)+)\b", text)
         if item_match:
             return {"itemId": item_match.group(1).replace("-", "_")}
         return self._extract_product_or_variant_id(text)

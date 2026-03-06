@@ -110,7 +110,16 @@ class OrderService:
         except Exception as exc:
             # Compensate reservations if persistence fails after payment authorization.
             self.inventory_service.rollback_reservation(reservations)
-            self.logger.exception("order_persistence_failed", user_id=user_id, order_id=order_id, error=str(exc))
+            try:
+                self.logger.exception("order_persistence_failed", user_id=user_id, order_id=order_id, error=str(exc))
+            except UnicodeEncodeError:
+                safe_error = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+                self.logger.error(
+                    "order_persistence_failed_ascii_fallback",
+                    user_id=user_id,
+                    order_id=order_id,
+                    error=safe_error,
+                )
             raise HTTPException(status_code=503, detail="Unable to create order at the moment") from exc
 
         try:

@@ -16,7 +16,7 @@ MONGO_INDEX_SPECS: dict[str, list[IndexSpec]] = {
         ([("email", ASCENDING)], {"name": "users_email_unique", "unique": True}),
     ],
     "refresh_tokens": [
-        ([("token", ASCENDING)], {"name": "refresh_tokens_token_unique", "unique": True}),
+        ([("tokenHash", ASCENDING)], {"name": "refresh_tokens_token_unique", "unique": True}),
         ([("userId", ASCENDING), ("createdAt", DESCENDING)], {"name": "refresh_tokens_user_created_desc"}),
     ],
     "sessions": [

@@ -5,8 +5,21 @@ from typing import Any
 import structlog
 from structlog.types import Processor
 
+
+def _ensure_console_encoding_safety() -> None:
+    """Avoid hard failures when console encoding cannot represent rich trace glyphs."""
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                # Keep existing encoding, but make unencodable chars non-fatal.
+                reconfigure(errors="backslashreplace")
+            except (OSError, ValueError):
+                continue
+
 def setup_logging(level: int = logging.INFO) -> None:
     """Configures structured logging with structlog."""
+    _ensure_console_encoding_safety()
     
     # Standard library logging configuration
     logging.basicConfig(
@@ -25,7 +38,10 @@ def setup_logging(level: int = logging.INFO) -> None:
     if sys.stderr.isatty():
         # Colorful console logging for development
         processors = shared_processors + [
-            structlog.dev.ConsoleRenderer()
+            structlog.dev.ConsoleRenderer(
+                colors=False,
+                exception_formatter=structlog.dev.plain_traceback,
+            )
         ]
     else:
         # JSON logging for production/piped logs

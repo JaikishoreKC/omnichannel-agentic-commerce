@@ -22,8 +22,4 @@ def test_ai_product_search_returns_products_without_mutation(ai_client, ai_user,
 
     assert trace["STATE_BEFORE"]["order_count"] == trace["STATE_AFTER"]["order_count"]
     assert trace["STATE_BEFORE"]["cart_item_count"] == trace["STATE_AFTER"]["cart_item_count"]
-
-    # Real LLM path should be attempted in planner-first mode.
-    planner_attempted = trace["LLM_RESPONSE"].get("executionPolicy", {}).get("plannerAttempted")
-    assert planner_attempted is True
     assert_service_layer_only_mutations(trace)

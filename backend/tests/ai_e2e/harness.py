@@ -72,6 +72,14 @@ class MutationSpy:
         return [record for record in self.records if record["method"] in {"create", "update", "delete", "upsert", "set_idempotent"}]
 
 
+@dataclass
+class LLMProviderCallRecord:
+    timestamp: str
+    role: str
+    success: bool
+    error: str | None
+
+
 class LLMCallRecorder:
     """Record/replay wrapper for llm_client._call_llm to support deterministic E2E runs."""
 
@@ -84,7 +92,7 @@ class LLMCallRecorder:
     @staticmethod
     def _normalize_mode(mode: str) -> str:
         normalized = str(mode or "live").strip().lower()
-        if normalized in {"record", "replay", "live"}:
+        if normalized in {"record", "replay", "live", "provider"}:
             return normalized
         return "live"
 
@@ -224,6 +232,85 @@ class LLMCallRecorder:
         return _wrapped
 
 
+class LLMProviderCallRecorder:
+    """Track whether _call_llm is actually invoked and whether it succeeds."""
+
+    def __init__(self) -> None:
+        self._lock = Lock()
+        self._records: list[LLMProviderCallRecord] = []
+
+    def wrap(self, original: Callable[..., str]) -> Callable[..., str]:
+        def _wrapped(*, user_prompt: str, system_prompt: str, role: str | None = None) -> str:
+            _ = user_prompt
+            _ = system_prompt
+            normalized_role = str(role or "planner").strip().lower() or "planner"
+            timestamp = datetime.now(timezone.utc).isoformat()
+            try:
+                response = original(user_prompt=user_prompt, system_prompt=system_prompt, role=role)
+                self._append(
+                    LLMProviderCallRecord(
+                        timestamp=timestamp,
+                        role=normalized_role,
+                        success=True,
+                        error=None,
+                    )
+                )
+                return response
+            except Exception as exc:
+                self._append(
+                    LLMProviderCallRecord(
+                        timestamp=timestamp,
+                        role=normalized_role,
+                        success=False,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                )
+                raise
+
+        return _wrapped
+
+    def _append(self, record: LLMProviderCallRecord) -> None:
+        with self._lock:
+            self._records.append(record)
+
+    def cursor(self) -> int:
+        with self._lock:
+            return len(self._records)
+
+    def slice_since(self, cursor: int) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._records[cursor:]
+        return [
+            {
+                "timestamp": row.timestamp,
+                "role": row.role,
+                "success": row.success,
+                "error": row.error,
+            }
+            for row in rows
+        ]
+
+
+_ACTIVE_PROVIDER_RECORDER: LLMProviderCallRecorder | None = None
+
+
+def set_active_provider_recorder(recorder: LLMProviderCallRecorder | None) -> None:
+    global _ACTIVE_PROVIDER_RECORDER
+    _ACTIVE_PROVIDER_RECORDER = recorder
+
+
+def provider_recorder_cursor() -> int:
+    if _ACTIVE_PROVIDER_RECORDER is None:
+        return 0
+    return _ACTIVE_PROVIDER_RECORDER.cursor()
+
+
+def provider_recorder_slice_since(cursor: int) -> list[dict[str, Any]]:
+    if _ACTIVE_PROVIDER_RECORDER is None:
+        return []
+    return _ACTIVE_PROVIDER_RECORDER.slice_since(cursor)
+
+
 MUTATION_METHODS: list[tuple[Any, str, str]] = [
     (container.cart_repository, "create", "cart_repository"),
     (container.cart_repository, "update", "cart_repository"),
@@ -244,7 +331,7 @@ MUTATION_METHODS: list[tuple[Any, str, str]] = [
 
 def get_ai_e2e_mode() -> str:
     mode = str(os.getenv("AI_E2E_MODE", "live")).strip().lower()
-    if mode in {"live", "record", "replay"}:
+    if mode in {"live", "record", "replay", "provider"}:
         return mode
     return "live"
 
@@ -318,6 +405,21 @@ def install_llm_record_replay() -> Callable[[], None]:
         container.llm_client._call_llm = original
 
     return _restore
+
+
+def install_llm_provider_recorder() -> tuple[Callable[[], None], LLMProviderCallRecorder | None]:
+    mode = get_ai_e2e_mode()
+    if mode != "provider":
+        return (lambda: None), None
+
+    original = container.llm_client._call_llm
+    recorder = LLMProviderCallRecorder()
+    container.llm_client._call_llm = recorder.wrap(original)
+
+    def _restore() -> None:
+        container.llm_client._call_llm = original
+
+    return _restore, recorder
 
 
 def make_client() -> TestClient:
@@ -470,6 +572,7 @@ def run_interaction(
     mutation_spy: MutationSpy,
     trace_name: str,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
+    provider_cursor = provider_recorder_cursor()
     mutation_spy.reset()
     before = snapshot_state(user_id=user_ctx.user_id, session_id=user_ctx.session_id)
 
@@ -511,10 +614,21 @@ def run_interaction(
             "message": payload.get("message") if isinstance(payload, dict) else None,
             "data_keys": sorted(list((payload.get("data") or {}).keys())) if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else [],
         },
+        "LLM_PROVIDER_PROOF": {
+            "calls": provider_recorder_slice_since(provider_cursor),
+        },
         "STATE_BEFORE": before,
         "STATE_AFTER": after,
         "AI_E2E_MODE": get_ai_e2e_mode(),
     }
+    provider_calls = trace["LLM_PROVIDER_PROOF"]["calls"]
+    trace["LLM_PROVIDER_PROOF"].update(
+        {
+            "calls_attempted_delta": len(provider_calls),
+            "calls_succeeded_delta": sum(1 for row in provider_calls if bool(row.get("success"))),
+            "calls_failed_delta": sum(1 for row in provider_calls if not bool(row.get("success"))),
+        }
+    )
     ensure_ai_e2e_dirs()
     file_name = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}_{trace_name}.json"
     target = TRACE_DIR / file_name
