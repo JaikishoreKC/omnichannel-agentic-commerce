@@ -3,6 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import timedelta
 import re
+from threading import Lock
 from typing import Any
 
 from fastapi import HTTPException
@@ -33,6 +34,16 @@ class OrderService:
         self.notification_service = notification_service
         self.order_repository = order_repository
         self.logger = get_logger(__name__)
+        self._idempotency_guard = Lock()
+        self._idempotency_locks: dict[str, Lock] = {}
+
+    def _lock_for_idempotency_key(self, key: str) -> Lock:
+        with self._idempotency_guard:
+            lock = self._idempotency_locks.get(key)
+            if lock is None:
+                lock = Lock()
+                self._idempotency_locks[key] = lock
+            return lock
 
     def create_order(
         self,
@@ -51,93 +62,95 @@ class OrderService:
             )
 
         key = f"{user_id}:{normalized_key}"
-        existing_order_id = self.order_repository.get_idempotent(key)
-        if existing_order_id:
-            existing_order = self.order_repository.get(existing_order_id)
-            if existing_order:
-                return existing_order
+        idempotency_lock = self._lock_for_idempotency_key(key)
+        with idempotency_lock:
+            existing_order_id = self.order_repository.get_idempotent(key)
+            if existing_order_id:
+                existing_order = self.order_repository.get(existing_order_id)
+                if existing_order:
+                    return existing_order
 
-        cart = self.cart_service.get_cart(user_id=user_id, session_id="")
-        if not cart["items"]:
-            raise HTTPException(status_code=400, detail="Cart is empty")
+            cart = self.cart_service.get_cart(user_id=user_id, session_id="")
+            if not cart["items"]:
+                raise HTTPException(status_code=400, detail="Cart is empty")
 
-        reservations = self.inventory_service.reserve_for_order(cart["items"])
-        payment_result: dict[str, Any] | None = None
-        try:
-            payment_result = self.payment_service.authorize(
-                amount=float(cart["total"]),
-                payment_method=payment_method,
-            )
-        except Exception:
-            self.inventory_service.rollback_reservation(reservations)
-            raise
-
-        order_id = generate_id("order")
-        created_at = iso_now()
-        estimated_delivery = (utc_now() + timedelta(days=5)).isoformat()
-        order = {
-            "id": order_id,
-            "userId": user_id,
-            "status": "confirmed",
-            "items": deepcopy(cart["items"]),
-            "subtotal": cart["subtotal"],
-            "tax": cart["tax"],
-            "shipping": cart["shipping"],
-            "discount": cart["discount"],
-            "total": cart["total"],
-            "shippingAddress": shipping_address,
-            "payment": {
-                "method": payment_result.get("method") if payment_result else "unknown",
-                "transactionId": payment_result.get("transactionId") if payment_result else None,
-                "status": payment_result.get("status") if payment_result else "failed",
-            },
-            "timeline": [
-                {"status": "order_placed", "timestamp": created_at},
-                {"status": "confirmed", "timestamp": created_at},
-            ],
-            "tracking": {
-                "carrier": None,
-                "trackingNumber": None,
-                "status": "pending",
-                "updates": [],
-            },
-            "estimatedDelivery": estimated_delivery,
-            "createdAt": created_at,
-            "updatedAt": created_at,
-        }
-        try:
-            self.order_repository.create(order)
-        except Exception as exc:
-            # Compensate reservations if persistence fails after payment authorization.
-            self.inventory_service.rollback_reservation(reservations)
+            reservations = self.inventory_service.reserve_for_order(cart["items"])
+            payment_result: dict[str, Any] | None = None
             try:
-                self.logger.exception("order_persistence_failed", user_id=user_id, order_id=order_id, error=str(exc))
-            except UnicodeEncodeError:
-                safe_error = str(exc).encode("ascii", "backslashreplace").decode("ascii")
-                self.logger.error(
-                    "order_persistence_failed_ascii_fallback",
-                    user_id=user_id,
-                    order_id=order_id,
-                    error=safe_error,
+                payment_result = self.payment_service.authorize(
+                    amount=float(cart["total"]),
+                    payment_method=payment_method,
                 )
-            raise HTTPException(status_code=503, detail="Unable to create order at the moment") from exc
+            except Exception:
+                self.inventory_service.rollback_reservation(reservations)
+                raise
 
-        try:
-            self.order_repository.set_idempotent(key=key, order_id=order_id)
-        except Exception as exc:
-            # Idempotency backfill failure should not fail a successfully persisted order.
-            self.logger.warning("order_idempotency_record_failed", user_id=user_id, order_id=order_id, error=str(exc))
+            order_id = generate_id("order")
+            created_at = iso_now()
+            estimated_delivery = (utc_now() + timedelta(days=5)).isoformat()
+            order = {
+                "id": order_id,
+                "userId": user_id,
+                "status": "confirmed",
+                "items": deepcopy(cart["items"]),
+                "subtotal": cart["subtotal"],
+                "tax": cart["tax"],
+                "shipping": cart["shipping"],
+                "discount": cart["discount"],
+                "total": cart["total"],
+                "shippingAddress": shipping_address,
+                "payment": {
+                    "method": payment_result.get("method") if payment_result else "unknown",
+                    "transactionId": payment_result.get("transactionId") if payment_result else None,
+                    "status": payment_result.get("status") if payment_result else "failed",
+                },
+                "timeline": [
+                    {"status": "order_placed", "timestamp": created_at},
+                    {"status": "confirmed", "timestamp": created_at},
+                ],
+                "tracking": {
+                    "carrier": None,
+                    "trackingNumber": None,
+                    "status": "pending",
+                    "updates": [],
+                },
+                "estimatedDelivery": estimated_delivery,
+                "createdAt": created_at,
+                "updatedAt": created_at,
+            }
+            try:
+                self.order_repository.create(order)
+            except Exception as exc:
+                # Compensate reservations if persistence fails after payment authorization.
+                self.inventory_service.rollback_reservation(reservations)
+                try:
+                    self.logger.exception("order_persistence_failed", user_id=user_id, order_id=order_id, error=str(exc))
+                except UnicodeEncodeError:
+                    safe_error = str(exc).encode("ascii", "backslashreplace").decode("ascii")
+                    self.logger.error(
+                        "order_persistence_failed_ascii_fallback",
+                        user_id=user_id,
+                        order_id=order_id,
+                        error=safe_error,
+                    )
+                raise HTTPException(status_code=503, detail="Unable to create order at the moment") from exc
 
-        self.cart_service.mark_cart_converted_for_user(user_id)
+            try:
+                self.order_repository.set_idempotent(key=key, order_id=order_id)
+            except Exception as exc:
+                # Idempotency backfill failure should not fail a successfully persisted order.
+                self.logger.warning("order_idempotency_record_failed", user_id=user_id, order_id=order_id, error=str(exc))
 
-        self.inventory_service.commit_reservation(order["items"])
-        try:
-            self.notification_service.send_order_confirmation(user_id=user_id, order=order)
-        except Exception as exc:
-            # Notification delivery is a side-effect and should not fail checkout.
-            self.logger.warning("order_confirmation_notification_failed", user_id=user_id, order_id=order_id, error=str(exc))
+            self.cart_service.mark_cart_converted_for_user(user_id)
 
-        return deepcopy(order)
+            self.inventory_service.commit_reservation(order["items"])
+            try:
+                self.notification_service.send_order_confirmation(user_id=user_id, order=order)
+            except Exception as exc:
+                # Notification delivery is a side-effect and should not fail checkout.
+                self.logger.warning("order_confirmation_notification_failed", user_id=user_id, order_id=order_id, error=str(exc))
+
+            return deepcopy(order)
 
     def list_orders(self, user_id: str) -> dict[str, Any]:
         orders = self.order_repository.list_by_user(user_id)
