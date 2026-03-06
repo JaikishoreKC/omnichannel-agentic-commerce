@@ -59,6 +59,14 @@ class IntentClassifier:
             entities.update(self._extract_order_id(text))
             return IntentResult(name="multi_status", confidence=0.9, entities=entities)
 
+        variant_confirmation = self._classify_variant_confirmation_intent(
+            text=text,
+            message=message,
+            context=context,
+        )
+        if variant_confirmation is not None:
+            return variant_confirmation
+
         for classifier in (
             self._classify_memory_intent,
             self._classify_order_intent,
@@ -80,6 +88,45 @@ class IntentClassifier:
             return product
 
         return IntentResult(name="general_question", confidence=0.6, entities={"query": message.strip()})
+
+    def _classify_variant_confirmation_intent(
+        self,
+        *,
+        text: str,
+        message: str,
+        context: dict[str, Any] | None,
+    ) -> IntentResult | None:
+        phrases = (
+            "choose default",
+            "pick default",
+            "default option",
+            "default one",
+            "choose first",
+            "pick first",
+            "first one",
+            "the first one",
+            "add that",
+            "add this",
+            "choose that",
+            "pick that",
+            "go with that",
+        )
+        if not any(phrase in text for phrase in phrases):
+            return None
+        recent_option = self._latest_clarification_option(context)
+        recent_cart_item = self._latest_cart_item_option(context)
+        if not recent_option and not recent_cart_item and not self._has_recent_selection_context(context):
+            return None
+
+        entities: dict[str, Any] = {"quantity": 1}
+        entities.update(self._extract_quantity(text))
+
+        if recent_option:
+            entities.update(recent_option)
+        elif recent_cart_item:
+            entities.update(recent_cart_item)
+
+        return IntentResult(name="add_to_cart", confidence=0.91, entities=entities)
 
     def _classify_memory_intent(self, *, text: str, message: str, phrase_text: str) -> IntentResult | None:
         _ = phrase_text
@@ -666,6 +713,139 @@ class IntentClassifier:
             if intent in {'product_search', 'search_and_add_to_cart'} or agent == 'product':
                 return True
         return False
+
+    def _has_recent_selection_context(self, context: dict[str, Any] | None) -> bool:
+        if context is None:
+            return False
+        recent = context.get("recent", [])
+        if not isinstance(recent, list):
+            return False
+        for row in reversed(recent):
+            if not isinstance(row, dict):
+                continue
+            response = row.get("response", {})
+            if not isinstance(response, dict):
+                continue
+            data = response.get("data", {})
+            if isinstance(data, dict):
+                candidate_maps: list[dict[str, Any]] = [data]
+                for value in data.values():
+                    if isinstance(value, dict):
+                        candidate_maps.append(value)
+                for candidate in candidate_maps:
+                    if candidate.get("code") == "CLARIFICATION_REQUIRED" and isinstance(candidate.get("options"), list):
+                        return True
+                    products = candidate.get("products")
+                    if isinstance(products, list) and products:
+                        return True
+            intent = str(row.get("intent", "")).strip().lower()
+            agent = str(row.get("agent", "")).strip().lower()
+            if intent in {"product_search", "search_and_add_to_cart"} or agent in {"product", "orchestrator"}:
+                return True
+        return False
+
+    def _latest_clarification_option(self, context: dict[str, Any] | None) -> dict[str, Any]:
+        if context is None:
+            return {}
+        recent = context.get("recent", [])
+        if not isinstance(recent, list):
+            return {}
+        for row in reversed(recent):
+            if not isinstance(row, dict):
+                continue
+            response = row.get("response", {})
+            if not isinstance(response, dict):
+                continue
+            data = response.get("data", {})
+            if not isinstance(data, dict):
+                continue
+
+            candidate_maps: list[dict[str, Any]] = [data]
+            for value in data.values():
+                if isinstance(value, dict):
+                    candidate_maps.append(value)
+
+            for candidate in candidate_maps:
+                if candidate.get("code") == "CLARIFICATION_REQUIRED":
+                    options = candidate.get("options", [])
+                    if isinstance(options, list) and options:
+                        first = options[0]
+                        if isinstance(first, dict):
+                            product_id = str(first.get("productId", "")).strip()
+                            variant_id = str(first.get("variantId", "")).strip()
+                            payload: dict[str, Any] = {}
+                            if product_id:
+                                payload["productId"] = product_id
+                            if variant_id:
+                                payload["variantId"] = variant_id
+                            if payload:
+                                return payload
+
+                products = candidate.get("products")
+                if not isinstance(products, list) or not products:
+                    continue
+                first_product = products[0]
+                if not isinstance(first_product, dict):
+                    continue
+                variants = first_product.get("variants")
+                if not isinstance(variants, list) or not variants:
+                    continue
+                selected_variant: dict[str, Any] | None = None
+                for variant in variants:
+                    if isinstance(variant, dict) and bool(variant.get("inStock", False)):
+                        selected_variant = variant
+                        break
+                if selected_variant is None and isinstance(variants[0], dict):
+                    selected_variant = variants[0]
+                if selected_variant is None:
+                    continue
+                product_id = str(first_product.get("id", "")).strip()
+                variant_id = str(selected_variant.get("id", "")).strip()
+                payload: dict[str, Any] = {}
+                if product_id:
+                    payload["productId"] = product_id
+                if variant_id:
+                    payload["variantId"] = variant_id
+                if payload:
+                    return payload
+        return {}
+
+    def _latest_cart_item_option(self, context: dict[str, Any] | None) -> dict[str, Any]:
+        if context is None:
+            return {}
+        recent = context.get("recent", [])
+        if not isinstance(recent, list):
+            return {}
+        for row in reversed(recent):
+            if not isinstance(row, dict):
+                continue
+            response = row.get("response", {})
+            if not isinstance(response, dict):
+                continue
+            data = response.get("data", {})
+            if not isinstance(data, dict):
+                continue
+
+            pending: list[dict[str, Any]] = [data]
+            while pending:
+                candidate = pending.pop()
+                items = candidate.get("items", [])
+                if isinstance(items, list) and items:
+                    last_item = items[-1]
+                    if isinstance(last_item, dict):
+                        product_id = str(last_item.get("productId", "")).strip()
+                        variant_id = str(last_item.get("variantId", "")).strip()
+                        payload: dict[str, Any] = {}
+                        if product_id:
+                            payload["productId"] = product_id
+                        if variant_id:
+                            payload["variantId"] = variant_id
+                        if payload:
+                            return payload
+                for value in candidate.values():
+                    if isinstance(value, dict):
+                        pending.append(value)
+        return {}
 
     def _looks_like_product_query(self, text: str) -> bool:
         if not text:

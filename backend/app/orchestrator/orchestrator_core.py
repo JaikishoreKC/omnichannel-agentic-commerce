@@ -190,7 +190,20 @@ class Orchestrator:
 
         planner_attempted = False
         planner_plan: LLMActionPlan | None = None
-        should_try_planner = planner_enabled_for_request and (
+        planner_blocked_intents = {
+            "apply_discount",
+            "update_cart",
+            "adjust_cart_quantity",
+            "remove_from_cart",
+            "clear_cart",
+            "view_cart",
+        }
+        planner_eligible_intent = (
+            intent.name not in planner_blocked_intents
+            and not self._is_deterministic_cart_followup(message=message, intent_name=intent.name)
+            and self._is_planner_candidate_intent(message=message, intent_name=intent.name)
+        )
+        should_try_planner = planner_enabled_for_request and planner_eligible_intent and (
             decision_policy == "planner_first" or len(actions) > 1
         )
         if should_try_planner:
@@ -499,6 +512,39 @@ class Orchestrator:
         bucket = int(digest[:8], 16) % 100
         return bucket < percent
 
+    def _is_deterministic_cart_followup(self, *, message: str, intent_name: str) -> bool:
+        if intent_name != "add_to_cart":
+            return False
+        text = message.lower()
+        followup_markers = (
+            "choose default",
+            "pick default",
+            "default option",
+            "default one",
+            "choose first",
+            "pick first",
+            "first one",
+            "the first one",
+            "add that",
+            "add this",
+            "choose that",
+            "pick that",
+            "go with that",
+        )
+        return any(marker in text for marker in followup_markers)
+
+    def _is_planner_candidate_intent(self, *, message: str, intent_name: str) -> bool:
+        if intent_name != "add_to_cart":
+            return True
+        return self._looks_like_multi_item_cart_request(message=message)
+
+    def _looks_like_multi_item_cart_request(self, *, message: str) -> bool:
+        text = message.lower()
+        conjunction_markers = (" and ", ",", " plus ", " along with ")
+        if not any(marker in text for marker in conjunction_markers):
+            return False
+        return any(token in text for token in ("add", "cart", "buy"))
+
     def _max_actions_per_request(self) -> int:
         if self.llm_client is None:
             return 5
@@ -724,7 +770,13 @@ class Orchestrator:
         variants = first.get("variants")
         if not isinstance(variants, list) or not variants:
             return {}
-        first_variant = variants[0]
+        first_variant = None
+        for variant in variants:
+            if isinstance(variant, dict) and bool(variant.get("inStock", False)):
+                first_variant = variant
+                break
+        if first_variant is None:
+            first_variant = variants[0]
         if not isinstance(first_variant, dict):
             return {}
         product_id = str(first.get("id", "")).strip()

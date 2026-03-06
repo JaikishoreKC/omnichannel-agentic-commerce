@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { ChatResponsePayload } from "../api/types";
 import type { InteractionHistoryMessage } from "../types";
-import { applyFinalAssistantPayload, mapHistoryRowsToMessages } from "./ChatContext";
+import { applyFinalAssistantPayload, mapHistoryRowsToMessages, toSuggestedActionUtterance } from "./ChatContext";
 
 describe("ChatContext helper invariants", () => {
     it("maps history into separate user/assistant turns with correct roles", () => {
@@ -77,5 +77,17 @@ describe("ChatContext helper invariants", () => {
         expect(next[0].isStreaming).toBe(false);
         expect(next[0].agent).toBe("cart");
         expect(next[0].suggestedActions).toEqual([{ label: "View cart", action: "view_cart" }]);
+    });
+
+    it("maps canonical suggested actions to deterministic utterances", () => {
+        expect(toSuggestedActionUtterance({ label: "Show cart", action: "view_cart" })).toBe("show cart");
+        expect(toSuggestedActionUtterance({ label: "Checkout", action: "checkout" })).toBe("checkout");
+        expect(toSuggestedActionUtterance({ label: "Continue shopping", action: "search:more" })).toBe("show me more products");
+        expect(
+            toSuggestedActionUtterance({
+                label: "Add AeroThread",
+                action: "add_to_cart:ai_prod_1:ai_var_1",
+            })
+        ).toBe("add product ai_prod_1 variant ai_var_1 to cart");
     });
 });

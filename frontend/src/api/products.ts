@@ -30,8 +30,16 @@ export async function fetchProducts(options: {
 }
 
 export async function fetchProduct(productId: string): Promise<Product> {
-    const data = await request<{ product: Product }>("GET", `/products/${encodeURIComponent(productId)}`);
-    return data.product;
+    const data = await request<Product | { product: Product }>("GET", `/products/${encodeURIComponent(productId)}`);
+    const raw = (typeof data === "object" && data !== null && "product" in data)
+        ? (data as { product: Product }).product
+        : (data as Product);
+
+    return {
+        ...raw,
+        images: Array.isArray(raw?.images) ? raw.images : [],
+        variants: Array.isArray(raw?.variants) ? raw.variants : [],
+    } as Product;
 }
 
 export async function addProductReview(productId: string, review: { rating: number, title?: string, comment?: string }): Promise<void> {

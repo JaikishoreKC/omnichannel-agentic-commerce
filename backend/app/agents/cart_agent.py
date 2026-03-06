@@ -317,6 +317,15 @@ class CartAgent(BaseAgent):
         color = str(params.get("color", "")).strip().lower()
         size = str(params.get("size", "")).strip().lower()
 
+        preferred_size = str((context.preferences or {}).get("size", "")).strip().lower()
+        preferred_colors = (context.preferences or {}).get("colorPreferences", [])
+        preferred_color = ""
+        if isinstance(preferred_colors, list) and preferred_colors:
+            preferred_color = str(preferred_colors[0]).strip().lower()
+
+        effective_color = color or preferred_color
+        effective_size = size or preferred_size
+
         if product_id and variant_id:
             return _AddResolution(product_id=product_id, variant_id=variant_id)
 
@@ -328,7 +337,7 @@ class CartAgent(BaseAgent):
             if isinstance(product, dict) and isinstance(product.get("product"), dict):
                 product = product["product"]
             if isinstance(product, dict):
-                variants = self._matching_in_stock_variants(product=product, color=color, size=size)
+                variants = self._matching_in_stock_variants(product=product, color=effective_color, size=effective_size)
                 if len(variants) == 1:
                     return _AddResolution(product_id=product_id, variant_id=str(variants[0]["id"]))
                 if len(variants) > 1:
@@ -336,19 +345,23 @@ class CartAgent(BaseAgent):
                         self._resolution_option(product=product, variant=variant)
                         for variant in variants[:3]
                     ]
-                    return _AddResolution(
-                        clarification=(
-                            f"I found multiple variants for {str(product.get('name', 'that product'))}. "
-                            "Please specify size and/or color."
-                        ),
+                    variant_message = self._build_variant_clarification_message(
+                        product_name=str(product.get("name", "that product")),
                         options=options,
                     )
+                    return _AddResolution(
+                        clarification=variant_message,
+                        options=options,
+                    )
+
+        if query and self._is_deictic_query(query):
+            query = ""
 
         if query:
             resolution = self._resolve_variant_from_query(
                 query=query,
-                color=color,
-                size=size,
+                color=effective_color,
+                size=effective_size,
                 brand=str(params.get("brand", "")).strip(),
                 min_price=params.get("minPrice"),
                 max_price=params.get("maxPrice"),
@@ -362,6 +375,22 @@ class CartAgent(BaseAgent):
         if inferred_product and inferred_variant:
             return _AddResolution(product_id=inferred_product, variant_id=inferred_variant)
         return _AddResolution()
+
+    def _is_deictic_query(self, query: str) -> bool:
+        text = query.strip().lower()
+        if not text:
+            return False
+        deictic_terms = {
+            "default",
+            "default option",
+            "default one",
+            "the default",
+            "this",
+            "that",
+            "this one",
+            "that one",
+        }
+        return text in deictic_terms or "default" in text
 
     def _resolve_variant_from_query(
         self,
@@ -405,10 +434,9 @@ class CartAgent(BaseAgent):
             )
 
         if not candidates and ambiguous_variant_options:
-            option_names = ", ".join(option["name"] for option in ambiguous_variant_options[:3])
-            clarification = (
-                f"I found multiple size/color variants for '{query}': {option_names}. "
-                "Please specify size and/or color."
+            clarification = self._build_variant_clarification_message(
+                product_name=query,
+                options=ambiguous_variant_options[:3],
             )
             return _AddResolution(
                 clarification=clarification,
@@ -435,9 +463,25 @@ class CartAgent(BaseAgent):
             return _AddResolution(product_id=str(product["id"]), variant_id=str(variant["id"]))
 
         options = [self._resolution_option(product=product, variant=variant) for product, variant in narrowed[:3]]
-        names = ", ".join(option["name"] for option in options)
-        clarification = f"I found multiple matches for '{query}': {names}. Which one should I add?"
+        clarification = self._build_variant_clarification_message(
+            product_name=query,
+            options=options,
+        )
         return _AddResolution(clarification=clarification, options=options)
+
+    def _build_variant_clarification_message(self, *, product_name: str, options: list[dict[str, Any]]) -> str:
+        if not options:
+            return f"I found multiple variants for {product_name}. Please specify size and/or color."
+        rendered = []
+        for option in options[:3]:
+            size = str(option.get("size", "")).strip() or "n/a"
+            color = str(option.get("color", "")).strip() or "n/a"
+            rendered.append(f"{option.get('name', 'option')} [size: {size}, color: {color}]")
+        joined = "; ".join(rendered)
+        return (
+            f"I found multiple variants for {product_name}. Available options: {joined}. "
+            "Reply with size/color (for example: 'size M color Black') or say 'choose default'."
+        )
 
     def _resolution_option(self, *, product: dict[str, Any], variant: dict[str, Any]) -> dict[str, Any]:
         size = str(variant.get("size", "")).strip()
@@ -526,13 +570,66 @@ class CartAgent(BaseAgent):
 
     def _infer_from_recent(self, recent: list[dict[str, Any]]) -> dict[str, Any]:
         for record in reversed(recent):
-            data = record.get("response", {}).get("data", {})
-            products = data.get("products", [])
-            if products:
+            if not isinstance(record, dict):
+                continue
+            response = record.get("response", {})
+            if not isinstance(response, dict):
+                continue
+            data = response.get("data", {})
+            if not isinstance(data, dict):
+                continue
+
+            candidate_maps: list[dict[str, Any]] = []
+            pending: list[dict[str, Any]] = [data]
+            while pending:
+                current = pending.pop()
+                candidate_maps.append(current)
+                for value in current.values():
+                    if isinstance(value, dict):
+                        pending.append(value)
+
+            for candidate in candidate_maps:
+                if candidate.get("code") == "CLARIFICATION_REQUIRED":
+                    options = candidate.get("options", [])
+                    if isinstance(options, list) and options:
+                        first = options[0]
+                        if isinstance(first, dict):
+                            product_id = str(first.get("productId", "")).strip()
+                            variant_id = str(first.get("variantId", "")).strip()
+                            if product_id and variant_id:
+                                return {"productId": product_id, "variantId": variant_id}
+
+                items = candidate.get("items", [])
+                if isinstance(items, list) and items:
+                    last_item = items[-1]
+                    if isinstance(last_item, dict):
+                        product_id = str(last_item.get("productId", "")).strip()
+                        variant_id = str(last_item.get("variantId", "")).strip()
+                        if product_id and variant_id:
+                            return {"productId": product_id, "variantId": variant_id}
+
+                products = candidate.get("products", [])
+                if not isinstance(products, list) or not products:
+                    continue
                 first = products[0]
+                if not isinstance(first, dict):
+                    continue
                 variants = first.get("variants", [])
-                if variants:
-                    return {"productId": first.get("id"), "variantId": variants[0].get("id")}
+                if not isinstance(variants, list) or not variants:
+                    continue
+                selected = None
+                for variant in variants:
+                    if isinstance(variant, dict) and bool(variant.get("inStock", False)):
+                        selected = variant
+                        break
+                if selected is None and isinstance(variants[0], dict):
+                    selected = variants[0]
+                if selected is None:
+                    continue
+                product_id = str(first.get("id", "")).strip()
+                variant_id = str(selected.get("id", "")).strip()
+                if product_id and variant_id:
+                    return {"productId": product_id, "variantId": variant_id}
         return {}
 
     def _cart_next_actions(self, cart: dict[str, Any]) -> list[dict[str, str]]:

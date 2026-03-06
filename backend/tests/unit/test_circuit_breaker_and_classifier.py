@@ -139,3 +139,98 @@ def test_intent_classifier_detects_price_refinement_query() -> None:
     assert result.name == "product_search"
     assert result.entities["maxPrice"] == 150.0
 
+
+def test_intent_classifier_maps_choose_default_with_recent_clarification() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify(
+        "choose default",
+        context={
+            "recent": [
+                {
+                    "response": {
+                        "data": {
+                            "code": "CLARIFICATION_REQUIRED",
+                            "options": [
+                                {"productId": "ai_prod_1", "variantId": "ai_var_1", "name": "A / Blue"}
+                            ],
+                        }
+                    }
+                }
+            ]
+        },
+    )
+    assert result.name == "add_to_cart"
+    assert result.entities["productId"] == "ai_prod_1"
+    assert result.entities["variantId"] == "ai_var_1"
+    assert result.entities["quantity"] == 1
+
+
+def test_intent_classifier_extracts_quantity_from_choose_default() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify(
+        "choose default add 2",
+        context={"recent": [{"intent": "product_search", "agent": "product"}]},
+    )
+    assert result.name == "add_to_cart"
+    assert result.entities["quantity"] == 2
+
+
+def test_intent_classifier_uses_nested_product_context_for_choose_default() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify(
+        "choose default",
+        context={
+            "recent": [
+                {
+                    "response": {
+                        "data": {
+                            "product": {
+                                "products": [
+                                    {
+                                        "id": "ai_prod_1",
+                                        "variants": [
+                                            {"id": "ai_var_1", "inStock": True},
+                                            {"id": "ai_var_2", "inStock": False},
+                                        ],
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+    )
+    assert result.name == "add_to_cart"
+    assert result.entities["productId"] == "ai_prod_1"
+    assert result.entities["variantId"] == "ai_var_1"
+
+
+def test_intent_classifier_uses_recent_cart_item_for_choose_default() -> None:
+    classifier = IntentClassifier()
+    result = classifier.classify(
+        "choose default add 2",
+        context={
+            "recent": [
+                {
+                    "response": {
+                        "data": {
+                            "cart": {
+                                "items": [
+                                    {
+                                        "productId": "ai_prod_1",
+                                        "variantId": "ai_var_1",
+                                    }
+                                ]
+                            }
+                        }
+                    }
+                }
+            ]
+        },
+    )
+    assert result.name == "add_to_cart"
+    assert result.entities["productId"] == "ai_prod_1"
+    assert result.entities["variantId"] == "ai_var_1"
+    assert result.entities["quantity"] == 2
+

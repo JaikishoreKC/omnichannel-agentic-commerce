@@ -14,6 +14,35 @@ export type Message = {
     suggestedActions?: Array<{ label: string; action: string }>;
 };
 
+export function toSuggestedActionUtterance(action: { label: string; action: string }): string {
+    const rawAction = String(action.action || "").trim();
+    if (!rawAction) {
+        return String(action.label || "").trim();
+    }
+
+    if (rawAction === "view_cart") {
+        return "show cart";
+    }
+    if (rawAction === "checkout") {
+        return "checkout";
+    }
+    if (rawAction === "search:more") {
+        return "show me more products";
+    }
+    if (rawAction.startsWith("add_to_cart:")) {
+        const parts = rawAction.split(":");
+        if (parts.length >= 3) {
+            const productId = parts[1];
+            const variantId = parts[2];
+            if (productId && variantId) {
+                return `add product ${productId} variant ${variantId} to cart`;
+            }
+        }
+    }
+
+    return String(action.label || rawAction).trim();
+}
+
 export function mapHistoryRowsToMessages(rows: InteractionHistoryMessage[]): Message[] {
     const mapped: Message[] = [];
     for (const row of rows) {

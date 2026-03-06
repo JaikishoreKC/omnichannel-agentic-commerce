@@ -1,0 +1,22 @@
+SESSION session_ANbslKLDbJY3qhAHQQwG73P9wNtqFKAt
+USER empty cart
+STATUS 200
+BOT Cleared your cart.
+INTENT clear_cart
+---
+USER add AeroThread Audio Pro to cart
+STATUS 200
+BOT I found 8 options. Top result: AeroThread Audio Pro ($225.95).
+INTENT add_to_cart
+---
+USER choose default add 2
+STATUS 200
+BOT Which product should I add 2 of? Please specify the product name or ID.
+INTENT add_to_cart
+---
+USER show cart
+STATUS 200
+BOT Your cart has 0 item(s), total $0.00.
+INTENT view_cart
+---
+FINAL None None

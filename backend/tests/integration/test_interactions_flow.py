@@ -356,7 +356,8 @@ def test_interaction_add_to_cart_requests_clarification_when_ambiguous() -> None
     payload = response.json()["payload"]
     assert payload["agent"] == "cart"
     assert payload["data"]["code"] == "CLARIFICATION_REQUIRED"
-    assert "multiple matches" in payload["message"].lower()
+    lowered = payload["message"].lower()
+    assert "multiple matches" in lowered or "multiple variants" in lowered
     assert len(payload["data"]["options"]) >= 2
 
 

@@ -43,7 +43,8 @@ const ProductDetailPage: React.FC = () => {
                 setIsLoading(true);
                 const data = await fetchProduct(productId);
                 setProduct(data);
-                const initialVariant = data.variants.find(v => v.inStock) || data.variants[0];
+                const variants = Array.isArray(data?.variants) ? data.variants : [];
+                const initialVariant = variants.find(v => v.inStock) || variants[0] || null;
                 setSelectedVariant(initialVariant);
             } finally {
                 setIsLoading(false);

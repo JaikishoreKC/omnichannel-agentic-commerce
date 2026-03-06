@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { MessageSquare, X, Send, Minus, Maximize2, Sparkles } from "lucide-react";
-import { useChat } from "../../context/ChatContext";
+import { toSuggestedActionUtterance, useChat } from "../../context/ChatContext";
 import { Button } from "../ui/Button";
 import { cn } from "../../utils/cn";
 
@@ -149,7 +149,7 @@ const ChatPanel: React.FC = () => {
                                                     {msg.suggestedActions.map((action, i) => (
                                                         <button
                                                             key={i}
-                                                            onClick={() => sendMessage(action.label)}
+                                                            onClick={() => sendMessage(toSuggestedActionUtterance(action))}
                                                             className="text-xs px-3 py-1.5 bg-brand/10 text-brand font-medium rounded-full hover:bg-brand hover:text-white transition-colors border border-brand/20 whitespace-nowrap"
                                                         >
                                                             {action.label}
