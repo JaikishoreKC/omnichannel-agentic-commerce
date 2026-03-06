@@ -2,7 +2,7 @@
 
 Last updated: 2026-03-07
 
-Latest backend baseline: `224 passed, 11 skipped`.
+Latest backend baseline: `241 passed, 11 skipped`.
 
 ## 1) Quality Gates
 - [ ] Backend tests pass: `python -m pytest backend/tests -q`

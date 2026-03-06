@@ -6,6 +6,7 @@ import pytest
 
 from app.orchestrator.action_extractor import ActionExtractor
 from app.orchestrator.intent_classifier import IntentClassifier
+from tests.nl_eval.metrics_helper import ConfusionMatrixCollector
 
 
 CASES: list[dict[str, Any]] = [
@@ -150,6 +151,59 @@ CASES: list[dict[str, Any]] = [
         "expected_actions": ["search_products"],
         "entities": {"maxPrice": 150.0},
     },
+    {
+        "id": "search_and_add_combo",
+        "message": "search running shoes under 150 and add to cart",
+        "expected_intent": "search_and_add_to_cart",
+        "expected_actions": ["search_products", "add_item"],
+        "entities": {"maxPrice": 150.0},
+    },
+    {
+        "id": "discount_uppercase_noise",
+        "message": "PLEASE apply discount and use code save20 now",
+        "expected_intent": "apply_discount",
+        "expected_actions": ["apply_discount"],
+        "entities": {"code": "SAVE20"},
+    },
+    {
+        "id": "order_late_phrase",
+        "message": "my order is late order_321",
+        "expected_intent": "order_status",
+        "expected_actions": ["get_order_status"],
+        "entities": {"orderId": "order_321"},
+    },
+    {
+        "id": "support_close_hyphen_ticket",
+        "message": "close ticket ticket-123",
+        "expected_intent": "support_close",
+        "expected_actions": ["close_ticket"],
+        "entities": {"ticketId": "ticket_123"},
+    },
+    {
+        "id": "choose_default_from_clarification_options",
+        "message": "choose default",
+        "context": {
+            "recent": [
+                {
+                    "response": {
+                        "data": {
+                            "code": "CLARIFICATION_REQUIRED",
+                            "options": [
+                                {
+                                    "productId": "prod_001",
+                                    "variantId": "var_001",
+                                    "name": "Default Option",
+                                }
+                            ],
+                        }
+                    }
+                }
+            ]
+        },
+        "expected_intent": "add_to_cart",
+        "expected_actions": ["add_item"],
+        "entities": {"productId": "prod_001", "variantId": "var_001", "quantity": 1},
+    },
 ]
 
 
@@ -201,3 +255,31 @@ def test_nl_intent_and_action_eval(case: dict[str, Any]) -> None:
         items = result.entities.get("items", [])
         assert isinstance(items, list)
         assert len(items) >= int(expected_entities["items_min"])
+
+
+def test_nl_intent_and_action_eval_diagnostics_summary() -> None:
+    classifier = IntentClassifier()
+    extractor = ActionExtractor()
+    collector = ConfusionMatrixCollector()
+
+    for case in CASES:
+        message = str(case["message"])
+        context = case.get("context")
+        expected_intent = str(case["expected_intent"])
+        expected_actions = list(case["expected_actions"])
+
+        result = classifier.classify(message=message, context=context)
+        actions = extractor.extract(result)
+        action_names = [action.name for action in actions]
+
+        collector.record(
+            expected_intent=expected_intent,
+            predicted_intent=result.name,
+            confidence=result.confidence,
+            action_match=(action_names == expected_actions),
+        )
+
+    assert collector.total_predictions == len(CASES)
+    stats = collector.per_intent_stats()
+    assert stats
+    assert set(stats).issuperset({"add_to_cart", "product_search", "checkout"})

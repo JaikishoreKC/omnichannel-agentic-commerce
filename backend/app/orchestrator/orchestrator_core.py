@@ -143,6 +143,7 @@ class Orchestrator:
         intent_known = intent.name in self._KNOWN_INTENTS
         if not intent_known:
             self.logger.warning("Unknown intent routed through fallback path", intent=intent.name)
+            self._record_intent_event(intent_name=intent.name, confidence=intent.confidence, source="unknown")
             unknown_mode = self._unknown_intent_mode()
             self._record_chat_event(
                 event_type="unknown_intent",
@@ -186,6 +187,11 @@ class Orchestrator:
                 yield {"type": "final_response", "payload": payload}
                 return
         actions = self.action_extractor.extract(intent)
+        self._record_intent_event(
+            intent_name=intent.name,
+            confidence=intent.confidence,
+            source="hybrid" if allow_classifier_llm else "rules",
+        )
         route_agent_name = self.router.route(intent)
 
         planner_attempted = False
@@ -262,6 +268,7 @@ class Orchestrator:
                     route_agent_name=route_agent_name,
                     actions=actions,
                     context=context,
+                    intent_name=intent.name,
                 )
             elif len(actions) == 1:
                 action = actions[0]
@@ -281,6 +288,8 @@ class Orchestrator:
             intent=intent,
             agent_name=agent_name,
         )
+        if truncated_action_count > 0:
+            self._record_action_truncation(intent_name=intent.name, truncated_count=truncated_action_count)
         self._apply_execution_metadata(
             response=response,
             decision_policy=decision_policy,
@@ -565,6 +574,7 @@ class Orchestrator:
         route_agent_name: str,
         actions: list[Any],
         context: Any,
+        intent_name: str,
     ) -> tuple[AgentExecutionResult, str, list[dict[str, Any]]]:
         mode = self._planner_execution_mode()
         atomic = mode == "atomic"
@@ -594,6 +604,11 @@ class Orchestrator:
                     if raw_code:
                         code = raw_code
                 error = {"code": code, "message": result.message}
+                self._record_planner_step_event(
+                    event_type="failed",
+                    intent_name=intent_name,
+                    step_index=index,
+                )
             steps.append(
                 {
                     "index": index,
@@ -607,6 +622,11 @@ class Orchestrator:
 
             if atomic and not result.success:
                 for skipped_index, skipped in enumerate(actions[index:], start=index + 1):
+                    self._record_planner_step_event(
+                        event_type="skipped",
+                        intent_name=intent_name,
+                        step_index=skipped_index,
+                    )
                     steps.append(
                         {
                             "index": skipped_index,
@@ -803,6 +823,38 @@ class Orchestrator:
             return
         try:
             self.metrics_collector.record_chat_event(event_type=event_type, status=status)
+        except RuntimeError:
+            return
+
+    def _record_intent_event(self, *, intent_name: str, confidence: float, source: str) -> None:
+        if self.metrics_collector is None:
+            return
+        try:
+            self.metrics_collector.record_intent_event(intent_name=intent_name, source=source)
+            self.metrics_collector.record_intent_confidence(intent_name=intent_name, confidence=confidence)
+        except RuntimeError:
+            return
+
+    def _record_action_truncation(self, *, intent_name: str, truncated_count: int) -> None:
+        if self.metrics_collector is None:
+            return
+        try:
+            self.metrics_collector.record_action_truncation(
+                intent_name=intent_name,
+                truncated_count=truncated_count,
+            )
+        except RuntimeError:
+            return
+
+    def _record_planner_step_event(self, *, event_type: str, intent_name: str, step_index: int) -> None:
+        if self.metrics_collector is None:
+            return
+        try:
+            self.metrics_collector.record_planner_step_event(
+                event_type=event_type,
+                intent_name=intent_name,
+                step_index=step_index,
+            )
         except RuntimeError:
             return
 

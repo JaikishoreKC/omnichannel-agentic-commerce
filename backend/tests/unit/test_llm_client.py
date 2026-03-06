@@ -318,7 +318,41 @@ def test_plan_actions_sanitizes_unknown_params() -> None:
     assert params["query"] == "running shoes"
     assert params["quantity"] == 2
     assert "unsupported" not in params
-    assert "items" not in params
+
+
+def test_plan_actions_uses_intent_specific_floor_override() -> None:
+    client = LLMClient(
+        settings=_planner_settings(
+            llm_planner_min_confidence=0.55,
+            intent_confidence_thresholds_json='{"checkout": 0.9}',
+        )
+    )
+    client._call_llm = (  # type: ignore[method-assign]
+        lambda user_prompt, system_prompt, role=None: (
+            '{"actions":[{"name":"checkout_summary","targetAgent":"order","params":{}}],'
+            '"confidence":0.8,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    assert client.plan_actions(message="checkout", inferred_intent="checkout") is None
+
+
+def test_plan_actions_falls_back_to_global_floor_without_intent_override() -> None:
+    client = LLMClient(
+        settings=_planner_settings(
+            llm_planner_min_confidence=0.55,
+            intent_confidence_thresholds_json='{"checkout": 0.9}',
+        )
+    )
+    client._call_llm = (  # type: ignore[method-assign]
+        lambda user_prompt, system_prompt, role=None: (
+            '{"actions":[{"name":"add_item","targetAgent":"cart","params":{"query":"hoodie","quantity":1}}],'
+            '"confidence":0.8,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+    plan = client.plan_actions(message="add hoodie", inferred_intent="add_to_cart")
+    assert plan is not None
+    assert len(plan.actions) == 1
+    assert "items" not in plan.actions[0].params
 
 def test_plan_actions_respects_configured_limits() -> None:
     client = LLMClient(settings=_planner_settings(llm_planner_max_actions=1, llm_planner_min_confidence=0.9))

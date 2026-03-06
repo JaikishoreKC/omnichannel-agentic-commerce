@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 
@@ -50,6 +51,7 @@ class Settings:
     planner_canary_percent: int = 100
     llm_planner_max_actions: int = 5
     llm_planner_min_confidence: float = 0.55
+    intent_confidence_thresholds_json: str = "{}"
     llm_planner_execution_mode: str = "partial"
     orchestrator_max_actions_per_request: int = 5
     orchestrator_unknown_intent_mode: str = "fallback"
@@ -97,6 +99,31 @@ class Settings:
     def is_production_like(self) -> bool:
         normalized = str(self.environment).strip().lower()
         return normalized in {"prod", "production", "staging"}
+
+    @property
+    def intent_confidence_thresholds(self) -> dict[str, float]:
+        """Optional per-intent confidence floors from JSON env configuration."""
+        raw = str(self.intent_confidence_thresholds_json or "").strip()
+        if not raw:
+            return {}
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+
+        normalized: dict[str, float] = {}
+        for raw_key, raw_value in parsed.items():
+            key = str(raw_key).strip()
+            if not key:
+                continue
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError):
+                continue
+            normalized[key] = max(0.0, min(1.0, value))
+        return normalized
 
     def validate_security(self) -> None:
         if not self.is_production_like:
@@ -307,6 +334,10 @@ class Settings:
                         )
                     ),
                 ),
+            ),
+            intent_confidence_thresholds_json=os.getenv(
+                "INTENT_CONFIDENCE_THRESHOLDS_JSON",
+                cls.intent_confidence_thresholds_json,
             ),
             llm_planner_execution_mode=str(
                 os.getenv(

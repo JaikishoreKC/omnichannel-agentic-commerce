@@ -4,6 +4,7 @@ from typing import Any
 
 from app.orchestrator.action_extractor import ActionExtractor
 from app.orchestrator.intent_classifier import IntentClassifier
+from tests.nl_eval.metrics_helper import ConfusionMatrixCollector
 
 
 def _build_eval_cases() -> list[dict[str, Any]]:
@@ -58,6 +59,40 @@ def _build_eval_cases() -> list[dict[str, Any]]:
                 "message": f"apply discount code {code}",
                 "intent": "apply_discount",
                 "actions": ["apply_discount"],
+            }
+        )
+        cases.append(
+            {
+                "message": f"PLEASE apply discount and use code {code.lower()} now",
+                "intent": "apply_discount",
+                "actions": ["apply_discount"],
+            }
+        )
+
+    for idx in range(1, 31):
+        cases.append(
+            {
+                "message": f"add prod_{idx:03d} var_{idx:03d} to cart",
+                "intent": "add_to_cart",
+                "actions": ["add_item"],
+            }
+        )
+
+    for product in products:
+        cases.append(
+            {
+                "message": f"search {product} under 150 and add to cart",
+                "intent": "search_and_add_to_cart",
+                "actions": ["search_products", "add_item"],
+            }
+        )
+
+    for issue in ["payment issue", "delivery problem", "wrong item", "refund problem"]:
+        cases.append(
+            {
+                "message": f"connect me to support agent for {issue}",
+                "intent": "support_escalation",
+                "actions": ["create_ticket"],
             }
         )
 
@@ -152,6 +187,7 @@ CASES = _build_eval_cases()
 def test_nl_eval_accuracy_gate() -> None:
     classifier = IntentClassifier()
     extractor = ActionExtractor()
+    collector = ConfusionMatrixCollector()
 
     intent_correct = 0
     action_correct = 0
@@ -165,23 +201,33 @@ def test_nl_eval_accuracy_gate() -> None:
         result = classifier.classify(message=message, context=context)
         actions = extractor.extract(result)
         action_names = [action.name for action in actions]
+        action_match = action_names == expected_actions
+
+        collector.record(
+            expected_intent=expected_intent,
+            predicted_intent=result.name,
+            confidence=result.confidence,
+            action_match=action_match,
+        )
 
         if result.name == expected_intent:
             intent_correct += 1
-        if action_names == expected_actions:
+        if action_match:
             action_correct += 1
 
     total = len(CASES)
     assert total >= 200
+    assert collector.total_predictions == total
 
     intent_accuracy = intent_correct / total
     action_accuracy = action_correct / total
+    diagnostics = collector.render_report()
 
     assert intent_accuracy >= 0.95, (
         f"Intent accuracy below threshold: {intent_accuracy:.3f} < 0.950 "
-        f"({intent_correct}/{total})"
+        f"({intent_correct}/{total})\n{diagnostics}"
     )
     assert action_accuracy >= 0.95, (
         f"Action accuracy below threshold: {action_accuracy:.3f} < 0.950 "
-        f"({action_correct}/{total})"
+        f"({action_correct}/{total})\n{diagnostics}"
     )

@@ -97,6 +97,8 @@ backend/app/
 - Same-idempotency-key order creation serialization in `OrderService` to avoid duplicate in-process checkout execution
 - SuperU callback signature verification
 - LLM fallback with circuit breaker
+- Optional per-intent confidence floors for classifier/planner selection via settings override
+- Orchestrator decision telemetry for intent source/confidence buckets, planner step failures/skips, and action truncation
 - `/health` and `/metrics` for runtime visibility
 
 ## Notes

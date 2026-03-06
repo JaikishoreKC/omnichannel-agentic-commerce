@@ -330,6 +330,7 @@ For Docker Compose runs, values are loaded from `backend/.env` and `frontend/.en
 | `PLANNER_CANARY_PERCENT` | `100` | Percent of sessions eligible for planner rollout |
 | `LLM_PLANNER_MAX_ACTIONS` | `5` | Hard cap on planner action steps |
 | `LLM_PLANNER_MIN_CONFIDENCE` | `0.55` | Minimum confidence required to execute plan |
+| `INTENT_CONFIDENCE_THRESHOLDS_JSON` | `{}` | Optional JSON object with per-intent confidence floors (applies to classifier and planner decisions) |
 | `LLM_PLANNER_EXECUTION_MODE` | `partial` | `partial` or `atomic` multi-step execution |
 | `ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST` | `5` | Max executed actions per user request |
 | `ORCHESTRATOR_UNKNOWN_INTENT_MODE` | `fallback` | `fallback` (continue with general fallback) or `clarify` (return explicit clarification) for unknown intents |
@@ -763,6 +764,11 @@ Implemented controls in current codebase:
 - `commerce_http_request_duration_ms_*`
 - `commerce_checkout_total`
 - `commerce_security_events_total`
+- `commerce_chat_events_total`
+- `commerce_intent_events_total`
+- `commerce_intent_confidence_bucket_total`
+- `commerce_action_truncation_total`
+- `commerce_planner_step_events_total`
 
 ## Testing And Quality Gates
 
@@ -773,7 +779,7 @@ cd backend
 pytest tests -q
 ```
 
-Latest validated run (2026-03-07): `224 passed, 11 skipped`.
+Latest validated run (2026-03-07): `241 passed, 11 skipped`.
 
 Coverage gate:
 

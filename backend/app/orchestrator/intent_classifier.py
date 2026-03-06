@@ -10,6 +10,20 @@ from app.orchestrator.types import IntentResult
 class IntentClassifier:
     """Lightweight rule-first classifier for commerce intents."""
 
+    _DEFAULT_INTENT_CONFIDENCE_FLOORS: dict[str, float] = {
+        "general_question": 0.6,
+        "view_cart": 0.65,
+        "product_search": 0.72,
+        "search_and_add_to_cart": 0.78,
+        "support_escalation": 0.8,
+        "multi_status": 0.82,
+        "change_order_address": 0.82,
+        "cancel_order": 0.85,
+        "request_refund": 0.85,
+        "apply_discount": 0.85,
+        "clear_cart": 0.88,
+    }
+
     def __init__(self, llm_client: LLMClient | None = None) -> None:
         self.llm_client = llm_client
 
@@ -26,9 +40,39 @@ class IntentClassifier:
         llm_choice = self._classify_with_llm(message=message, context=context)
         if llm_choice is None:
             return rule_intent
-        if llm_choice.confidence >= max(0.7, rule_intent.confidence):
+        floor = max(self._intent_confidence_floor(llm_choice.name), rule_intent.confidence)
+        if llm_choice.confidence >= floor:
             return llm_choice
         return rule_intent
+
+    def _intent_confidence_floor(self, intent_name: str) -> float:
+        base_floor = self._DEFAULT_INTENT_CONFIDENCE_FLOORS.get(intent_name, 0.7)
+        overrides = self._intent_threshold_overrides()
+        override = overrides.get(intent_name)
+        if override is not None:
+            base_floor = override
+        return max(0.0, min(1.0, float(base_floor)))
+
+    def _intent_threshold_overrides(self) -> dict[str, float]:
+        if self.llm_client is None:
+            return {}
+        settings = getattr(self.llm_client, "settings", None)
+        if settings is None:
+            return {}
+        parsed = getattr(settings, "intent_confidence_thresholds", None)
+        if isinstance(parsed, dict):
+            normalized: dict[str, float] = {}
+            for raw_key, raw_value in parsed.items():
+                key = str(raw_key).strip()
+                if not key:
+                    continue
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError):
+                    continue
+                normalized[key] = max(0.0, min(1.0, value))
+            return normalized
+        return {}
 
     def _classify_with_llm(self, *, message: str, context: dict[str, Any] | None) -> IntentResult | None:
         if self.llm_client is None:

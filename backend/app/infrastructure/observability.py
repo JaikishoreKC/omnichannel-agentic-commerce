@@ -32,6 +32,10 @@ class MetricsCollector:
         self._checkout_total: dict[str, int] = {"success": 0, "failed": 0}
         self._security_events_total: dict[tuple[str, str], int] = {}
         self._chat_events_total: dict[tuple[str, str], int] = {}
+        self._intent_events_total: dict[tuple[str, str], int] = {}
+        self._intent_confidence_bucket_total: dict[tuple[str, str], int] = {}
+        self._action_truncation_total: dict[str, int] = {}
+        self._planner_step_events_total: dict[tuple[str, str, str], int] = {}
 
     def record_http(
         self,
@@ -78,6 +82,46 @@ class MetricsCollector:
         with self._lock:
             key = (normalized_event, normalized_status)
             self._chat_events_total[key] = self._chat_events_total.get(key, 0) + 1
+
+    def record_intent_event(self, *, intent_name: str, source: str) -> None:
+        normalized_intent = str(intent_name).strip().lower() or "unknown"
+        normalized_source = str(source).strip().lower() or "unknown"
+        with self._lock:
+            key = (normalized_intent, normalized_source)
+            self._intent_events_total[key] = self._intent_events_total.get(key, 0) + 1
+
+    def record_intent_confidence(self, *, intent_name: str, confidence: float) -> None:
+        normalized_intent = str(intent_name).strip().lower() or "unknown"
+        value = max(0.0, min(1.0, float(confidence)))
+        if value < 0.25:
+            bucket = "0_25"
+        elif value < 0.5:
+            bucket = "25_50"
+        elif value < 0.75:
+            bucket = "50_75"
+        else:
+            bucket = "75_100"
+        with self._lock:
+            key = (normalized_intent, bucket)
+            self._intent_confidence_bucket_total[key] = self._intent_confidence_bucket_total.get(key, 0) + 1
+
+    def record_action_truncation(self, *, intent_name: str, truncated_count: int) -> None:
+        normalized_intent = str(intent_name).strip().lower() or "unknown"
+        count = max(0, int(truncated_count))
+        if count <= 0:
+            return
+        with self._lock:
+            self._action_truncation_total[normalized_intent] = (
+                self._action_truncation_total.get(normalized_intent, 0) + count
+            )
+
+    def record_planner_step_event(self, *, event_type: str, intent_name: str, step_index: int) -> None:
+        normalized_event = str(event_type).strip().lower() or "unknown"
+        normalized_intent = str(intent_name).strip().lower() or "unknown"
+        normalized_step = str(max(1, int(step_index)))
+        with self._lock:
+            key = (normalized_event, normalized_intent, normalized_step)
+            self._planner_step_events_total[key] = self._planner_step_events_total.get(key, 0) + 1
 
     def render_prometheus(self) -> str:
         with self._lock:
@@ -131,6 +175,32 @@ class MetricsCollector:
             for (event_type, status), count in sorted(self._chat_events_total.items()):
                 lines.append(
                     f'commerce_chat_events_total{{event_type="{event_type}",status="{status}"}} {count}'
+                )
+
+            lines.append("# HELP commerce_intent_events_total Intent decisions by intent and source.")
+            lines.append("# TYPE commerce_intent_events_total counter")
+            for (intent_name, source), count in sorted(self._intent_events_total.items()):
+                lines.append(
+                    f'commerce_intent_events_total{{intent="{intent_name}",source="{source}"}} {count}'
+                )
+
+            lines.append("# HELP commerce_intent_confidence_bucket_total Intent confidence by coarse buckets.")
+            lines.append("# TYPE commerce_intent_confidence_bucket_total counter")
+            for (intent_name, bucket), count in sorted(self._intent_confidence_bucket_total.items()):
+                lines.append(
+                    f'commerce_intent_confidence_bucket_total{{intent="{intent_name}",bucket="{bucket}"}} {count}'
+                )
+
+            lines.append("# HELP commerce_action_truncation_total Total truncated actions by intent.")
+            lines.append("# TYPE commerce_action_truncation_total counter")
+            for intent_name, count in sorted(self._action_truncation_total.items()):
+                lines.append(f'commerce_action_truncation_total{{intent="{intent_name}"}} {count}')
+
+            lines.append("# HELP commerce_planner_step_events_total Planner step events by type, intent, and step index.")
+            lines.append("# TYPE commerce_planner_step_events_total counter")
+            for (event_type, intent_name, step_index), count in sorted(self._planner_step_events_total.items()):
+                lines.append(
+                    f'commerce_planner_step_events_total{{event_type="{event_type}",intent="{intent_name}",step="{step_index}"}} {count}'
                 )
 
             return "\n".join(lines) + "\n"

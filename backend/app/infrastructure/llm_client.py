@@ -330,7 +330,7 @@ class LLMClient:
                 dropped_action_names=dropped_action_names,
             )
 
-        if confidence < self._planner_confidence_floor():
+        if confidence < self._intent_planner_confidence_floor(inferred_intent):
             return None
         if not actions and not dropped_action_names:
             return None
@@ -720,6 +720,23 @@ class LLMClient:
 
     def _planner_confidence_floor(self) -> float:
         return max(0.0, min(1.0, float(self.settings.llm_planner_min_confidence)))
+
+    def _intent_planner_confidence_floor(self, inferred_intent: str | None) -> float:
+        base_floor = self._planner_confidence_floor()
+        if not inferred_intent:
+            return base_floor
+        overrides = getattr(self.settings, "intent_confidence_thresholds", {})
+        if not isinstance(overrides, dict):
+            return base_floor
+        raw = overrides.get(str(inferred_intent).strip())
+        if raw is None:
+            return base_floor
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return base_floor
+        # Never lower planner floor via per-intent override.
+        return max(base_floor, max(0.0, min(1.0, value)))
 
     @staticmethod
     def _normalize_confidence(value: Any) -> float:
