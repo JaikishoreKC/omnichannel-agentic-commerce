@@ -168,7 +168,14 @@ scripts/                     Local validation orchestration
 docker compose up --build
 ```
 
-Before running compose, set secrets in your shell or local `.env` (never commit real values):
+Before running compose, create local env files from templates:
+
+- Backend: `backend/.env` from `backend/.env.example`
+- Frontend: `frontend/.env` from `frontend/.env.example`
+
+Compose now loads service env directly from those files (`env_file`), then applies Docker-specific overrides for container networking (Mongo/Redis hostnames).
+
+Set secrets in `backend/.env` (never commit real values):
 
 - `TOKEN_SECRET`
 - `OPENROUTER_API_KEY_PLANNER`
@@ -248,6 +255,8 @@ Copy examples first:
 - Backend: `backend/.env.example`
 - Frontend: `frontend/.env.example`
 
+For Docker Compose runs, values are loaded from `backend/.env` and `frontend/.env` via `env_file`.
+
 ### Frontend Variables
 
 | Variable | Default | Description |
@@ -296,7 +305,7 @@ Copy examples first:
 | `ENFORCE_JSON_CONTENT_TYPE` | `true` | Reject non-JSON mutation requests |
 | `REJECT_DUPLICATE_CRITICAL_HEADERS` | `true` | Reject duplicated critical headers |
 | `ADMIN_MFA_REQUIRED` | `false` | Enforce OTP for admin login |
-| `ADMIN_MFA_STATIC_CODE` | `` | Static OTP value when MFA enabled |
+| `ADMIN_MFA_TOTP_SECRET` | `JBSWY3DPEHPK3PXP` | TOTP seed used to validate admin MFA codes |
 
 #### LLM
 

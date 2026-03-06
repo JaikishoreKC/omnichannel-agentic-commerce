@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from pymongo import ASCENDING, DESCENDING
+from pymongo.errors import OperationFailure
 
 IndexSpec = tuple[list[tuple[str, int]], dict[str, Any]]
 
@@ -16,7 +17,14 @@ MONGO_INDEX_SPECS: dict[str, list[IndexSpec]] = {
         ([("email", ASCENDING)], {"name": "users_email_unique", "unique": True}),
     ],
     "refresh_tokens": [
-        ([("tokenHash", ASCENDING)], {"name": "refresh_tokens_token_unique", "unique": True}),
+        (
+            [("tokenHash", ASCENDING)],
+            {
+                "name": "refresh_tokens_token_unique",
+                "unique": True,
+                "partialFilterExpression": {"tokenHash": {"$type": "string"}},
+            },
+        ),
         ([("userId", ASCENDING), ("createdAt", DESCENDING)], {"name": "refresh_tokens_user_created_desc"}),
     ],
     "sessions": [
@@ -90,6 +98,43 @@ def resolve_database(client: Any, database_name: str | None = None) -> Any:
     return client["commerce"]
 
 
+def _normalize_index_keys(keys: Any) -> list[tuple[str, int]]:
+    if isinstance(keys, dict):
+        return [(str(field), int(direction)) for field, direction in keys.items()]
+    if isinstance(keys, list):
+        normalized: list[tuple[str, int]] = []
+        for item in keys:
+            if isinstance(item, tuple) and len(item) == 2:
+                normalized.append((str(item[0]), int(item[1])))
+        return normalized
+    return []
+
+
+def _create_or_repair_named_index(*, collection: Any, keys: list[tuple[str, int]], options: dict[str, Any]) -> str:
+    try:
+        return str(collection.create_index(keys, **options))
+    except OperationFailure as exc:
+        index_name = options.get("name")
+        should_try_repair = isinstance(index_name, str) and index_name and (
+            exc.code in {85, 86} or exc.details.get("codeName") in {"IndexOptionsConflict", "IndexKeySpecsConflict"}
+        )
+        if not should_try_repair:
+            raise
+
+        existing = collection.index_information().get(index_name)
+        if not isinstance(existing, dict):
+            raise
+
+        existing_keys = _normalize_index_keys(existing.get("key"))
+        requested_keys = _normalize_index_keys(keys)
+        if existing_keys == requested_keys:
+            raise
+
+        # Index name is managed by this service. If legacy key specs collide, replace it in place.
+        collection.drop_index(index_name)
+        return str(collection.create_index(keys, **options))
+
+
 def ensure_mongo_indexes(*, client: Any, database_name: str | None = None) -> dict[str, list[str]]:
     database = resolve_database(client, database_name)
     created: dict[str, list[str]] = {}
@@ -97,6 +142,6 @@ def ensure_mongo_indexes(*, client: Any, database_name: str | None = None) -> di
         collection = database[collection_name]
         names: list[str] = []
         for keys, options in specs:
-            names.append(str(collection.create_index(keys, **options)))
+            names.append(_create_or_repair_named_index(collection=collection, keys=keys, options=options))
         created[collection_name] = names
     return created
