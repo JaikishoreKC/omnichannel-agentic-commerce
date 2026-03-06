@@ -31,6 +31,7 @@ class MetricsCollector:
         self._http_latency_bucket_count: dict[tuple[str, str, str], int] = {}
         self._checkout_total: dict[str, int] = {"success": 0, "failed": 0}
         self._security_events_total: dict[tuple[str, str], int] = {}
+        self._chat_events_total: dict[tuple[str, str], int] = {}
 
     def record_http(
         self,
@@ -70,6 +71,13 @@ class MetricsCollector:
         with self._lock:
             key = (normalized_event, normalized_severity)
             self._security_events_total[key] = self._security_events_total.get(key, 0) + 1
+
+    def record_chat_event(self, *, event_type: str, status: str = "observed") -> None:
+        normalized_event = str(event_type).strip().lower() or "unknown"
+        normalized_status = str(status).strip().lower() or "observed"
+        with self._lock:
+            key = (normalized_event, normalized_status)
+            self._chat_events_total[key] = self._chat_events_total.get(key, 0) + 1
 
     def render_prometheus(self) -> str:
         with self._lock:
@@ -116,6 +124,13 @@ class MetricsCollector:
             for (event_type, severity), count in sorted(self._security_events_total.items()):
                 lines.append(
                     f'commerce_security_events_total{{event_type="{event_type}",severity="{severity}"}} {count}'
+                )
+
+            lines.append("# HELP commerce_chat_events_total Chat orchestration/runtime events by type and status.")
+            lines.append("# TYPE commerce_chat_events_total counter")
+            for (event_type, status), count in sorted(self._chat_events_total.items()):
+                lines.append(
+                    f'commerce_chat_events_total{{event_type="{event_type}",status="{status}"}} {count}'
                 )
 
             return "\n".join(lines) + "\n"

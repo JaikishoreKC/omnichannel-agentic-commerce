@@ -30,6 +30,7 @@ class Orchestrator:
         llm_client: LLMClient | None,
         interaction_service: InteractionService,
         memory_service: MemoryService,
+        metrics_collector: Any | None,
         agents: dict[str, BaseAgent],
     ) -> None:
         self.intent_classifier = intent_classifier
@@ -40,8 +41,37 @@ class Orchestrator:
         self.llm_client = llm_client
         self.interaction_service = interaction_service
         self.memory_service = memory_service
+        self.metrics_collector = metrics_collector
         self.agents = agents
         self.logger = get_logger(__name__)
+        self._KNOWN_INTENTS = {
+            "product_search",
+            "search_and_add_to_cart",
+            "add_to_cart",
+            "add_multiple_to_cart",
+            "apply_discount",
+            "update_cart",
+            "adjust_cart_quantity",
+            "remove_from_cart",
+            "clear_cart",
+            "view_cart",
+            "checkout",
+            "order_status",
+            "change_order_address",
+            "cancel_order",
+            "request_refund",
+            "multi_status",
+            "show_memory",
+            "save_preference",
+            "forget_preference",
+            "clear_memory",
+            "support_escalation",
+            "support_status",
+            "support_close",
+            "general_question",
+            "answer_question",
+        }
+
 
     async def process_message(
         self,
@@ -62,9 +92,20 @@ class Orchestrator:
         ):
             if isinstance(chunk, dict) and chunk.get("type") == "final_response":
                 payload = chunk["payload"]
-        
+
         if payload is None:
-            raise RuntimeError("Orchestrator failed to produce a final response")
+            self.logger.error("Orchestrator failed to produce a final response; returning graceful fallback")
+            return {
+                "message": "I'm sorry, I couldn't process that request right now.",
+                "agent": "orchestrator",
+                "data": {"code": "ORCHESTRATOR_NO_RESPONSE"},
+                "suggestedActions": [],
+                "metadata": {
+                    "intent": "unknown",
+                    "confidence": 0.0,
+                    "success": False,
+                },
+            }
         return payload
 
     async def process_message_stream(
@@ -85,7 +126,9 @@ class Orchestrator:
         )
         allow_classifier_llm = decision_policy == "classifier_first" and not planner_enabled_for_request
 
-        intent = self.intent_classifier.classify(
+        # Avoid blocking the event loop when classifier falls back to LLM calls.
+        intent = await asyncio.to_thread(
+            self.intent_classifier.classify,
             message=message,
             context={"recent": recent},
             allow_llm=allow_classifier_llm,
@@ -97,6 +140,51 @@ class Orchestrator:
             channel=channel,
             recent_messages=recent,
         )
+        intent_known = intent.name in self._KNOWN_INTENTS
+        if not intent_known:
+            self.logger.warning("Unknown intent routed through fallback path", intent=intent.name)
+            unknown_mode = self._unknown_intent_mode()
+            self._record_chat_event(
+                event_type="unknown_intent",
+                status="clarify" if unknown_mode == "clarify" else "fallback",
+            )
+            if unknown_mode == "clarify":
+                result = AgentExecutionResult(
+                    success=False,
+                    message="I could not confidently classify that request. Please rephrase with more detail.",
+                    data={"code": "UNKNOWN_INTENT", "intent": intent.name},
+                    next_actions=[],
+                )
+                agent_name = "orchestrator"
+                response: AgentResponse = self.formatter.format(
+                    result=result,
+                    intent=intent,
+                    agent_name=agent_name,
+                )
+                response.metadata["routingDiagnostics"] = {
+                    "intentKnown": False,
+                    "intent": intent.name,
+                    "actionNames": [],
+                    "routedAgent": agent_name,
+                }
+                payload = self._to_transport_payload(response)
+                if stream:
+                    async for chunk in self._stream_payload_message(
+                        agent_name=agent_name,
+                        message=str(payload.get("message", "")),
+                    ):
+                        yield chunk
+
+                self._persist_interaction(
+                    context=context,
+                    message=message,
+                    intent_name=intent.name,
+                    agent_name=agent_name,
+                    entities=intent.entities,
+                    payload=payload,
+                )
+                yield {"type": "final_response", "payload": payload}
+                return
         actions = self.action_extractor.extract(intent)
         route_agent_name = self.router.route(intent)
 
@@ -107,7 +195,9 @@ class Orchestrator:
         )
         if should_try_planner:
             planner_attempted = True
-            planner_plan = self._build_llm_action_plan(
+            # Planner execution may call external LLMs; keep it off the event loop thread.
+            planner_plan = await asyncio.to_thread(
+                self._build_llm_action_plan,
                 message=message,
                 recent=recent,
                 inferred_intent=intent.name,
@@ -115,7 +205,6 @@ class Orchestrator:
 
         planner_used = False
         planner_steps: list[dict[str, Any]] = []
-        stream_general_only = False
         action_limit = self._max_actions_per_request()
         actions, truncated_action_count = self._apply_action_limit(actions=actions, limit=action_limit)
 
@@ -164,18 +253,8 @@ class Orchestrator:
             elif len(actions) == 1:
                 action = actions[0]
                 agent_name = action.target_agent or route_agent_name
-                # In stream mode, avoid calling non-stream and stream methods for general agent.
-                if stream and agent_name == "general":
-                    stream_general_only = True
-                    result = AgentExecutionResult(
-                        success=True,
-                        message="",
-                        data={},
-                        next_actions=[],
-                    )
-                else:
-                    agent = self.agents[agent_name]
-                    result = await asyncio.to_thread(agent.execute, action, context)
+                agent = self.agents[agent_name]
+                result = await asyncio.to_thread(agent.execute, action, context)
             else:
                 result, agent_name = await self._execute_multi_action(
                     route_agent_name=route_agent_name,
@@ -200,31 +279,29 @@ class Orchestrator:
             planner_used=planner_used,
             planner_steps=planner_steps,
         )
+        response.metadata["routingDiagnostics"] = {
+            "intentKnown": intent_known,
+            "intent": intent.name,
+            "actionNames": [action.name for action in actions],
+            "routedAgent": agent_name,
+        }
+        if context.session_id != session_id:
+            response.metadata["session"] = {
+                "requestedSessionId": session_id,
+                "effectiveSessionId": context.session_id,
+                "sessionIdSubstituted": True,
+            }
+        elif isinstance(response.metadata.get("session"), dict):
+            response.metadata["session"]["sessionIdSubstituted"] = False
         
         payload = self._to_transport_payload(response)
 
-        if stream:
-            streamed_deltas: list[str] = []
-            async for chunk in self._stream_agent_response(
-                context=context,
+        if stream and self._is_stream_allowed_for_agent(agent_name=agent_name):
+            async for chunk in self._stream_payload_message(
                 agent_name=agent_name,
-                intent=intent,
-                actions=actions,
-                planner_plan=planner_plan,
-                planner_used=planner_used,
+                message=str(payload.get("message", "")),
             ):
-                if stream_general_only and chunk.get("type") == "stream_delta":
-                    delta = str(chunk.get("payload", {}).get("delta", ""))
-                    if delta:
-                        streamed_deltas.append(delta)
                 yield chunk
-
-            if stream_general_only:
-                streamed_message = "".join(streamed_deltas).strip()
-                if streamed_message:
-                    payload["message"] = streamed_message
-                elif not str(payload.get("message", "")).strip():
-                    payload["message"] = "I'm sorry, I couldn't provide a detailed answer at the moment."
 
         self._persist_interaction(
             context=context,
@@ -265,11 +342,18 @@ class Orchestrator:
             "truncatedActionCount": truncated_action_count,
         }
         if planner_plan is not None:
+            if planner_plan.dropped_action_names:
+                self._record_chat_event(
+                    event_type="planner_dropped_actions",
+                    status="observed",
+                )
             response.metadata["planner"] = {
                 "used": planner_used,
                 "confidence": planner_plan.confidence,
                 "needsClarification": planner_plan.needs_clarification,
                 "actionCount": len(planner_plan.actions),
+                "droppedActionCount": len(planner_plan.dropped_action_names),
+                "droppedActionNames": planner_plan.dropped_action_names[:10],
                 "executionMode": self._planner_execution_mode(),
                 "stepCount": len(planner_steps),
                 "steps": planner_steps,
@@ -286,28 +370,15 @@ class Orchestrator:
                 "steps": [],
             }
 
-    async def _stream_agent_response(
-        self,
-        *,
-        context: Any,
-        agent_name: str,
-        intent: Any,
-        actions: list[AgentAction],
-        planner_plan: LLMActionPlan | None,
-        planner_used: bool,
-    ):
+    async def _stream_payload_message(self, *, agent_name: str, message: str):
+        """Emit websocket stream envelopes from an already-computed final message.
+
+        This guarantees stream and non-stream modes run exactly one execution path.
+        """
         yield {"type": "stream_start", "payload": {"agent": agent_name}}
-        agent = self.agents[agent_name]
-        effective_action = AgentAction(name=intent.name, params=intent.entities)
-        if planner_plan and planner_plan.actions and planner_used:
-            if planner_plan.needs_clarification:
-                effective_action = AgentAction(name="clarification", params={"query": planner_plan.clarification_question})
-            else:
-                effective_action = actions[0]
-
-        async for delta in agent.execute_stream(action=effective_action, context=context):
-            yield {"type": "stream_delta", "payload": {"delta": delta}}
-
+        text = str(message or "")
+        if text:
+            yield {"type": "stream_delta", "payload": {"delta": text}}
         yield {"type": "stream_end", "payload": {}}
 
     def _persist_interaction(
@@ -396,6 +467,21 @@ class Orchestrator:
             return raw
         return "planner_first"
 
+    def _unknown_intent_mode(self) -> str:
+        if self.llm_client is None:
+            return "fallback"
+        raw = str(self.llm_client.settings.orchestrator_unknown_intent_mode).strip().lower()
+        if raw in {"clarify", "fallback"}:
+            return raw
+        return "fallback"
+
+    def _is_stream_allowed_for_agent(self, *, agent_name: str) -> bool:
+        if self.llm_client is None:
+            return True
+        if bool(self.llm_client.settings.chat_stream_non_general_enabled):
+            return True
+        return agent_name == "general"
+
     def _planner_enabled_for_request(self, *, session_id: str, user_id: str | None) -> bool:
         if self.llm_client is None:
             return False
@@ -445,15 +531,7 @@ class Orchestrator:
             agent = self.agents[agent_name]
             result = await asyncio.to_thread(agent.execute, action, context)
 
-            if agent_name in combined_data:
-                existing = combined_data[agent_name]
-                if isinstance(existing, list):
-                    existing.append(result.data)
-                    combined_data[agent_name] = existing
-                else:
-                    combined_data[agent_name] = [existing, result.data]
-            else:
-                combined_data[agent_name] = result.data
+            self._merge_agent_data(combined_data=combined_data, agent_name=agent_name, data=result.data)
 
             messages.append(result.message)
             suggested.extend(result.next_actions)
@@ -539,7 +617,7 @@ class Orchestrator:
                 agent_name = action.target_agent or route_agent_name
                 agent = self.agents[agent_name]
                 result = await asyncio.to_thread(agent.execute, action, context)
-                combined_data[agent_name] = result.data
+                self._merge_agent_data(combined_data=combined_data, agent_name=agent_name, data=result.data)
                 messages.append(result.message)
                 suggested.extend(result.next_actions)
                 all_success = all_success and result.success
@@ -567,7 +645,7 @@ class Orchestrator:
         suggested: list[dict[str, str]] = []
         success = True
         for agent_name, result in pairs:
-            combined_data[agent_name] = result.data
+            self._merge_agent_data(combined_data=combined_data, agent_name=agent_name, data=result.data)
             messages.append(result.message)
             suggested.extend(result.next_actions)
             success = success and result.success
@@ -617,7 +695,7 @@ class Orchestrator:
             result = await asyncio.to_thread(agent.execute, effective_action, context)
             previous_result = result
 
-            combined_data[agent_name] = result.data
+            self._merge_agent_data(combined_data=combined_data, agent_name=agent_name, data=result.data)
             messages.append(result.message)
             suggested.extend(result.next_actions)
             success = success and result.success
@@ -664,6 +742,26 @@ class Orchestrator:
             "suggestedActions": payload["suggested_actions"],
             "metadata": payload["metadata"],
         }
+
+    def _record_chat_event(self, *, event_type: str, status: str) -> None:
+        if self.metrics_collector is None:
+            return
+        try:
+            self.metrics_collector.record_chat_event(event_type=event_type, status=status)
+        except RuntimeError:
+            return
+
+    @staticmethod
+    def _merge_agent_data(*, combined_data: dict[str, Any], agent_name: str, data: dict[str, Any]) -> None:
+        existing = combined_data.get(agent_name)
+        if existing is None:
+            combined_data[agent_name] = data
+            return
+        if isinstance(existing, list):
+            existing.append(data)
+            combined_data[agent_name] = existing
+            return
+        combined_data[agent_name] = [existing, data]
 
     def _recent_from_memory(self, *, user_id: str, limit: int) -> list[dict[str, Any]]:
         history = self.memory_service.get_history(user_id=user_id, limit=limit).get("history", [])

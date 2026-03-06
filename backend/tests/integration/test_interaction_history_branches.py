@@ -37,7 +37,7 @@ def test_authenticated_history_builds_fallback_from_memory_when_session_history_
     token = _register_user(client, session_id=session_id)
 
     def _raise_link_identity(**_: object) -> dict[str, object]:
-        raise RuntimeError("link failed in test")
+        raise ValueError("link failed in test")
 
     def _empty_history(*, session_id: str, limit: int) -> list[dict[str, object]]:
         assert session_id
@@ -124,7 +124,7 @@ def test_process_message_creates_session_when_missing_and_handles_identity_link_
     token = _register_user(client, session_id=seed_session_id)
 
     def _raise_link_identity(**_: object) -> dict[str, object]:
-        raise RuntimeError("link failed in test")
+        raise ValueError("link failed in test")
 
     monkeypatch.setattr(interaction_routes.auth_service, "link_identity", _raise_link_identity)
 

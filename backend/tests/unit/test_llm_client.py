@@ -286,7 +286,10 @@ def test_plan_actions_ignores_low_confidence_or_unsupported_actions() -> None:
             '"confidence":0.99,"needsClarification":false,"clarificationQuestion":""}'
         )
     )
-    assert client.plan_actions(message="do something unsafe") is None
+    unsupported = client.plan_actions(message="do something unsafe")
+    assert unsupported is not None
+    assert unsupported.actions == []
+    assert unsupported.dropped_action_names == ["drop_database"]
 
     client._call_llm = (  # type: ignore[method-assign]
         lambda user_prompt, system_prompt, role=None: (
@@ -341,3 +344,31 @@ def test_build_action_plan_prompt_contains_allowed_actions() -> None:
     assert payload["inferredIntent"] == "add_to_cart"
     assert payload["allowedActions"] == ["add_item", "get_cart"]
     assert payload["recent"][0]["intent"] == "product_search"
+
+
+def test_try_parse_json_prefers_first_valid_object_over_greedy_span() -> None:
+    raw = (
+        'prefix {"intent":"checkout","confidence":0.73,"entities":{}} '
+        'suffix {"intent":"clear_cart","confidence":0.99,"entities":{}}'
+    )
+    parsed = LLMClient._try_parse_json(raw)
+    assert parsed is not None
+    assert parsed["intent"] == "checkout"
+
+
+def test_plan_actions_surfaces_dropped_action_names() -> None:
+    client = LLMClient(settings=_planner_settings())
+    client._call_llm = (  # type: ignore[method-assign]
+        lambda user_prompt, system_prompt, role=None: (
+            '{"actions":['
+            '{"name":"drop_database","targetAgent":"orchestrator","params":{}},'
+            '{"name":"get_cart","targetAgent":"cart","params":{}}'
+            '],"confidence":0.95,"needsClarification":false,"clarificationQuestion":""}'
+        )
+    )
+
+    plan = client.plan_actions(message="do dangerous thing then show cart")
+    assert plan is not None
+    assert len(plan.actions) == 1
+    assert plan.actions[0].name == "get_cart"
+    assert plan.dropped_action_names == ["drop_database"]

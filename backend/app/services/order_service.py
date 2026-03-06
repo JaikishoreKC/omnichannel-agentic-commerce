@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import timedelta
+import re
 from typing import Any
 
 from fastapi import HTTPException
@@ -15,6 +16,8 @@ from app.core.utils import generate_id, iso_now, utc_now
 
 
 class OrderService:
+    _IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
+
     def __init__(
         self,
         cart_service: CartService,
@@ -36,10 +39,16 @@ class OrderService:
         payment_method: dict[str, Any],
         idempotency_key: str,
     ) -> dict[str, Any]:
-        if not idempotency_key.strip():
+        normalized_key = str(idempotency_key or "").strip()
+        if not normalized_key:
             raise HTTPException(status_code=400, detail="Missing Idempotency-Key header")
+        if not self._IDEMPOTENCY_KEY_PATTERN.fullmatch(normalized_key):
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid Idempotency-Key header. Use 1-128 chars: letters, numbers, _, ., :, -",
+            )
 
-        key = f"{user_id}:{idempotency_key.strip()}"
+        key = f"{user_id}:{normalized_key}"
         existing_order_id = self.order_repository.get_idempotent(key)
         if existing_order_id:
             existing_order = self.order_repository.get(existing_order_id)
@@ -57,7 +66,7 @@ class OrderService:
                 amount=float(cart["total"]),
                 payment_method=payment_method,
             )
-        except (HTTPException, TypeError, ValueError):
+        except Exception:
             self.inventory_service.rollback_reservation(reservations)
             raise
 

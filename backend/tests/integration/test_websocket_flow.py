@@ -1,5 +1,8 @@
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+import app.api.routes.ws_route as ws_route
 from app.main import app
 
 
@@ -159,6 +162,115 @@ def test_websocket_reconnect_same_session() -> None:
             if second["type"] == "response":
                 break
         assert second["payload"]["agent"] == "product"
+
+
+def test_websocket_streaming_cart_uses_mapped_action_contract() -> None:
+    client = TestClient(app)
+    session = client.post("/v1/sessions", json={"channel": "websocket", "initialContext": {}})
+    assert session.status_code == 201
+    session_id = session.json()["sessionId"]
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {
+                    "content": "view cart",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "stream": True,
+                },
+            }
+        )
+
+        saw_start = False
+        saw_delta = False
+        saw_end = False
+        saw_response = False
+        stream_id = ""
+
+        for _ in range(20):
+            event = websocket.receive_json()
+            event_type = event["type"]
+            if event_type == "stream_start":
+                saw_start = True
+                stream_id = str(event["payload"]["streamId"])
+            elif event_type == "stream_delta":
+                saw_delta = True
+                assert event["payload"]["streamId"] == stream_id
+                assert len(str(event["payload"].get("delta", ""))) > 0
+            elif event_type == "stream_end":
+                saw_end = True
+                assert event["payload"]["streamId"] == stream_id
+            elif event_type == "response":
+                saw_response = True
+                assert event["payload"]["agent"] == "cart"
+                assert event.get("streamId") == stream_id
+                assert str(event["payload"].get("message", "")) == ""
+                break
+
+        assert saw_start is True
+        assert saw_delta is True
+        assert saw_end is True
+        assert saw_response is True
+
+
+def test_websocket_contains_http_exception_with_error_event(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = TestClient(app)
+    session = client.post("/v1/sessions", json={"channel": "websocket", "initialContext": {}})
+    assert session.status_code == 201
+    session_id = session.json()["sessionId"]
+
+    async def _raise_http_exception(**_: object):
+        raise HTTPException(status_code=400, detail="forced websocket failure")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(ws_route.orchestrator, "process_message_stream", _raise_http_exception)
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {
+                    "content": "hi",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "stream": True,
+                },
+            }
+        )
+
+        event = websocket.receive_json()
+        assert event["type"] == "error"
+        assert event["payload"]["code"] == "VALIDATION_ERROR"
+        assert "forced websocket failure" in str(event["payload"]["message"])
+
+
+def test_websocket_streaming_add_to_cart_executes_once() -> None:
+    client = TestClient(app)
+    session = client.post("/v1/sessions", json={"channel": "websocket", "initialContext": {}})
+    assert session.status_code == 201
+    session_id = session.json()["sessionId"]
+
+    with client.websocket_connect(f"/ws?sessionId={session_id}") as websocket:
+        websocket.send_json(
+            {
+                "type": "message",
+                "payload": {
+                    "content": "add prod_001 var_001 to cart",
+                    "timestamp": "2026-01-01T00:00:00Z",
+                    "stream": True,
+                },
+            }
+        )
+
+        while True:
+            event = websocket.receive_json()
+            if event["type"] == "response":
+                payload = event["payload"]
+                assert payload["agent"] == "cart"
+                assert payload["data"]["cart"]["itemCount"] == 1
+                break
 
 
 def test_websocket_recovers_stale_session_and_keeps_cart_state() -> None:

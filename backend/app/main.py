@@ -8,6 +8,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from starlette.concurrency import run_in_threadpool
+from app.infrastructure.logging import get_logger
 
 from app.api.routes.admin_routes import router as admin_router
 from app.api.routes.auth_routes import router as auth_router
@@ -38,6 +39,8 @@ from app.container import (
     settings,
     voice_recovery_service,
 )
+
+logger = get_logger(__name__)
 
 async def ensure_runtime_baseline_data(request: Request, call_next):
     container.ensure_external_baseline()
@@ -103,8 +106,15 @@ app.include_router(voice_webhook_router, prefix=settings.api_prefix)
 
 async def _voice_recovery_scheduler_loop(stop_event: asyncio.Event, interval_seconds: float) -> None:
     while not stop_event.is_set():
-        with suppress(RuntimeError, asyncio.CancelledError):
-            await run_in_threadpool(voice_recovery_service.process_due_work)
+        try:
+            await asyncio.wait_for(
+                run_in_threadpool(voice_recovery_service.process_due_work),
+                timeout=max(5.0, interval_seconds - 2.0),
+            )
+        except asyncio.TimeoutError:
+            logger.warning("voice_recovery_scheduler_tick_timeout", timeout_seconds=max(5.0, interval_seconds - 2.0))
+        except (RuntimeError, asyncio.CancelledError):
+            pass
         try:
             await asyncio.wait_for(stop_event.wait(), timeout=interval_seconds)
         except asyncio.TimeoutError:
@@ -172,9 +182,6 @@ async def handle_validation_exception(_: Request, exc: RequestValidationError) -
             }
         },
     )
-
-from app.infrastructure.logging import get_logger
-logger = get_logger(__name__)
 
 @app.exception_handler(Exception)
 async def handle_unexpected_exception(request: Request, exc: Exception) -> JSONResponse:

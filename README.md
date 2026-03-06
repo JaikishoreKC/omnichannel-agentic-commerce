@@ -328,6 +328,8 @@ Keeping both keys in `.env.example` allows provider switching without editing so
 | `LLM_PLANNER_MIN_CONFIDENCE` | `0.55` | Minimum confidence required to execute plan |
 | `LLM_PLANNER_EXECUTION_MODE` | `partial` | `partial` or `atomic` multi-step execution |
 | `ORCHESTRATOR_MAX_ACTIONS_PER_REQUEST` | `5` | Max executed actions per user request |
+| `ORCHESTRATOR_UNKNOWN_INTENT_MODE` | `fallback` | `fallback` (continue with general fallback) or `clarify` (return explicit clarification) for unknown intents |
+| `CHAT_STREAM_NON_GENERAL_ENABLED` | `true` | When `false`, only `general` agent responses are streamed; other agents return final response only |
 | `OPENAI_API_KEY` | `` | OpenAI key (when provider=openai) |
 | `ANTHROPIC_API_KEY` | `` | Anthropic key (when provider=anthropic) |
 

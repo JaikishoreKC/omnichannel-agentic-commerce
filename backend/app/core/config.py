@@ -52,6 +52,8 @@ class Settings:
     llm_planner_min_confidence: float = 0.55
     llm_planner_execution_mode: str = "partial"
     orchestrator_max_actions_per_request: int = 5
+    orchestrator_unknown_intent_mode: str = "fallback"
+    chat_stream_non_general_enabled: bool = True
     ws_heartbeat_interval_seconds: float = 25.0
     ws_heartbeat_timeout_seconds: float = 70.0
     ws_max_message_chars: int = 2000
@@ -321,6 +323,20 @@ class Settings:
                     ),
                 ),
             ),
+            orchestrator_unknown_intent_mode=str(
+                os.getenv(
+                    "ORCHESTRATOR_UNKNOWN_INTENT_MODE",
+                    cls.orchestrator_unknown_intent_mode,
+                )
+            )
+            .strip()
+            .lower()
+            or cls.orchestrator_unknown_intent_mode,
+            chat_stream_non_general_enabled=os.getenv(
+                "CHAT_STREAM_NON_GENERAL_ENABLED",
+                str(cls.chat_stream_non_general_enabled),
+            ).lower()
+            in {"1", "true", "yes"},
             ws_heartbeat_interval_seconds=float(
                 os.getenv(
                     "WS_HEARTBEAT_INTERVAL_SECONDS",

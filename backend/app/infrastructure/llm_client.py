@@ -36,6 +36,7 @@ class LLMActionPlan:
     confidence: float
     needs_clarification: bool
     clarification_question: str
+    dropped_action_names: list[str]
 
 
 class LLMClient:
@@ -294,11 +295,23 @@ class LLMClient:
 
         raw_actions = payload.get("actions", [])
         actions: list[LLMPlannedAction] = []
+        dropped_action_names: list[str] = []
         if isinstance(raw_actions, list):
             for row in raw_actions[: self._planner_max_actions()]:
                 parsed = self._parse_planned_action(row)
                 if parsed is not None:
                     actions.append(parsed)
+                    continue
+                if isinstance(row, dict):
+                    raw_name = str(row.get("name", "")).strip()
+                    if raw_name:
+                        dropped_action_names.append(raw_name)
+
+        if dropped_action_names:
+            logger.warning(
+                "Planner dropped unsupported/invalid actions",
+                extra={"droppedActionNames": dropped_action_names, "droppedActionCount": len(dropped_action_names)},
+            )
 
         if needs_clarification:
             if not clarification_question:
@@ -308,11 +321,12 @@ class LLMClient:
                 confidence=confidence,
                 needs_clarification=True,
                 clarification_question=clarification_question,
+                dropped_action_names=dropped_action_names,
             )
 
         if confidence < self._planner_confidence_floor():
             return None
-        if not actions:
+        if not actions and not dropped_action_names:
             return None
 
         return LLMActionPlan(
@@ -320,6 +334,7 @@ class LLMClient:
             confidence=confidence,
             needs_clarification=False,
             clarification_question="",
+            dropped_action_names=dropped_action_names,
         )
 
     def _parse_planned_action(self, payload: Any) -> LLMPlannedAction | None:
@@ -413,7 +428,8 @@ class LLMClient:
 
         for attempt in range(retry_policy.max_retries):
             try:
-                response = httpx.post(
+                response = await asyncio.to_thread(
+                    httpx.post,
                     f"{self.settings.openrouter_base_url.rstrip('/')}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {api_key}",
@@ -717,11 +733,42 @@ class LLMClient:
             parsed = json.loads(text)
             return parsed if isinstance(parsed, dict) else None
         except json.JSONDecodeError:
-            match = re.search(r"\{.*\}", text, flags=re.DOTALL)
-            if not match:
-                return None
-            try:
-                parsed = json.loads(match.group(0))
-            except json.JSONDecodeError:
-                return None
-            return parsed if isinstance(parsed, dict) else None
+            for candidate in LLMClient._extract_json_object_candidates(text):
+                try:
+                    parsed = json.loads(candidate)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(parsed, dict):
+                    return parsed
+            return None
+
+    @staticmethod
+    def _extract_json_object_candidates(text: str) -> list[str]:
+        candidates: list[str] = []
+        starts = [match.start() for match in re.finditer(r"\{", text)]
+        for start in starts:
+            depth = 0
+            in_string = False
+            escaped = False
+            for idx in range(start, len(text)):
+                ch = text[idx]
+                if in_string:
+                    if escaped:
+                        escaped = False
+                    elif ch == "\\":
+                        escaped = True
+                    elif ch == '"':
+                        in_string = False
+                    continue
+
+                if ch == '"':
+                    in_string = True
+                    continue
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        candidates.append(text[start : idx + 1])
+                        break
+        return candidates

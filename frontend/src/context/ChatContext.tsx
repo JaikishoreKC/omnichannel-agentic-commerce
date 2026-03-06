@@ -14,6 +14,90 @@ export type Message = {
     suggestedActions?: Array<{ label: string; action: string }>;
 };
 
+export function mapHistoryRowsToMessages(rows: InteractionHistoryMessage[]): Message[] {
+    const mapped: Message[] = [];
+    for (const row of rows) {
+        const userText = String(row.message || "").trim();
+        if (userText) {
+            mapped.push({
+                id: `${row.id}:user`,
+                role: "user",
+                content: userText,
+                timestamp: row.timestamp,
+            });
+        }
+
+        const assistantText = String(row.response?.message || "").trim();
+        if (assistantText) {
+            mapped.push({
+                id: `${row.id}:assistant`,
+                role: "assistant",
+                content: assistantText,
+                timestamp: row.timestamp,
+                agent: String(row.response?.agent || row.agent || ""),
+            });
+        }
+    }
+    return mapped;
+}
+
+export function applyFinalAssistantPayload(
+    prev: Message[],
+    payload: ChatResponsePayload,
+    streamId?: string,
+): Message[] {
+    const finalMessage = String(payload.message || "");
+    const hasFinalText = finalMessage.trim().length > 0;
+
+    if (streamId) {
+        const existingIndex = prev.findIndex((m) => m.id === streamId);
+        if (existingIndex >= 0) {
+            const existing = prev[existingIndex];
+            const next = [...prev];
+            next[existingIndex] = {
+                ...existing,
+                content: hasFinalText && !existing.content ? finalMessage : existing.content,
+                agent: payload.agent || existing.agent,
+                isStreaming: false,
+                suggestedActions: payload.suggestedActions,
+            };
+            return next;
+        }
+
+        if (!hasFinalText) {
+            return prev;
+        }
+
+        return [
+            ...prev,
+            {
+                id: streamId,
+                role: "assistant",
+                content: finalMessage,
+                agent: payload.agent,
+                timestamp: new Date().toISOString(),
+                suggestedActions: payload.suggestedActions,
+            },
+        ];
+    }
+
+    if (!hasFinalText) {
+        return prev;
+    }
+
+    return [
+        ...prev,
+        {
+            id: Date.now().toString(),
+            role: "assistant",
+            content: finalMessage,
+            agent: payload.agent,
+            timestamp: new Date().toISOString(),
+            suggestedActions: payload.suggestedActions,
+        },
+    ];
+}
+
 interface ChatContextType {
     messages: Message[];
     isTyping: boolean;
@@ -53,88 +137,14 @@ export const ChatProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const recoveringHistoryRef = useRef(false);
 
     const upsertAssistantFromFinalResponse = useCallback((payload: ChatResponsePayload, streamId?: string) => {
-        const finalMessage = String(payload.message || "");
-        const hasFinalText = finalMessage.trim().length > 0;
         setAssistantStatus(null);
-
-        setMessages((prev) => {
-            if (streamId) {
-                const existingIndex = prev.findIndex((m) => m.id === streamId);
-                if (existingIndex >= 0) {
-                    const existing = prev[existingIndex];
-                    const next = [...prev];
-                    next[existingIndex] = {
-                        ...existing,
-                        content: hasFinalText && !existing.content ? finalMessage : existing.content,
-                        agent: payload.agent || existing.agent,
-                        isStreaming: false,
-                        suggestedActions: payload.suggestedActions,
-                    };
-                    return next;
-                }
-
-                if (!hasFinalText) {
-                    return prev;
-                }
-
-                return [
-                    ...prev,
-                    {
-                        id: streamId,
-                        role: "assistant",
-                        content: finalMessage,
-                        agent: payload.agent,
-                        timestamp: new Date().toISOString(),
-                        suggestedActions: payload.suggestedActions,
-                    },
-                ];
-            }
-
-            if (!hasFinalText) {
-                return prev;
-            }
-
-            return [
-                ...prev,
-                {
-                    id: Date.now().toString(),
-                    role: "assistant",
-                    content: finalMessage,
-                    agent: payload.agent,
-                    timestamp: new Date().toISOString(),
-                    suggestedActions: payload.suggestedActions,
-                },
-            ];
-        });
+        setMessages((prev) => applyFinalAssistantPayload(prev, payload, streamId));
     }, []);
 
     const loadHistory = useCallback(async (activeSessionId: string) => {
         try {
             const history = await fetchChatHistory({ sessionId: activeSessionId });
-            const mapped: Message[] = [];
-            for (const row of history.messages as InteractionHistoryMessage[]) {
-                const userText = String(row.message || "").trim();
-                if (userText) {
-                    mapped.push({
-                        id: `${row.id}:user`,
-                        role: "user",
-                        content: userText,
-                        timestamp: row.timestamp,
-                    });
-                }
-
-                const assistantText = String(row.response?.message || "").trim();
-                if (assistantText) {
-                    mapped.push({
-                        id: `${row.id}:assistant`,
-                        role: "assistant",
-                        content: assistantText,
-                        timestamp: row.timestamp,
-                        agent: String(row.response?.agent || row.agent || ""),
-                    });
-                }
-            }
-            setMessages(mapped);
+            setMessages(mapHistoryRowsToMessages(history.messages as InteractionHistoryMessage[]));
             recoveringHistoryRef.current = false;
         } catch (err) {
             const detail = err instanceof Error ? err.message : "";

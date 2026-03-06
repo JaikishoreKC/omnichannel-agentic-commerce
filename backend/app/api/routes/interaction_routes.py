@@ -91,7 +91,7 @@ async def process_message(
                 source="interactions_message",
                 referrer=request.headers.get("referer", ""),
             )
-        except (HTTPException, LookupError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+        except (HTTPException, LookupError, KeyError, ValueError) as exc:
             logger.warning("Identity link failed for interaction message", exc_info=exc)
     response = await orchestrator.process_message(
         message=payload.content,
@@ -129,7 +129,7 @@ def get_history(
                 external_id=str(resolved["id"]),
                 anonymous_id=str(resolved.get("anonymousId", "")) or None,
             )
-        except (HTTPException, LookupError, KeyError, TypeError, ValueError, RuntimeError) as exc:
+        except (HTTPException, LookupError, KeyError, ValueError) as exc:
             logger.warning("Identity link failed for interaction history", exc_info=exc)
         history = interaction_service.history_for_session(session_id=str(resolved["id"]), limit=limit)
         if not history:

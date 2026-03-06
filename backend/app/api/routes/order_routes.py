@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, Header, HTTPException
 
 from app.api.deps import get_current_user, get_order_service
@@ -12,6 +14,7 @@ from app.models.schemas import (
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 order_service = get_order_service()
+_IDEMPOTENCY_KEY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{1,128}$")
 
 
 @router.post("", status_code=201)
@@ -20,13 +23,19 @@ def create_order(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     user: dict[str, object] = Depends(get_current_user),
 ) -> dict[str, object]:
-    if not idempotency_key:
+    normalized_key = str(idempotency_key or "").strip()
+    if not normalized_key:
         raise HTTPException(status_code=400, detail="Missing Idempotency-Key header")
+    if not _IDEMPOTENCY_KEY_PATTERN.fullmatch(normalized_key):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid Idempotency-Key header. Use 1-128 chars: letters, numbers, _, ., :, -",
+        )
     order = order_service.create_order(
         user_id=str(user["id"]),
         shipping_address=payload.shippingAddress.model_dump(),
         payment_method=payload.paymentMethod.model_dump(),
-        idempotency_key=idempotency_key,
+        idempotency_key=normalized_key,
     )
     return {"order": order}
 

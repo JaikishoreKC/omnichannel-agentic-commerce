@@ -3,6 +3,7 @@ from app.infrastructure.logging import get_logger
 import asyncio
 from time import time
 from contextlib import suppress
+from urllib.parse import urlsplit
 from fastapi import WebSocket, WebSocketDisconnect, HTTPException
 from starlette.websockets import WebSocketState
 from app.api.deps import (
@@ -28,6 +29,37 @@ orchestrator = get_orchestrator()
 session_service = get_session_service()
 settings = get_settings()
 GENERAL_FALLBACK_MESSAGE = "I'm sorry, I couldn't provide a detailed answer at the moment."
+
+
+def _normalize_origin(origin: str) -> str | None:
+    value = str(origin or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = urlsplit(value)
+    except ValueError:
+        return None
+    scheme = str(parsed.scheme or "").lower()
+    hostname = str(parsed.hostname or "").lower()
+    if scheme not in {"http", "https"} or not hostname:
+        return None
+    port = parsed.port
+    if port is not None:
+        return f"{scheme}://{hostname}:{port}"
+    return f"{scheme}://{hostname}"
+
+
+def _error_code(status_code: int) -> str:
+    codes = {
+        400: "VALIDATION_ERROR",
+        401: "AUTH_REQUIRED",
+        403: "FORBIDDEN",
+        404: "NOT_FOUND",
+        409: "CONFLICT",
+        422: "VALIDATION_ERROR",
+        429: "RATE_LIMITED",
+    }
+    return codes.get(int(status_code), "INTERNAL_ERROR")
 
 
 def _is_socket_connected(websocket: WebSocket) -> bool:
@@ -56,6 +88,11 @@ async def _safe_close(websocket: WebSocket, *, code: int, reason: str) -> None:
 def _record_security_event(*, event_type: str, severity: str) -> None:
     with suppress(RuntimeError):
         metrics_collector.record_security_event(event_type=event_type, severity=severity)
+
+
+def _record_chat_event(*, event_type: str, status: str = "observed") -> None:
+    with suppress(RuntimeError):
+        metrics_collector.record_chat_event(event_type=event_type, status=status)
 
 async def _send_session_event(websocket: WebSocket, session: dict[str, object]) -> None:
     await _safe_send_json(
@@ -166,8 +203,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     app_container.ensure_external_baseline()
     origin = str(websocket.headers.get("origin", "")).strip()
     logger.info("WebSocket connection attempt")
-    
-    if origin and "*" not in settings.cors_origin_list and origin not in settings.cors_origin_list:
+
+    allowed_origins = {
+        normalized
+        for normalized in (_normalize_origin(item) for item in settings.cors_origin_list)
+        if normalized
+    }
+    normalized_origin = _normalize_origin(origin)
+    if (
+        origin
+        and "*" not in settings.cors_origin_list
+        and (normalized_origin is None or normalized_origin not in allowed_origins)
+    ):
         logger.warning("WebSocket rejected due to origin policy")
         _record_security_event(event_type="ws_origin_rejected", severity="warning")
         await _safe_close(websocket, code=1008, reason="origin not allowed")
@@ -302,98 +349,175 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             )
 
             assistant_typing_requested = bool(payload.get("payload", {}).get("typing", False))
-            if assistant_typing_requested:
-                if not await _safe_send_json(
-                    websocket,
-                    {"type": "typing", "payload": {"actor": "assistant", "isTyping": True}},
-                ):
-                    return
-            
-            stream_requested = bool(payload.get("payload", {}).get("stream", False))
-            response = None
-            current_stream_id = ""
-            streamed_any_delta = False
-            
             try:
-                async for chunk in orchestrator.process_message_stream(
-                    message=message,
-                    session_id=session_id,
-                    user_id=user_id,
-                    channel="websocket",
-                    stream=stream_requested,
-                ):
-                    chunk_type = chunk.get("type")
-                    if chunk_type == "stream_start":
-                        current_stream_id = f"stream_{int(time() * 1000)}"
-                        if not await _safe_send_json(
-                            websocket,
-                            {
-                                "type": "stream_start",
-                                "payload": {
-                                    "streamId": current_stream_id,
-                                    "agent": chunk["payload"].get("agent", "assistant"),
-                                },
-                            },
-                        ):
-                            return
-                    elif chunk_type == "stream_delta":
-                        if not await _safe_send_json(
-                            websocket,
-                            {
-                                "type": "stream_delta",
-                                "payload": {
-                                    "streamId": current_stream_id,
-                                    "delta": chunk["payload"].get("delta", ""),
-                                },
-                            },
-                        ):
-                            return
-                        streamed_any_delta = True
-                    elif chunk_type == "stream_end":
-                        if not await _safe_send_json(
-                            websocket,
-                            {
-                                "type": "stream_end",
-                                "payload": {"streamId": current_stream_id},
-                            },
-                        ):
-                            return
-                    elif chunk_type == "final_response":
-                        response = chunk["payload"]
-            finally:
                 if assistant_typing_requested:
-                    await _safe_send_json(
+                    if not await _safe_send_json(
                         websocket,
-                        {"type": "typing", "payload": {"actor": "assistant", "isTyping": False}}
-                    )
+                        {"type": "typing", "payload": {"actor": "assistant", "isTyping": True}},
+                    ):
+                        return
 
-            if response:
-                # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
-                response_message = str(response.get("message", "")).strip()
-                if response_message == GENERAL_FALLBACK_MESSAGE:
-                    await _safe_send_json(
-                        websocket,
-                        {
-                            "type": "status",
-                            "payload": {
-                                "code": "provider_busy",
-                                "message": "AI provider is busy right now. Please retry in a moment.",
+                stream_requested = bool(payload.get("payload", {}).get("stream", False))
+                response = None
+                current_stream_id = ""
+                streamed_any_delta = False
+
+                try:
+                    async for chunk in orchestrator.process_message_stream(
+                        message=message,
+                        session_id=session_id,
+                        user_id=user_id,
+                        channel="websocket",
+                        stream=stream_requested,
+                    ):
+                        chunk_type = chunk.get("type")
+                        if chunk_type == "stream_start":
+                            current_stream_id = f"stream_{int(time() * 1000)}"
+                            if not await _safe_send_json(
+                                websocket,
+                                {
+                                    "type": "stream_start",
+                                    "payload": {
+                                        "streamId": current_stream_id,
+                                        "agent": chunk["payload"].get("agent", "assistant"),
+                                    },
+                                },
+                            ):
+                                return
+                        elif chunk_type == "stream_delta":
+                            if not await _safe_send_json(
+                                websocket,
+                                {
+                                    "type": "stream_delta",
+                                    "payload": {
+                                        "streamId": current_stream_id,
+                                        "delta": chunk["payload"].get("delta", ""),
+                                    },
+                                },
+                            ):
+                                return
+                            streamed_any_delta = True
+                        elif chunk_type == "stream_end":
+                            if not await _safe_send_json(
+                                websocket,
+                                {
+                                    "type": "stream_end",
+                                    "payload": {"streamId": current_stream_id},
+                                },
+                            ):
+                                return
+                        elif chunk_type == "final_response":
+                            response = chunk["payload"]
+                finally:
+                    if assistant_typing_requested:
+                        await _safe_send_json(
+                            websocket,
+                            {"type": "typing", "payload": {"actor": "assistant", "isTyping": False}}
+                        )
+
+                if response:
+                    # await asyncio.to_thread(state_persistence.save, store) # Removed for Phase 6
+                    response_message = str(response.get("message", "")).strip()
+                    if response_message == GENERAL_FALLBACK_MESSAGE:
+                        _record_chat_event(event_type="provider_busy_fallback", status="observed")
+                        await _safe_send_json(
+                            websocket,
+                            {
+                                "type": "status",
+                                "payload": {
+                                    "code": "provider_busy",
+                                    "message": "AI provider is busy right now. Please retry in a moment.",
+                                },
                             },
+                        )
+                    envelope: dict[str, object] = {"type": "response", "payload": response}
+                    if stream_requested and streamed_any_delta:
+                        envelope["streamId"] = current_stream_id
+                        # Keep legacy stream behavior only when deltas were already emitted.
+                        envelope["payload"] = {**response, "message": ""}
+                    if stream_requested and (not streamed_any_delta) and not response_message:
+                        _record_chat_event(event_type="stream_contract_mismatch", status="observed")
+                    if not await _safe_send_json(websocket, envelope):
+                        return
+            except HTTPException as exc:
+                _record_chat_event(event_type="ws_exception_contained", status="http_exception")
+                logger.warning("WebSocket request failed with HTTPException", status_code=exc.status_code, detail=str(exc.detail))
+                await _safe_send_json(
+                    websocket,
+                    {
+                        "type": "error",
+                        "payload": {
+                            "code": _error_code(exc.status_code),
+                            "message": str(exc.detail) if exc.detail else "Request failed.",
                         },
-                    )
-                envelope: dict[str, object] = {"type": "response", "payload": response}
-                if stream_requested and streamed_any_delta:
-                    envelope["streamId"] = current_stream_id
-                    # Keep legacy stream behavior only when deltas were already emitted.
-                    envelope["payload"] = {**response, "message": ""}
-                if not await _safe_send_json(websocket, envelope):
-                    return
+                    },
+                )
+                await _safe_close(websocket, code=1011, reason="request failed")
+                return
+            except Exception as exc:
+                _record_chat_event(event_type="ws_exception_contained", status="unexpected_exception")
+                logger.exception("Unhandled websocket request error", exc_info=exc)
+                await _safe_send_json(
+                    websocket,
+                    {
+                        "type": "error",
+                        "payload": {
+                            "code": "INTERNAL_ERROR",
+                            "message": "Unexpected websocket error.",
+                        },
+                    },
+                )
+                await _safe_close(websocket, code=1011, reason="internal error")
+                return
     except WebSocketDisconnect:
+        return
+    except HTTPException as exc:
+        _record_chat_event(event_type="ws_exception_contained", status="endpoint_http_exception")
+        logger.warning("WebSocket endpoint failed with HTTPException", status_code=exc.status_code, detail=str(exc.detail))
+        await _safe_send_json(
+            websocket,
+            {
+                "type": "error",
+                "payload": {
+                    "code": _error_code(exc.status_code),
+                    "message": str(exc.detail) if exc.detail else "WebSocket failed.",
+                },
+            },
+        )
+        await _safe_close(websocket, code=1011, reason="endpoint failed")
         return
     except RuntimeError as exc:
         if 'Cannot call "send" once a close message has been sent.' in str(exc):
             return
-        raise
+        _record_chat_event(event_type="ws_exception_contained", status="endpoint_runtime_exception")
+        logger.exception("Unhandled websocket runtime error", exc_info=exc)
+        await _safe_send_json(
+            websocket,
+            {
+                "type": "error",
+                "payload": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "WebSocket runtime error.",
+                },
+            },
+        )
+        await _safe_close(websocket, code=1011, reason="runtime error")
+        return
+    except Exception as exc:
+        _record_chat_event(event_type="ws_exception_contained", status="endpoint_unexpected_exception")
+        logger.exception("Unhandled websocket endpoint error", exc_info=exc)
+        await _safe_send_json(
+            websocket,
+            {
+                "type": "error",
+                "payload": {
+                    "code": "INTERNAL_ERROR",
+                    "message": "WebSocket endpoint error.",
+                },
+            },
+        )
+        await _safe_close(websocket, code=1011, reason="endpoint error")
+        return
     finally:
         stop_heartbeat.set()
         heartbeat_task.cancel()

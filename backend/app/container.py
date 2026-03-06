@@ -227,6 +227,7 @@ class Container:
             llm_client=self.llm_client,
             interaction_service=self.interaction_service,
             memory_service=self.memory_service,
+                metrics_collector=self.metrics_collector,
             agents={
                 self.product_agent.name: self.product_agent,
                 self.cart_agent.name: self.cart_agent,

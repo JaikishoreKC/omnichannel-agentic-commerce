@@ -554,6 +554,7 @@ def test_interaction_llm_planner_executes_multi_step_cart_actions(monkeypatch) -
             confidence=0.92,
             needs_clarification=False,
             clarification_question="",
+            dropped_action_names=[],
         )
 
     monkeypatch.setattr(llm_client, "plan_actions", fake_plan_actions)
@@ -617,6 +618,7 @@ def test_interaction_planner_atomic_mode_reports_step_errors(monkeypatch) -> Non
             confidence=0.95,
             needs_clarification=False,
             clarification_question="",
+            dropped_action_names=[],
         )
 
     monkeypatch.setattr(llm_client, "plan_actions", fake_plan_actions)
@@ -669,3 +671,52 @@ def test_interaction_planner_canary_zero_disables_planner_attempt(monkeypatch) -
     execution_policy = response.json()["payload"]["metadata"]["executionPolicy"]
     assert execution_policy["plannerEnabled"] is False
     assert execution_policy["plannerAttempted"] is False
+
+
+def test_interaction_unknown_intent_clarify_mode(monkeypatch) -> None:
+    from dataclasses import replace
+
+    from app.container import llm_client, container
+    from app.orchestrator.types import IntentResult
+
+    client = TestClient(app)
+    session_id = _create_session(client)
+
+    original_classify = container.orchestrator.intent_classifier.classify
+
+    planner_settings = replace(
+        llm_client.settings,
+        orchestrator_unknown_intent_mode="clarify",
+    )
+    monkeypatch.setattr(llm_client, "settings", planner_settings)
+    monkeypatch.setattr(
+        container.orchestrator.intent_classifier,
+        "classify",
+        lambda **_: IntentResult(name="mystery_intent", confidence=0.51, entities={}),
+    )
+
+    response = client.post(
+        "/v1/interactions/message",
+        json={
+            "sessionId": session_id,
+            "content": "do thing",
+            "channel": "web",
+        },
+    )
+
+    # Restore classifier for downstream tests in same process.
+    monkeypatch.setattr(container.orchestrator.intent_classifier, "classify", original_classify)
+
+    assert response.status_code == 200
+    payload = response.json()["payload"]
+    assert payload["agent"] == "orchestrator"
+    assert payload["data"]["code"] == "UNKNOWN_INTENT"
+    assert payload["metadata"]["routingDiagnostics"]["intentKnown"] is False
+
+
+def test_metrics_include_chat_event_counters() -> None:
+    client = TestClient(app)
+    metrics = client.get("/metrics")
+    assert metrics.status_code == 200
+    body = metrics.text
+    assert "commerce_chat_events_total" in body
