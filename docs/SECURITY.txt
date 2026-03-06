@@ -33,8 +33,8 @@ Implementation references:
 
 - Admin MFA is configurable.
 - Default: `ADMIN_MFA_REQUIRED=false`.
-- If enabled, static OTP check is applied at login using
-  `ADMIN_MFA_STATIC_CODE`.
+- If enabled, TOTP verification is applied at login using
+  `ADMIN_MFA_TOTP_SECRET`.
 
 ## Authorization
 
@@ -148,7 +148,7 @@ Before production deployment:
 1. Set a strong `TOKEN_SECRET`.
 1. Enable TLS termination and HSTS at edge/proxy.
 1. Restrict `CORS_ORIGINS` to trusted origins.
-1. Enable `ADMIN_MFA_REQUIRED` and set `ADMIN_MFA_STATIC_CODE`.
+1. Enable `ADMIN_MFA_REQUIRED` and set `ADMIN_MFA_TOTP_SECRET`.
 1. Configure and protect all SuperU webhook secrets if voice callbacks are used.
 1. Tune rate-limit values for expected traffic.
 1. Replace default admin credentials seeded in in-memory store.

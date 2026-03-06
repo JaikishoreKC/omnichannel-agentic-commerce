@@ -540,6 +540,9 @@ class Orchestrator:
 
     def _looks_like_multi_item_cart_request(self, *, message: str) -> bool:
         text = message.lower()
+        # Explicit plural phrasing is a strong signal of multi-item intent.
+        if "add items" in text and "cart" in text:
+            return True
         conjunction_markers = (" and ", ",", " plus ", " along with ")
         if not any(marker in text for marker in conjunction_markers):
             return False
