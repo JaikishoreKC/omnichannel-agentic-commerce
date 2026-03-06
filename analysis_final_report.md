@@ -53,9 +53,30 @@ A full-system engineering audit and stabilization was executed for the conversat
 - Unsupported/hallucinated actions are dropped.
 - Fallback behavior exists for provider failures.
 
+## CLARIFICATION BOUNDARIES
+- Ambiguous request handling is validated in `backend/tests/ai_e2e/test_ai_edge_cases.py` (`maybe I should buy shoes later`) with no unintended domain mutation.
+- Clarification/fallback prompts are present in runtime harness fallback behavior (`backend/tests/ai_e2e/harness.py`).
+
+## DATABASE STATE VALIDATION
+- AI E2E edge-case tests assert before/after state on cart/orders/inventory and verify service-layer mutation discipline.
+- Integration flows verify session/cart/order progression through route -> orchestrator -> agent -> service paths.
+
+## TECHNICAL DEBT SNAPSHOT
+- No explicit `TODO`/`FIXME`/`HACK` markers were detected in scanned backend/frontend source trees.
+- High-fanout hotspots remain (`container.py`, `orchestrator_core.py`) and should stay under focused regression coverage.
+
+## FEATURE GAP SNAPSHOT
+- Remaining docs-vs-implementation gap: `docs/Agent_Logic_Specs.txt` expresses broader lifecycle semantics than current base-agent implementation depth.
+- No evidence of missing core commerce flows required by primary runtime paths.
+
+## STRESS TESTING STATUS
+- Concurrent conversation stress scenario exists and is validated via `backend/tests/ai_e2e/test_ai_concurrency.py` (12 workers, isolated user/session state).
+- Additional bespoke chaos/load campaigns were not added in this pass; findings rely on existing suite coverage.
+
 ## PRODUCTION READINESS ASSESSMENT
 - Core runtime and tests indicate stable baseline after targeted repair.
 - `docs/SECURITY.txt` MFA variable references are now aligned with implementation.
+- Readiness verdict: conditionally ready for production with routine monitoring of planner hotspots and continued regression coverage around orchestration and edge-case safety.
 
 ## CROSS-REVIEW COUNCIL SUMMARY
 - System Architect: architecture preserved.

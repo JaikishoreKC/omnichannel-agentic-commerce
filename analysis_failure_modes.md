@@ -14,10 +14,13 @@
 
 ## Test Evidence
 - Integration and AI E2E suites include malformed LLM/tool and concurrency scenarios.
+- `backend/tests/ai_e2e/test_ai_edge_cases.py` covers malformed LLM response, payment failure, inventory unavailability, and repository write failure.
+- `backend/tests/ai_e2e/test_ai_concurrency.py` covers concurrent conversation isolation.
 
 ## Residual Risks
 - Environment dependency mismatches can fail tests (observed missing fakeredis package in local env).
 - Planner eligibility edge-cases can impact expected metadata/reporting behavior.
+- Long-duration outage behavior (provider/database) relies on fallback and retry logic, but this pass did not run bespoke fault-injection load tests beyond existing suite scenarios.
 
 ## Cross-Review
 - QA/Reliability Engineer: PASS.
