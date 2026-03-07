@@ -21,6 +21,7 @@ from app.models.schemas import (
     CategoryUpdateRequest,
     CategoryWriteRequest,
     InventoryUpdateRequest,
+    ProductUpdateRequest,
     ProductWriteRequest,
     SupportTicketUpdateRequest,
     VoiceSettingsUpdateRequest,
@@ -175,12 +176,12 @@ def create_product(
 @router.put("/products/{product_id}")
 def update_product(
     product_id: str,
-    payload: ProductWriteRequest,
+    payload: ProductUpdateRequest,
     request: Request,
     admin: dict[str, object] = Depends(require_admin),
 ) -> dict[str, object]:
     before = product_service.get_product(product_id=product_id)
-    product = product_service.update_product(product_id=product_id, patch=payload.model_dump())
+    product = product_service.update_product(product_id=product_id, patch=payload.model_dump(exclude_none=True))
     _log_admin_action(
         request=request,
         admin=admin,

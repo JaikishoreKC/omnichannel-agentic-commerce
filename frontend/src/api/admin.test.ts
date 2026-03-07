@@ -6,6 +6,7 @@ import {
     getAdminInventory,
     getAdminSupportTickets,
     getHealth,
+    updateProduct,
     updateAdminSupportTicket,
     updateVoiceSettings,
 } from "./admin";
@@ -138,4 +139,31 @@ describe("admin api contracts", () => {
         });
         expect(product.id).toBe("prod_123");
     });
+
+        it("unwraps product update response envelope", async () => {
+            vi.mocked(request).mockResolvedValueOnce({
+                product: {
+                    id: "prod_123",
+                    name: "Updated Product",
+                    category: "apparel",
+                    price: 59.99,
+                    status: "draft",
+                    variants: [],
+                },
+            });
+
+            const product = await updateProduct("prod_123", {
+                name: "Updated Product",
+                price: 59.99,
+                status: "draft",
+            });
+
+            expect(request).toHaveBeenCalledWith("PUT", "/admin/products/prod_123", {
+                name: "Updated Product",
+                price: 59.99,
+                status: "draft",
+            });
+            expect(product.name).toBe("Updated Product");
+            expect(product.status).toBe("draft");
+        });
 });

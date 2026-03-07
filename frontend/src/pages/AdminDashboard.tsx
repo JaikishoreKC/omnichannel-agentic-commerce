@@ -11,6 +11,7 @@ import {
     getAdminOrders,
     getAdminProducts,
     createProduct,
+    updateProduct,
     deleteProduct,
     getAdminUsers,
     getActivityLogs,
@@ -106,6 +107,11 @@ const AdminDashboard: React.FC = () => {
     const [newProductCategory, setNewProductCategory] = useState("");
     const [newProductPrice, setNewProductPrice] = useState("");
     const [showProductForm, setShowProductForm] = useState(false);
+    const [editingProductId, setEditingProductId] = useState<string | null>(null);
+    const [editProductName, setEditProductName] = useState("");
+    const [editProductCategory, setEditProductCategory] = useState("");
+    const [editProductPrice, setEditProductPrice] = useState("");
+    const [editProductStatus, setEditProductStatus] = useState("active");
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -281,6 +287,68 @@ const AdminDashboard: React.FC = () => {
         } catch (err) {
             setProducts(previousProducts);
             const message = err instanceof Error ? err.message : "Failed to delete product";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleStartEditProduct = (product: AdminProduct) => {
+        setEditingProductId(product.id);
+        setEditProductName(product.name);
+        setEditProductCategory(product.category);
+        setEditProductPrice(String(product.price));
+        setEditProductStatus((product.status || "active").toLowerCase());
+        setTabActionError(null);
+    };
+
+    const handleCancelEditProduct = () => {
+        setEditingProductId(null);
+        setEditProductName("");
+        setEditProductCategory("");
+        setEditProductPrice("");
+        setEditProductStatus("active");
+    };
+
+    const handleSaveProduct = async (productId: string) => {
+        const name = editProductName.trim();
+        const category = editProductCategory.trim().toLowerCase();
+        const price = Number(editProductPrice);
+        if (!name) {
+            addToast("Product name is required", "warning");
+            return;
+        }
+        if (!category) {
+            addToast("Category is required", "warning");
+            return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+            addToast("Price must be greater than 0", "warning");
+            return;
+        }
+        if (!editProductStatus.trim()) {
+            addToast("Status is required", "warning");
+            return;
+        }
+
+        const busyKey = `product-update-${productId}`;
+        setActionBusyKey(busyKey);
+        setTabActionError(null);
+        try {
+            const updated = await updateProduct(productId, {
+                name,
+                category,
+                price,
+                status: editProductStatus.trim().toLowerCase(),
+            });
+            setProducts((prev) => prev.map((product) => product.id === productId ? updated : product));
+            const nextStats = await getAdminStats();
+            setStats(nextStats);
+            handleCancelEditProduct();
+            addToast("Product updated", "success");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to update product";
             setTabActionError(message);
             addToast(message, "error");
         } finally {
@@ -816,18 +884,81 @@ const AdminDashboard: React.FC = () => {
                                     <tbody>
                                         {products.map((p) => (
                                             <tr key={p.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50 transition-colors">
-                                                <td className="py-4 px-6 font-medium text-slate-800">{p.name}</td>
-                                                <td className="py-4 px-4 text-xs"><StatusBadge status={p.category} /></td>
+                                                <td className="py-4 px-6 font-medium text-slate-800">
+                                                    {editingProductId === p.id ? (
+                                                        <Input
+                                                            value={editProductName}
+                                                            onChange={(e) => setEditProductName(e.target.value)}
+                                                            placeholder="Product name"
+                                                        />
+                                                    ) : p.name}
+                                                </td>
+                                                <td className="py-4 px-4 text-xs">
+                                                    {editingProductId === p.id ? (
+                                                        <Input
+                                                            value={editProductCategory}
+                                                            onChange={(e) => setEditProductCategory(e.target.value)}
+                                                            placeholder="category-slug"
+                                                        />
+                                                    ) : <StatusBadge status={p.category} />}
+                                                </td>
                                                 <td className="py-4 px-4 text-xs text-slate-500">{p.variants?.length ?? 0} variant(s)</td>
-                                                <td className="py-4 px-6 text-right font-bold text-slate-700">${p.price.toFixed(2)}</td>
+                                                <td className="py-4 px-6 text-right font-bold text-slate-700">
+                                                    {editingProductId === p.id ? (
+                                                        <Input
+                                                            type="number"
+                                                            min="0.01"
+                                                            step="0.01"
+                                                            value={editProductPrice}
+                                                            onChange={(e) => setEditProductPrice(e.target.value)}
+                                                            placeholder="0.00"
+                                                        />
+                                                    ) : `$${p.price.toFixed(2)}`}
+                                                </td>
                                                 <td className="py-4 px-4">
-                                                    <button
-                                                        className="px-2 py-1 rounded-lg text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-60 disabled:cursor-not-allowed"
-                                                        disabled={actionBusyKey === `product-delete-${p.id}`}
-                                                        onClick={() => handleDeleteProduct(p.id)}
-                                                    >
-                                                        {actionBusyKey === `product-delete-${p.id}` ? "Deleting..." : "Delete"}
-                                                    </button>
+                                                    {editingProductId === p.id ? (
+                                                        <div className="flex flex-wrap gap-2">
+                                                            <select
+                                                                aria-label="Product status"
+                                                                value={editProductStatus}
+                                                                onChange={(e) => setEditProductStatus(e.target.value)}
+                                                                className="px-2 py-1 text-xs rounded-lg border border-slate-200 bg-white"
+                                                            >
+                                                                <option value="active">active</option>
+                                                                <option value="draft">draft</option>
+                                                                <option value="archived">archived</option>
+                                                            </select>
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-emerald-100 text-emerald-700 hover:bg-emerald-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                disabled={actionBusyKey === `product-update-${p.id}`}
+                                                                onClick={() => handleSaveProduct(p.id)}
+                                                            >
+                                                                {actionBusyKey === `product-update-${p.id}` ? "Saving..." : "Save"}
+                                                            </button>
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                                                onClick={handleCancelEditProduct}
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <div className="flex gap-2">
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                                                onClick={() => handleStartEditProduct(p)}
+                                                            >
+                                                                Edit
+                                                            </button>
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                                disabled={actionBusyKey === `product-delete-${p.id}`}
+                                                                onClick={() => handleDeleteProduct(p.id)}
+                                                            >
+                                                                {actionBusyKey === `product-delete-${p.id}` ? "Deleting..." : "Delete"}
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                 </td>
                                             </tr>
                                         ))}

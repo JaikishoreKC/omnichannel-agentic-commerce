@@ -39,22 +39,15 @@ def test_admin_can_manage_products() -> None:
         "/v1/admin/products/prod_900001",
         headers=headers,
         json={
-            "id": "prod_900001",
             "name": "Admin Managed Tee v2",
-            "description": "Updated through admin API",
-            "category": "clothing",
             "price": 49.99,
-            "currency": "USD",
-            "images": [],
-            "variants": [
-                {"id": "var_900001", "size": "L", "color": "black", "inStock": True}
-            ],
-            "rating": 0,
-            "reviewCount": 0,
+            "status": "draft",
         },
     )
     assert update.status_code == 200
     assert update.json()["product"]["name"] == "Admin Managed Tee v2"
+    assert update.json()["product"]["price"] == 49.99
+    assert update.json()["product"]["status"] == "draft"
 
     categories = client.get("/v1/admin/categories", headers=headers)
     assert categories.status_code == 200

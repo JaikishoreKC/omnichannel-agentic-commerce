@@ -174,6 +174,24 @@ class ProductWriteRequest(BaseModel):
     status: str = "active"
 
 
+class ProductUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    category: str | None = None
+    subcategory: str | None = None
+    brand: str | None = None
+    price: float | None = Field(default=None, gt=0)
+    currency: str | None = None
+    images: list[str] | None = None
+    variants: list[ProductVariantWrite] | None = None
+    rating: float | None = None
+    reviewCount: int | None = None
+    tags: list[str] | None = None
+    features: list[str] | None = None
+    specifications: dict[str, Any] | None = None
+    status: str | None = None
+
+
 class CategoryWriteRequest(BaseModel):
     id: str | None = None
     slug: str | None = None

@@ -239,6 +239,23 @@ export async function createProduct(input: {
     return res.product;
 }
 
+export async function updateProduct(
+    productId: string,
+    input: {
+        name?: string;
+        description?: string;
+        category?: string;
+        subcategory?: string;
+        brand?: string;
+        price?: number;
+        currency?: string;
+        status?: string;
+    },
+): Promise<AdminProduct> {
+    const res = await request<{ product: AdminProduct }>("PUT", `/admin/products/${productId}`, input);
+    return res.product;
+}
+
 export async function deleteProduct(productId: string): Promise<void> {
     return request<void>("DELETE", `/admin/products/${productId}`);
 }
