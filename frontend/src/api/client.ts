@@ -3,10 +3,43 @@ import type { ChatResponsePayload } from "./types";
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/v1";
 const WS_BASE = import.meta.env.VITE_WS_URL ?? "ws://localhost:8000/ws";
 const SESSION_KEY = "commerce_session_id";
+const ACCESS_TOKEN_KEY = "commerce_access_token";
+const REFRESH_TOKEN_KEY = "commerce_refresh_token";
 export const SESSION_CHANGED_EVENT = "commerce:session:changed";
 
-let _accessTokenMemory: string | null = null;
-let _refreshTokenMemory: string | null = null;
+function getStorage(): Storage | null {
+    try {
+        if (typeof window === "undefined") {
+            return null;
+        }
+        return window.localStorage;
+    } catch {
+        return null;
+    }
+}
+
+function readStoredToken(key: string): string | null {
+    const storage = getStorage();
+    if (!storage) {
+        return null;
+    }
+    return storage.getItem(key);
+}
+
+function writeStoredToken(key: string, value: string | null): void {
+    const storage = getStorage();
+    if (!storage) {
+        return;
+    }
+    if (value) {
+        storage.setItem(key, value);
+    } else {
+        storage.removeItem(key);
+    }
+}
+
+let _accessTokenMemory: string | null = readStoredToken(ACCESS_TOKEN_KEY);
+let _refreshTokenMemory: string | null = readStoredToken(REFRESH_TOKEN_KEY);
 
 type Method = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
@@ -23,11 +56,12 @@ type WsEnvelope = {
 };
 
 export function token(): string | null {
-    return _accessTokenMemory;
+    return _accessTokenMemory ?? readStoredToken(ACCESS_TOKEN_KEY);
 }
 
 export function setToken(value: string | null): void {
     _accessTokenMemory = value;
+    writeStoredToken(ACCESS_TOKEN_KEY, value);
 }
 
 export function sessionId(): string | null {
@@ -51,10 +85,11 @@ export function setSessionId(value: string | null): void {
 
 export function setRefreshToken(value: string | null): void {
     _refreshTokenMemory = value;
+    writeStoredToken(REFRESH_TOKEN_KEY, value);
 }
 
 export function getRefreshToken(): string | null {
-    return _refreshTokenMemory;
+    return _refreshTokenMemory ?? readStoredToken(REFRESH_TOKEN_KEY);
 }
 
 /** Clear all auth state and dispatch a global event so AuthContext can redirect */
