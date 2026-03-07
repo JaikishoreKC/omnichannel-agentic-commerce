@@ -250,6 +250,7 @@ export async function updateProduct(
         price?: number;
         currency?: string;
         status?: string;
+        variants?: Array<{ id: string; size: string; color: string; inStock: boolean }>;
     },
 ): Promise<AdminProduct> {
     const res = await request<{ product: AdminProduct }>("PUT", `/admin/products/${productId}`, input);

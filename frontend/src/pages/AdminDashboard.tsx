@@ -112,6 +112,7 @@ const AdminDashboard: React.FC = () => {
     const [editProductCategory, setEditProductCategory] = useState("");
     const [editProductPrice, setEditProductPrice] = useState("");
     const [editProductStatus, setEditProductStatus] = useState("active");
+    const [editProductVariants, setEditProductVariants] = useState("[]");
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -300,6 +301,7 @@ const AdminDashboard: React.FC = () => {
         setEditProductCategory(product.category);
         setEditProductPrice(String(product.price));
         setEditProductStatus((product.status || "active").toLowerCase());
+        setEditProductVariants(JSON.stringify(product.variants ?? [], null, 2));
         setTabActionError(null);
     };
 
@@ -309,6 +311,7 @@ const AdminDashboard: React.FC = () => {
         setEditProductCategory("");
         setEditProductPrice("");
         setEditProductStatus("active");
+        setEditProductVariants("[]");
     };
 
     const handleSaveProduct = async (productId: string) => {
@@ -332,6 +335,28 @@ const AdminDashboard: React.FC = () => {
             return;
         }
 
+        let parsedVariants: Array<{ id: string; size: string; color: string; inStock: boolean }> | undefined;
+        try {
+            const parsed = JSON.parse(editProductVariants);
+            if (!Array.isArray(parsed)) {
+                addToast("Variants must be a JSON array", "warning");
+                return;
+            }
+            parsedVariants = parsed.map((variant) => ({
+                id: String((variant as { id?: unknown }).id || "").trim(),
+                size: String((variant as { size?: unknown }).size || "").trim(),
+                color: String((variant as { color?: unknown }).color || "").trim(),
+                inStock: Boolean((variant as { inStock?: unknown }).inStock),
+            }));
+            if (parsedVariants.some((variant) => !variant.id || !variant.size || !variant.color)) {
+                addToast("Each variant needs id, size, and color", "warning");
+                return;
+            }
+        } catch {
+            addToast("Variants must be valid JSON", "warning");
+            return;
+        }
+
         const busyKey = `product-update-${productId}`;
         setActionBusyKey(busyKey);
         setTabActionError(null);
@@ -341,6 +366,7 @@ const AdminDashboard: React.FC = () => {
                 category,
                 price,
                 status: editProductStatus.trim().toLowerCase(),
+                variants: parsedVariants,
             });
             setProducts((prev) => prev.map((product) => product.id === productId ? updated : product));
             const nextStats = await getAdminStats();
@@ -902,7 +928,16 @@ const AdminDashboard: React.FC = () => {
                                                         />
                                                     ) : <StatusBadge status={p.category} />}
                                                 </td>
-                                                <td className="py-4 px-4 text-xs text-slate-500">{p.variants?.length ?? 0} variant(s)</td>
+                                                <td className="py-4 px-4 text-xs text-slate-500">
+                                                    {editingProductId === p.id ? (
+                                                        <textarea
+                                                            aria-label="Product variants JSON"
+                                                            value={editProductVariants}
+                                                            onChange={(e) => setEditProductVariants(e.target.value)}
+                                                            className="w-full min-w-56 h-28 rounded-xl border border-slate-200 bg-white p-2 font-mono text-[11px]"
+                                                        />
+                                                    ) : `${p.variants?.length ?? 0} variant(s)`}
+                                                </td>
                                                 <td className="py-4 px-6 text-right font-bold text-slate-700">
                                                     {editingProductId === p.id ? (
                                                         <Input

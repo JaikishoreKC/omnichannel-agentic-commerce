@@ -156,12 +156,14 @@ describe("admin api contracts", () => {
                 name: "Updated Product",
                 price: 59.99,
                 status: "draft",
+                variants: [{ id: "var_1", size: "M", color: "blue", inStock: true }],
             });
 
             expect(request).toHaveBeenCalledWith("PUT", "/admin/products/prod_123", {
                 name: "Updated Product",
                 price: 59.99,
                 status: "draft",
+                variants: [{ id: "var_1", size: "M", color: "blue", inStock: true }],
             });
             expect(product.name).toBe("Updated Product");
             expect(product.status).toBe("draft");
