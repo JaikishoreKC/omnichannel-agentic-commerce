@@ -395,6 +395,34 @@ Required headers:
 - `GET /admin/voice/alerts`
 - `GET /admin/voice/stats`
 
+Admin stats response keys used by dashboard cards:
+
+- `totalRevenue`
+- `activeUsers`
+- `pendingOrders`
+- `totalProducts`
+
+Legacy keys are still returned for compatibility (`activeSessions`, `revenueToday`).
+
+`PUT /admin/products/{product_id}` accepts partial product updates (only provided fields are changed).
+Supported fields:
+
+- `name`
+- `description`
+- `category`
+- `subcategory`
+- `brand`
+- `price`
+- `currency`
+- `images`
+- `variants`
+- `rating`
+- `reviewCount`
+- `tags`
+- `features`
+- `specifications`
+- `status`
+
 ## WebSocket Contract (`/ws`)
 
 Connect with optional query param:

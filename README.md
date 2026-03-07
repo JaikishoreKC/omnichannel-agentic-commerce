@@ -503,6 +503,11 @@ Authorization: Bearer <access_token>
 - `GET /v1/admin/voice/alerts`
 - `GET /v1/admin/voice/stats`
 
+Notes:
+
+- `GET /v1/admin/stats` includes canonical dashboard card keys: `totalRevenue`, `activeUsers`, `pendingOrders`, `totalProducts`.
+- `PUT /v1/admin/products/{product_id}` supports partial updates; only provided fields are changed.
+
 ### API Smoke Examples
 
 Set base URL:

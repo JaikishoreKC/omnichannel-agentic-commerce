@@ -53,6 +53,13 @@ import { Input } from "../components/ui/Input";
 // ─── Sub-nav tabs ────────────────────────────────────────────────────────────
 type Tab = "overview" | "orders" | "products" | "users" | "activity" | "support" | "voice" | "categories" | "inventory";
 
+type EditableVariant = {
+    id: string;
+    size: string;
+    color: string;
+    inStock: boolean;
+};
+
 // ─── Status badge ─────────────────────────────────────────────────────────────
 const StatusBadge: React.FC<{ status: string }> = ({ status }) => {
     const map: Record<string, { label: string; cls: string }> = {
@@ -112,7 +119,7 @@ const AdminDashboard: React.FC = () => {
     const [editProductCategory, setEditProductCategory] = useState("");
     const [editProductPrice, setEditProductPrice] = useState("");
     const [editProductStatus, setEditProductStatus] = useState("active");
-    const [editProductVariants, setEditProductVariants] = useState("[]");
+    const [editProductVariants, setEditProductVariants] = useState<EditableVariant[]>([]);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -301,7 +308,14 @@ const AdminDashboard: React.FC = () => {
         setEditProductCategory(product.category);
         setEditProductPrice(String(product.price));
         setEditProductStatus((product.status || "active").toLowerCase());
-        setEditProductVariants(JSON.stringify(product.variants ?? [], null, 2));
+        setEditProductVariants(
+            (product.variants ?? []).map((variant) => ({
+                id: String(variant.id || "").trim(),
+                size: String(variant.size || "").trim(),
+                color: String(variant.color || "").trim(),
+                inStock: Boolean(variant.inStock),
+            }))
+        );
         setTabActionError(null);
     };
 
@@ -311,7 +325,35 @@ const AdminDashboard: React.FC = () => {
         setEditProductCategory("");
         setEditProductPrice("");
         setEditProductStatus("active");
-        setEditProductVariants("[]");
+        setEditProductVariants([]);
+    };
+
+    const handleAddVariantRow = () => {
+        setEditProductVariants((prev) => [
+            ...prev,
+            { id: "", size: "", color: "", inStock: true },
+        ]);
+    };
+
+    const handleRemoveVariantRow = (index: number) => {
+        setEditProductVariants((prev) => prev.filter((_, idx) => idx !== index));
+    };
+
+    const handleVariantFieldChange = (
+        index: number,
+        field: keyof EditableVariant,
+        value: string | boolean,
+    ) => {
+        setEditProductVariants((prev) =>
+            prev.map((variant, idx) =>
+                idx === index
+                    ? {
+                        ...variant,
+                        [field]: value,
+                    }
+                    : variant
+            )
+        );
     };
 
     const handleSaveProduct = async (productId: string) => {
@@ -335,25 +377,14 @@ const AdminDashboard: React.FC = () => {
             return;
         }
 
-        let parsedVariants: Array<{ id: string; size: string; color: string; inStock: boolean }> | undefined;
-        try {
-            const parsed = JSON.parse(editProductVariants);
-            if (!Array.isArray(parsed)) {
-                addToast("Variants must be a JSON array", "warning");
-                return;
-            }
-            parsedVariants = parsed.map((variant) => ({
-                id: String((variant as { id?: unknown }).id || "").trim(),
-                size: String((variant as { size?: unknown }).size || "").trim(),
-                color: String((variant as { color?: unknown }).color || "").trim(),
-                inStock: Boolean((variant as { inStock?: unknown }).inStock),
-            }));
-            if (parsedVariants.some((variant) => !variant.id || !variant.size || !variant.color)) {
-                addToast("Each variant needs id, size, and color", "warning");
-                return;
-            }
-        } catch {
-            addToast("Variants must be valid JSON", "warning");
+        const parsedVariants = editProductVariants.map((variant) => ({
+            id: variant.id.trim(),
+            size: variant.size.trim(),
+            color: variant.color.trim(),
+            inStock: Boolean(variant.inStock),
+        }));
+        if (parsedVariants.some((variant) => !variant.id || !variant.size || !variant.color)) {
+            addToast("Each variant needs id, size, and color", "warning");
             return;
         }
 
@@ -930,12 +961,54 @@ const AdminDashboard: React.FC = () => {
                                                 </td>
                                                 <td className="py-4 px-4 text-xs text-slate-500">
                                                     {editingProductId === p.id ? (
-                                                        <textarea
-                                                            aria-label="Product variants JSON"
-                                                            value={editProductVariants}
-                                                            onChange={(e) => setEditProductVariants(e.target.value)}
-                                                            className="w-full min-w-56 h-28 rounded-xl border border-slate-200 bg-white p-2 font-mono text-[11px]"
-                                                        />
+                                                        <div className="space-y-2 min-w-72">
+                                                            {editProductVariants.map((variant, index) => (
+                                                                <div key={`${p.id}-variant-${index}`} className="grid grid-cols-12 gap-2 items-center">
+                                                                    <input
+                                                                        aria-label={`Variant ${index + 1} id`}
+                                                                        value={variant.id}
+                                                                        onChange={(e) => handleVariantFieldChange(index, "id", e.target.value)}
+                                                                        placeholder="id"
+                                                                        className="col-span-3 rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                                                                    />
+                                                                    <input
+                                                                        aria-label={`Variant ${index + 1} size`}
+                                                                        value={variant.size}
+                                                                        onChange={(e) => handleVariantFieldChange(index, "size", e.target.value)}
+                                                                        placeholder="size"
+                                                                        className="col-span-2 rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                                                                    />
+                                                                    <input
+                                                                        aria-label={`Variant ${index + 1} color`}
+                                                                        value={variant.color}
+                                                                        onChange={(e) => handleVariantFieldChange(index, "color", e.target.value)}
+                                                                        placeholder="color"
+                                                                        className="col-span-3 rounded-lg border border-slate-200 px-2 py-1 text-[11px]"
+                                                                    />
+                                                                    <label className="col-span-2 flex items-center gap-1 text-[11px] text-slate-600">
+                                                                        <input
+                                                                            aria-label={`Variant ${index + 1} in stock`}
+                                                                            type="checkbox"
+                                                                            checked={variant.inStock}
+                                                                            onChange={(e) => handleVariantFieldChange(index, "inStock", e.target.checked)}
+                                                                        />
+                                                                        stock
+                                                                    </label>
+                                                                    <button
+                                                                        className="col-span-2 px-2 py-1 rounded-lg text-[11px] bg-red-100 text-red-700 hover:bg-red-200"
+                                                                        onClick={() => handleRemoveVariantRow(index)}
+                                                                    >
+                                                                        Remove
+                                                                    </button>
+                                                                </div>
+                                                            ))}
+                                                            <button
+                                                                className="px-2 py-1 rounded-lg text-[11px] bg-slate-100 text-slate-700 hover:bg-slate-200"
+                                                                onClick={handleAddVariantRow}
+                                                            >
+                                                                Add Variant
+                                                            </button>
+                                                        </div>
                                                     ) : `${p.variants?.length ?? 0} variant(s)`}
                                                 </td>
                                                 <td className="py-4 px-6 text-right font-bold text-slate-700">
