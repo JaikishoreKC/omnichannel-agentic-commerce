@@ -33,6 +33,8 @@ class AdminService:
         orders_today_rows = [order for order in orders if str(order.get("createdAt", "")).startswith(today)]
         orders_today = len(orders_today_rows)
         revenue_today = round(sum(float(order["total"]) for order in orders_today_rows), 2)
+        pending_orders = sum(1 for order in orders if str(order.get("status", "")).strip().lower() == "pending")
+        total_products = len(self.product_repository.list_all())
         product_names = self.product_repository.name_map()
 
         by_product: dict[str, dict[str, object]] = {}
@@ -81,6 +83,12 @@ class AdminService:
         open_tickets = self.support_repository.list_open()
         voice_stats = self.voice_recovery_service.stats()
         return {
+            # Canonical dashboard card fields expected by frontend admin UI.
+            "totalRevenue": revenue_today,
+            "activeUsers": active_sessions,
+            "pendingOrders": pending_orders,
+            "totalProducts": total_products,
+            # Keep legacy fields for backwards compatibility.
             "activeSessions": active_sessions,
             "ordersToday": orders_today,
             "revenueToday": revenue_today,

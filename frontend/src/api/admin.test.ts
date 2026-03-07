@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+    createProduct,
     getAdminCategories,
+    getAdminStats,
     getAdminInventory,
     getAdminSupportTickets,
     getHealth,
@@ -80,5 +82,60 @@ describe("admin api contracts", () => {
         expect(request).toHaveBeenNthCalledWith(1, "GET", "/admin/categories/records?status=active");
         expect(request).toHaveBeenNthCalledWith(2, "GET", "/admin/inventory/v1");
         expect(request).toHaveBeenNthCalledWith(3, "PUT", "/admin/voice/settings", { killSwitch: true });
+    });
+
+    it("maps canonical stats payload with compatibility fallbacks", async () => {
+        vi.mocked(request).mockResolvedValueOnce({
+            totalRevenue: 123.45,
+            activeUsers: 22,
+            pendingOrders: 5,
+            totalProducts: 11,
+        });
+
+        const stats = await getAdminStats();
+
+        expect(request).toHaveBeenCalledWith("GET", "/admin/stats");
+        expect(stats.totalRevenue).toBe(123.45);
+        expect(stats.activeUsers).toBe(22);
+        expect(stats.pendingOrders).toBe(5);
+        expect(stats.totalProducts).toBe(11);
+
+        vi.mocked(request).mockResolvedValueOnce({
+            revenueToday: 88,
+            activeSessions: 7,
+            pendingOrders: 0,
+            totalProducts: 0,
+        });
+
+        const fallbackStats = await getAdminStats();
+        expect(fallbackStats.totalRevenue).toBe(88);
+        expect(fallbackStats.activeUsers).toBe(7);
+    });
+
+    it("unwraps product create response envelope", async () => {
+        vi.mocked(request).mockResolvedValueOnce({
+            product: {
+                id: "prod_123",
+                name: "Test Product",
+                category: "apparel",
+                price: 49.99,
+                variants: [],
+            },
+        });
+
+        const product = await createProduct({
+            name: "Test Product",
+            description: "desc",
+            category: "apparel",
+            price: 49.99,
+        });
+
+        expect(request).toHaveBeenCalledWith("POST", "/admin/products", {
+            name: "Test Product",
+            description: "desc",
+            category: "apparel",
+            price: 49.99,
+        });
+        expect(product.id).toBe("prod_123");
     });
 });

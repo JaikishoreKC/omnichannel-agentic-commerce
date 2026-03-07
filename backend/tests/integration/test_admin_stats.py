@@ -36,6 +36,10 @@ def test_admin_stats_requires_admin_role() -> None:
     )
     assert stats.status_code == 200
     payload = stats.json()
+    assert "totalRevenue" in payload
+    assert "activeUsers" in payload
+    assert "pendingOrders" in payload
+    assert "totalProducts" in payload
     assert "activeSessions" in payload
     assert "topProducts" in payload
     assert "messagesToday" in payload

@@ -12,6 +12,7 @@ export type Message = {
     timestamp: string;
     isStreaming?: boolean;
     suggestedActions?: Array<{ label: string; action: string }>;
+    metadata?: Record<string, unknown>;
 };
 
 export function toSuggestedActionUtterance(action: { label: string; action: string }): string {
@@ -64,6 +65,10 @@ export function mapHistoryRowsToMessages(rows: InteractionHistoryMessage[]): Mes
                 content: assistantText,
                 timestamp: row.timestamp,
                 agent: String(row.response?.agent || row.agent || ""),
+                metadata:
+                    row.response && typeof row.response === "object" && "metadata" in row.response
+                        ? (row.response.metadata as Record<string, unknown>)
+                        : undefined,
             });
         }
     }
@@ -89,6 +94,7 @@ export function applyFinalAssistantPayload(
                 agent: payload.agent || existing.agent,
                 isStreaming: false,
                 suggestedActions: payload.suggestedActions,
+                metadata: payload.metadata,
             };
             return next;
         }
@@ -106,6 +112,7 @@ export function applyFinalAssistantPayload(
                 agent: payload.agent,
                 timestamp: new Date().toISOString(),
                 suggestedActions: payload.suggestedActions,
+                metadata: payload.metadata,
             },
         ];
     }
@@ -123,6 +130,7 @@ export function applyFinalAssistantPayload(
             agent: payload.agent,
             timestamp: new Date().toISOString(),
             suggestedActions: payload.suggestedActions,
+            metadata: payload.metadata,
         },
     ];
 }

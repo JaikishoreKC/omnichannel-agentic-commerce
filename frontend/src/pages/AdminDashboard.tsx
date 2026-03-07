@@ -10,6 +10,8 @@ import {
     getAdminStats,
     getAdminOrders,
     getAdminProducts,
+    createProduct,
+    deleteProduct,
     getAdminUsers,
     getActivityLogs,
     getHealth,
@@ -99,6 +101,11 @@ const AdminDashboard: React.FC = () => {
     const [newCategoryName, setNewCategoryName] = useState("");
     const [newCategorySlug, setNewCategorySlug] = useState("");
     const [newCategoryDescription, setNewCategoryDescription] = useState("");
+    const [newProductName, setNewProductName] = useState("");
+    const [newProductDescription, setNewProductDescription] = useState("");
+    const [newProductCategory, setNewProductCategory] = useState("");
+    const [newProductPrice, setNewProductPrice] = useState("");
+    const [showProductForm, setShowProductForm] = useState(false);
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -201,6 +208,79 @@ const AdminDashboard: React.FC = () => {
             setCategories(await getAdminCategories());
         } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to create category";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleCreateProduct = async () => {
+        const name = newProductName.trim();
+        const category = newProductCategory.trim().toLowerCase();
+        const price = Number(newProductPrice);
+        if (!name) {
+            addToast("Product name is required", "warning");
+            return;
+        }
+        if (!category) {
+            addToast("Category is required", "warning");
+            return;
+        }
+        if (!Number.isFinite(price) || price <= 0) {
+            addToast("Price must be greater than 0", "warning");
+            return;
+        }
+
+        setActionBusyKey("product-create");
+        setTabActionError(null);
+        try {
+            await createProduct({
+                name,
+                description: newProductDescription.trim(),
+                category,
+                price,
+                currency: "USD",
+                variants: [],
+            });
+            const [nextProducts, nextStats] = await Promise.all([
+                getAdminProducts(20),
+                getAdminStats(),
+            ]);
+            setProducts(nextProducts);
+            setStats(nextStats);
+            setNewProductName("");
+            setNewProductDescription("");
+            setNewProductPrice("");
+            setShowProductForm(false);
+            addToast("Product created", "success");
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to create product";
+            setTabActionError(message);
+            addToast(message, "error");
+        } finally {
+            setActionBusyKey(null);
+        }
+    };
+
+    const handleDeleteProduct = async (productId: string) => {
+        const confirmed = window.confirm("Delete this product? This cannot be undone.");
+        if (!confirmed) {
+            return;
+        }
+        const busyKey = `product-delete-${productId}`;
+        const previousProducts = [...products];
+        setActionBusyKey(busyKey);
+        setTabActionError(null);
+        setProducts((prev) => prev.filter((product) => product.id !== productId));
+        try {
+            await deleteProduct(productId);
+            const nextStats = await getAdminStats();
+            setStats(nextStats);
+            addToast("Product deleted", "success");
+        } catch (err) {
+            setProducts(previousProducts);
+            const message = err instanceof Error ? err.message : "Failed to delete product";
             setTabActionError(message);
             addToast(message, "error");
         } finally {
@@ -663,10 +743,60 @@ const AdminDashboard: React.FC = () => {
                     <div className="space-y-6 animate-fade-in">
                         <div className="flex items-center justify-between">
                             <h1 className="text-2xl font-bold text-slate-900">Products ({products.length})</h1>
-                            <button className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white text-sm font-semibold rounded-xl hover:bg-violet-700 transition-colors shadow-sm">
-                                <Plus size={16} /> Add Product
+                            <button
+                                onClick={() => {
+                                    setShowProductForm((prev) => !prev);
+                                    if (!newProductCategory && categories.length > 0) {
+                                        setNewProductCategory(categories[0].slug);
+                                    }
+                                }}
+                                className="flex items-center gap-2 px-4 py-2.5 bg-violet-600 text-white text-sm font-semibold rounded-xl hover:bg-violet-700 transition-colors shadow-sm"
+                            >
+                                <Plus size={16} /> {showProductForm ? "Hide Form" : "Add Product"}
                             </button>
                         </div>
+
+                        {showProductForm && (
+                            <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3">
+                                <Input
+                                    label="Name"
+                                    value={newProductName}
+                                    onChange={(e) => setNewProductName(e.target.value)}
+                                    placeholder="Trail Runner X"
+                                />
+                                <Input
+                                    label="Description"
+                                    value={newProductDescription}
+                                    onChange={(e) => setNewProductDescription(e.target.value)}
+                                    placeholder="Lightweight all-terrain shoe"
+                                />
+                                <Input
+                                    label="Category Slug"
+                                    value={newProductCategory}
+                                    onChange={(e) => setNewProductCategory(e.target.value)}
+                                    placeholder="running-shoes"
+                                />
+                                <Input
+                                    label="Price (USD)"
+                                    type="number"
+                                    min="0.01"
+                                    step="0.01"
+                                    value={newProductPrice}
+                                    onChange={(e) => setNewProductPrice(e.target.value)}
+                                    placeholder="129.99"
+                                />
+                                <div className="flex items-end">
+                                    <button
+                                        className="w-full px-3 py-2.5 rounded-xl bg-violet-600 text-white text-sm font-semibold hover:bg-violet-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                                        disabled={actionBusyKey === "product-create"}
+                                        onClick={handleCreateProduct}
+                                    >
+                                        {actionBusyKey === "product-create" ? "Creating..." : "Create Product"}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="bg-white rounded-2xl border border-slate-200/80 shadow-sm overflow-hidden">
                             {loading ? (
                                 <div className="p-6 space-y-3">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
@@ -680,6 +810,7 @@ const AdminDashboard: React.FC = () => {
                                             <th className="text-left py-3.5 px-4">Category</th>
                                             <th className="text-left py-3.5 px-4">Variants</th>
                                             <th className="text-right py-3.5 px-6">Price</th>
+                                            <th className="text-left py-3.5 px-4">Actions</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -689,6 +820,15 @@ const AdminDashboard: React.FC = () => {
                                                 <td className="py-4 px-4 text-xs"><StatusBadge status={p.category} /></td>
                                                 <td className="py-4 px-4 text-xs text-slate-500">{p.variants?.length ?? 0} variant(s)</td>
                                                 <td className="py-4 px-6 text-right font-bold text-slate-700">${p.price.toFixed(2)}</td>
+                                                <td className="py-4 px-4">
+                                                    <button
+                                                        className="px-2 py-1 rounded-lg text-xs bg-red-100 text-red-700 hover:bg-red-200 disabled:opacity-60 disabled:cursor-not-allowed"
+                                                        disabled={actionBusyKey === `product-delete-${p.id}`}
+                                                        onClick={() => handleDeleteProduct(p.id)}
+                                                    >
+                                                        {actionBusyKey === `product-delete-${p.id}` ? "Deleting..." : "Delete"}
+                                                    </button>
+                                                </td>
                                             </tr>
                                         ))}
                                     </tbody>

@@ -5,6 +5,28 @@ import { toSuggestedActionUtterance, useChat } from "../../context/ChatContext";
 import { Button } from "../ui/Button";
 import { cn } from "../../utils/cn";
 
+function formatConfidence(value: unknown): string | null {
+    if (typeof value === "number" && Number.isFinite(value)) {
+        return `${Math.round(value * 100)}%`;
+    }
+    if (typeof value === "string" && value.trim()) {
+        const parsed = Number(value);
+        if (Number.isFinite(parsed)) {
+            return `${Math.round(parsed * 100)}%`;
+        }
+    }
+    return null;
+}
+
+function readAssistantHint(metadata: Record<string, unknown> | undefined): { intent?: string; confidence?: string } {
+    if (!metadata) {
+        return {};
+    }
+    const intent = typeof metadata.intent === "string" && metadata.intent.trim() ? metadata.intent : undefined;
+    const confidence = formatConfidence(metadata.confidence) ?? undefined;
+    return { intent, confidence };
+}
+
 const ChatPanel: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [isMinimized, setIsMinimized] = useState(false);
@@ -123,7 +145,9 @@ const ChatPanel: React.FC = () => {
                                             </p>
                                         </div>
                                     )}
-                                    {messages.map((msg) => (
+                                    {messages.map((msg) => {
+                                        const hint = readAssistantHint(msg.metadata);
+                                        return (
                                         <div
                                             key={msg.id}
                                             className={cn(
@@ -144,6 +168,20 @@ const ChatPanel: React.FC = () => {
                                             <span className="text-[10px] text-slate-400 mt-1 px-1">
                                                 {msg.agent ? `${msg.agent} • ` : ""}{new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                             </span>
+                                            {msg.role === "assistant" && (hint.intent || hint.confidence) && (
+                                                <div className="mt-1 flex gap-1 px-1">
+                                                    {hint.intent && (
+                                                        <span className="text-[10px] text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
+                                                            intent: {hint.intent}
+                                                        </span>
+                                                    )}
+                                                    {hint.confidence && (
+                                                        <span className="text-[10px] text-slate-500 bg-slate-100 rounded-full px-2 py-0.5">
+                                                            confidence: {hint.confidence}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                            )}
                                             {msg.suggestedActions && msg.suggestedActions.length > 0 && (
                                                 <div className="flex flex-wrap gap-2 mt-2 px-1">
                                                     {msg.suggestedActions.map((action, i) => (
@@ -158,7 +196,8 @@ const ChatPanel: React.FC = () => {
                                                 </div>
                                             )}
                                         </div>
-                                    ))}
+                                        );
+                                    })}
                                     {isTyping && (
                                         <div className="flex items-center gap-1 px-2">
                                             <div className="w-1.5 h-1.5 bg-slate-300 rounded-full animate-bounce typing-dot-0" />

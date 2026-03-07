@@ -141,21 +141,28 @@ export async function getHealth(): Promise<HealthStatus> {
 
 export async function getAdminStats(): Promise<AdminStats> {
     const res = await request<{
-        users: { total: number };
-        orders: { total: number; pending: number; revenue: number };
-        interactions: { total: number };
-        products: { total: number };
+        totalRevenue?: number;
+        activeUsers?: number;
+        pendingOrders?: number;
+        totalProducts?: number;
+        activeSessions?: number;
+        revenueToday?: number;
     }>("GET", "/admin/stats");
 
+    const totalRevenue = res.totalRevenue ?? res.revenueToday ?? 0;
+    const activeUsers = res.activeUsers ?? res.activeSessions ?? 0;
+    const pendingOrders = res.pendingOrders ?? 0;
+    const totalProducts = res.totalProducts ?? 0;
+
     return {
-        totalRevenue: res.orders?.revenue ?? 0,
-        activeUsers: res.users?.total ?? 0,
-        pendingOrders: res.orders?.pending ?? 0,
-        totalProducts: res.products?.total ?? 0,
+        totalRevenue,
+        activeUsers,
+        pendingOrders,
+        totalProducts,
         revenueChange: "+0%",
-        userChange: `${res.users?.total ?? 0}`,
-        orderChange: `${res.orders?.pending ?? 0}`,
-        productChange: `${res.products?.total ?? 0}`,
+        userChange: `${activeUsers}`,
+        orderChange: `${pendingOrders}`,
+        productChange: `${totalProducts}`,
     };
 }
 
@@ -228,7 +235,8 @@ export async function createProduct(input: {
     currency?: string;
     variants?: Array<{ size: string; color: string; inStock: boolean }>;
 }): Promise<AdminProduct> {
-    return request<AdminProduct>("POST", "/admin/products", input);
+    const res = await request<{ product: AdminProduct }>("POST", "/admin/products", input);
+    return res.product;
 }
 
 export async function deleteProduct(productId: string): Promise<void> {

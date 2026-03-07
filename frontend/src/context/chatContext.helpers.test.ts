@@ -16,6 +16,7 @@ describe("ChatContext helper invariants", () => {
                 response: {
                     message: "hi there",
                     agent: "general",
+                    metadata: { intent: "general_question", confidence: 0.92 },
                 },
                 timestamp: "2026-03-06T00:00:00Z",
             },
@@ -27,6 +28,7 @@ describe("ChatContext helper invariants", () => {
         expect(mapped[0].content).toBe("hello");
         expect(mapped[1].role).toBe("assistant");
         expect(mapped[1].content).toBe("hi there");
+        expect(mapped[1].metadata).toEqual({ intent: "general_question", confidence: 0.92 });
     });
 
     it("does not append an empty assistant message for non-stream final payload", () => {
@@ -77,6 +79,7 @@ describe("ChatContext helper invariants", () => {
         expect(next[0].isStreaming).toBe(false);
         expect(next[0].agent).toBe("cart");
         expect(next[0].suggestedActions).toEqual([{ label: "View cart", action: "view_cart" }]);
+        expect(next[0].metadata).toEqual({});
     });
 
     it("maps canonical suggested actions to deterministic utterances", () => {
