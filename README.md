@@ -507,6 +507,8 @@ Notes:
 
 - `GET /v1/admin/stats` includes canonical dashboard card keys: `totalRevenue`, `activeUsers`, `pendingOrders`, `totalProducts`.
 - `PUT /v1/admin/products/{product_id}` supports partial updates; only provided fields are changed.
+- Before release, run `python -m app.scripts.validate_config --strict` from `backend/` to catch unsafe runtime configuration.
+- Operational deployment and recovery procedures are documented in `docs/OPERATIONAL_RUNBOOK.md`.
 
 ### API Smoke Examples
 

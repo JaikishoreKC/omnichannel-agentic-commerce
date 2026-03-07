@@ -48,6 +48,31 @@ def test_admin_can_manage_products() -> None:
     assert update.json()["product"]["name"] == "Admin Managed Tee v2"
     assert update.json()["product"]["price"] == 49.99
     assert update.json()["product"]["status"] == "draft"
+    # Omitted fields should remain unchanged for partial updates.
+    assert update.json()["product"]["category"] == "clothing"
+    assert len(update.json()["product"].get("variants", [])) == 1
+    assert update.json()["product"]["variants"][0]["id"] == "var_900001"
+
+    replace_variants = client.put(
+        "/v1/admin/products/prod_900001",
+        headers=headers,
+        json={
+            "variants": [
+                {"id": "var_900002", "size": "S", "color": "white", "inStock": True}
+            ]
+        },
+    )
+    assert replace_variants.status_code == 200
+    payload = replace_variants.json()["product"]
+    assert len(payload.get("variants", [])) == 1
+    assert payload["variants"][0]["id"] == "var_900002"
+
+    invalid_status = client.put(
+        "/v1/admin/products/prod_900001",
+        headers=headers,
+        json={"status": "invalid"},
+    )
+    assert invalid_status.status_code == 400
 
     categories = client.get("/v1/admin/categories", headers=headers)
     assert categories.status_code == 200

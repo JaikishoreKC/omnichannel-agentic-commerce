@@ -423,6 +423,75 @@ Supported fields:
 - `specifications`
 - `status`
 
+Example partial update request:
+
+```json
+{
+  "name": "Admin Managed Tee v2",
+  "price": 49.99,
+  "status": "draft",
+  "variants": [
+    {
+      "id": "var_900002",
+      "size": "S",
+      "color": "white",
+      "inStock": true
+    }
+  ]
+}
+```
+
+Example mutation response envelopes:
+
+`POST /admin/products`:
+
+```json
+{
+  "product": {
+    "id": "prod_900001",
+    "name": "Admin Managed Tee",
+    "category": "clothing",
+    "price": 44.99,
+    "status": "active"
+  }
+}
+```
+
+`PUT /admin/products/{product_id}`:
+
+```json
+{
+  "product": {
+    "id": "prod_900001",
+    "name": "Admin Managed Tee v2",
+    "category": "clothing",
+    "price": 49.99,
+    "status": "draft",
+    "variants": [
+      {
+        "id": "var_900002",
+        "size": "S",
+        "color": "white",
+        "inStock": true
+      }
+    ]
+  }
+}
+```
+
+`PATCH /admin/support/tickets/{ticket_id}`:
+
+```json
+{
+  "ticket": {
+    "id": "ticket_000001",
+    "status": "resolved",
+    "priority": "normal",
+    "updatedAt": "2026-03-07T00:00:00+00:00"
+  }
+}
+```
+
 ## WebSocket Contract (`/ws`)
 
 Connect with optional query param:

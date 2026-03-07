@@ -5,6 +5,7 @@ Last updated: 2026-03-07
 Latest backend baseline: `244 passed, 11 skipped`.
 
 ## 1) Quality Gates
+- [ ] Config preflight passes: `python -m app.scripts.validate_config --strict`
 - [ ] Backend tests pass: `python -m pytest backend/tests -q`
 - [ ] Backend coverage >= 80%: `python -m pytest backend/tests -q --cov=app --cov-fail-under=80`
 - [ ] Frontend build passes: `npm --prefix frontend run build`
@@ -37,3 +38,4 @@ Latest backend baseline: `244 passed, 11 skipped`.
 - [ ] API contract changes reflected in `docs/API_Contracts.md`
 - [ ] README updated for new endpoints/ops commands
 - [ ] Migration/rollback notes included in release notes
+- [ ] Operational procedures updated in `docs/OPERATIONAL_RUNBOOK.md`
