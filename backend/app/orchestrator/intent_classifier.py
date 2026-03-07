@@ -202,7 +202,10 @@ class IntentClassifier:
         if self._contains_order_status_phrase(text):
             entities.update(self._extract_order_id(text))
             return IntentResult(name="order_status", confidence=0.9, entities=entities)
-        if "checkout" in text or "place order" in text or "buy now" in text:
+        if ("checkout" in text or "place order" in text or "buy now" in text) and not self._is_discount_request(
+            text=text,
+            message=message,
+        ):
             return IntentResult(name="checkout", confidence=0.95, entities={})
         return None
 
@@ -263,11 +266,10 @@ class IntentClassifier:
         multi_items = self._extract_multi_add_items(message)
         if len(multi_items) >= 2:
             return IntentResult(name="add_multiple_to_cart", confidence=0.9, entities={"items": multi_items})
-        if any(token in text for token in ("discount", "coupon", "promo")) and any(
-            token in text for token in ("apply", "use", "code")
-        ):
+        if self._is_discount_request(text=text, message=message):
             entities.update(self._extract_discount_code(message))
             return IntentResult(name="apply_discount", confidence=0.9, entities=entities)
+
         if "remove" in text and "cart" in text:
             entities.update(self._extract_quantity(text))
             entities.update(self._extract_product_or_item_id(text))
@@ -295,6 +297,30 @@ class IntentClassifier:
         if self._is_view_cart_request(phrase_text):
             return IntentResult(name="view_cart", confidence=0.9, entities={})
         return None
+
+    def _is_discount_request(self, *, text: str, message: str) -> bool:
+        discount_keywords = (
+            "discount",
+            "coupon",
+            "promo",
+            "promo code",
+            "voucher",
+            "offer code",
+            "gift code",
+        )
+        action_keywords = ("apply", "use", "redeem", "enter", "activate")
+
+        has_discount_keyword = any(token in text for token in discount_keywords)
+        has_action_keyword = any(token in text for token in action_keywords)
+        has_code_word = "code" in text
+        has_checkout_context = any(token in text for token in ("cart", "checkout", "order total", "total"))
+        has_code_like_token = bool(re.search(r"\b[A-Za-z]{2,}[A-Za-z0-9_-]*\d+[A-Za-z0-9_-]*\b", message))
+
+        if has_discount_keyword and (has_action_keyword or has_code_word or has_code_like_token):
+            return True
+        if has_action_keyword and has_checkout_context and (has_code_word or has_code_like_token):
+            return True
+        return False
 
     def _classify_product_intent(
         self,
@@ -437,21 +463,55 @@ class IntentClassifier:
         return any(phrase in text for phrase in phrases)
 
     def _extract_discount_code(self, message: str) -> dict[str, Any]:
-        explicit = re.search(
-            r"(?:code|coupon|promo)\s*(?:is|=|:)?\s*([a-zA-Z0-9_-]{4,20})",
-            message,
-            flags=re.IGNORECASE,
+        patterns = (
+            r"(?:code|coupon|promo(?:\s*code)?|discount|voucher|offer\s*code)\s*(?:is|=|:|-)?\s*([a-zA-Z0-9_-]{4,20})",
+            r"(?:apply|use|redeem|enter|activate)\s*(?:code\s*)?([a-zA-Z0-9_-]{4,20})\s*(?:coupon|promo|discount|voucher)?",
         )
-        if explicit:
-            return {"code": explicit.group(1).upper()}
+        for pattern in patterns:
+            explicit = re.search(pattern, message, flags=re.IGNORECASE)
+            if explicit:
+                candidate = explicit.group(1).upper()
+                if self._is_likely_discount_code(candidate):
+                    return {"code": candidate}
 
         candidates = re.findall(r"\b([A-Za-z0-9]{4,20})\b", message)
-        stop_words = {"APPLY", "DISCOUNT", "COUPON", "PROMO", "CODE", "PLEASE", "THIS", "THAT"}
+        stop_words = {
+            "APPLY",
+            "DISCOUNT",
+            "COUPON",
+            "PROMO",
+            "CODE",
+            "PLEASE",
+            "THIS",
+            "THAT",
+            "USE",
+            "REDEEM",
+            "ENTER",
+            "ACTIVATE",
+            "NOW",
+            "CHECKOUT",
+            "CART",
+            "ORDER",
+            "TOTAL",
+            "OFFER",
+            "VOUCHER",
+            "GIFT",
+        }
         for candidate in candidates:
             token = candidate.upper()
-            if token not in stop_words and any(char.isdigit() for char in token):
+            if token in stop_words:
+                continue
+            if self._is_likely_discount_code(token):
                 return {"code": token}
         return {}
+
+    @staticmethod
+    def _is_likely_discount_code(token: str) -> bool:
+        # Keep this conservative: prefer codes with at least one digit/hyphen/underscore.
+        value = str(token or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9_-]{4,20}", value):
+            return False
+        return any(char.isdigit() for char in value) or ("-" in value) or ("_" in value)
 
     def _extract_search_query_for_combo(self, message: str) -> str:
         cleaned = re.sub(

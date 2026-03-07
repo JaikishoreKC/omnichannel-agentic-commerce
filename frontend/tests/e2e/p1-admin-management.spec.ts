@@ -1,24 +1,8 @@
 import { expect, type Browser, type Page, test } from "@playwright/test";
-
-function uniqueEmail(prefix: string): string {
-  const stamp = Date.now();
-  const rand = Math.floor(Math.random() * 100000);
-  return `${prefix}-${stamp}-${rand}@example.com`;
-}
+import { generateTotp, registerAndCompleteProfile } from "./helpers";
 
 async function registerCustomer(page: Page, prefix: string): Promise<void> {
-  await page.goto("/");
-  const isLoginPage = page.url().includes("/login");
-  if (!isLoginPage) {
-    await page.getByTestId("login-link").click();
-  }
-
-  await page.getByText("Sign Up").click();
-  await page.getByTestId("name-input").fill("Admin E2E Customer");
-  await page.getByTestId("email-input").fill(uniqueEmail(prefix));
-  await page.getByTestId("password-input").fill("SecurePass123!");
-  await page.getByTestId("auth-submit-button").click();
-  await expect(page).not.toHaveURL(/\/login/);
+  await registerAndCompleteProfile(page, { prefix, name: "Admin E2E Customer" });
 }
 
 async function createSupportTicketAsCustomer(browser: Browser, issueText: string): Promise<void> {
@@ -46,13 +30,21 @@ async function createSupportTicketAsCustomer(browser: Browser, issueText: string
 }
 
 async function loginAdmin(page: Page): Promise<void> {
+  await page.context().clearCookies();
+  await page.goto("/");
+  await page.evaluate(() => {
+    localStorage.clear();
+    sessionStorage.clear();
+  });
+
   await page.goto("/admin/login");
   await page.getByPlaceholder("admin@example.com").fill("admin@example.com");
   await page.getByPlaceholder("••••••••••").fill("AdminPass123!");
   await page.getByRole("button", { name: "Continue" }).click();
 
+  const otp = generateTotp("JBSWY3DPEHPK3PXP");
   for (let i = 1; i <= 6; i += 1) {
-    await page.getByLabel(`One-time passcode digit ${i}`).fill("1");
+    await page.getByLabel(`One-time passcode digit ${i}`).fill(otp[i - 1]);
   }
 
   await page.getByRole("button", { name: "Verify & Access Dashboard" }).click();

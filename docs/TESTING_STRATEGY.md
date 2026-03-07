@@ -4,7 +4,7 @@ Last updated: 2026-03-07
 
 ## Current Validation Snapshot
 
-- Latest backend full-suite run: `241 passed, 11 skipped`.
+- Latest backend full-suite run: `244 passed, 11 skipped`.
 - Recently added high-signal hardening tests:
   - `backend/tests/unit/test_inventory_service_concurrency.py`
   - `backend/tests/unit/test_rate_limiting_middleware.py`

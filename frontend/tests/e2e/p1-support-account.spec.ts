@@ -1,25 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
-
-function uniqueEmail(prefix: string): string {
-  const stamp = Date.now();
-  const rand = Math.floor(Math.random() * 100000);
-  return `${prefix}-${stamp}-${rand}@example.com`;
-}
+import { registerAndCompleteProfile } from "./helpers";
 
 async function registerUser(page: Page, prefix: string): Promise<void> {
-  await page.goto("/");
-
-  const isLoginPage = page.url().includes("/login");
-  if (!isLoginPage) {
-    await page.getByTestId("login-link").click();
-  }
-
-  await page.getByText("Sign Up").click();
-  await page.getByTestId("name-input").fill("Support E2E User");
-  await page.getByTestId("email-input").fill(uniqueEmail(prefix));
-  await page.getByTestId("password-input").fill("SecurePass123!");
-  await page.getByTestId("auth-submit-button").click();
-  await expect(page).not.toHaveURL(/\/login/);
+  await registerAndCompleteProfile(page, { prefix, name: "Support E2E User" });
 }
 
 test("authenticated user can create and resolve support ticket from account", async ({ page }) => {

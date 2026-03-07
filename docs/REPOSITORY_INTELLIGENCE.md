@@ -6,7 +6,7 @@ Scope: Full repository mental model for safe future development.
 Update note (2026-03-07):
 - Added in-process hardening for inventory reservation/mutation races and order idempotency concurrency.
 - Updated authenticated rate-limit keying to use stable user identity with invalid-token fallback.
-- Backend validation status: `241 passed, 11 skipped`.
+- Backend validation status: `244 passed, 11 skipped`.
 
 ## REPOSITORY MAP
 

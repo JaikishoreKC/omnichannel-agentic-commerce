@@ -166,6 +166,27 @@ CASES: list[dict[str, Any]] = [
         "entities": {"code": "SAVE20"},
     },
     {
+        "id": "discount_redeem_checkout_noise",
+        "message": "can you redeem promo code: save20 at checkout?",
+        "expected_intent": "apply_discount",
+        "expected_actions": ["apply_discount"],
+        "entities": {"code": "SAVE20"},
+    },
+    {
+        "id": "discount_use_coupon_cart_total",
+        "message": "use coupon SAVE20 on my cart total",
+        "expected_intent": "apply_discount",
+        "expected_actions": ["apply_discount"],
+        "entities": {"code": "SAVE20"},
+    },
+    {
+        "id": "discount_offer_code_phrase",
+        "message": "apply offer code SUMMER25",
+        "expected_intent": "apply_discount",
+        "expected_actions": ["apply_discount"],
+        "entities": {"code": "SUMMER25"},
+    },
+    {
         "id": "order_late_phrase",
         "message": "my order is late order_321",
         "expected_intent": "order_status",

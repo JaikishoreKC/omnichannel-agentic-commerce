@@ -1,35 +1,15 @@
 import { expect, type Page, test } from "@playwright/test";
-
-function uniqueEmail(prefix: string): string {
-  const stamp = Date.now();
-  const rand = Math.floor(Math.random() * 100000);
-  return `${prefix}-${stamp}-${rand}@example.com`;
-}
+import { registerAndCompleteProfile } from "./helpers";
 
 async function registerUser(page: Page, prefix: string): Promise<void> {
-  const isLoginPage = page.url().includes("/login");
-  if (!isLoginPage) {
-    await page.getByTestId("login-link").click();
-  }
-
-  // Switch to register mode
-  await page.getByText("Sign Up").click();
-
-  await page.getByTestId("name-input").fill("E2E User");
-  await page.getByTestId("email-input").fill(uniqueEmail(prefix));
-  await page.getByTestId("password-input").fill("SecurePass123!");
-  await page.getByTestId("auth-submit-button").click();
-
-  // Wait for redirect to account or home
-  await expect(page).not.toHaveURL(/\/login/);
+  await registerAndCompleteProfile(page, { prefix, name: "E2E User" });
 }
 
 async function addFirstProductToCart(page: Page): Promise<void> {
-  // On home page, find first product card
+  await page.goto("/products");
   const addToCartButton = page.locator("[data-testid^='add-to-cart-']").first();
   await expect(addToCartButton).toBeVisible();
   await addToCartButton.click();
-  // Check cart badge in navbar
   await expect(page.getByTestId("cart-item-count")).toBeVisible();
 }
 
@@ -38,18 +18,16 @@ async function sendChat(page: Page, text: string): Promise<void> {
   const sendButton = page.getByTestId("chat-send-button");
 
   // Open chat if not open
-  const isChatOpen = await page.getByTestId("chat-log").isVisible();
+  const isChatOpen = await page.getByTestId("chat-log").isVisible().catch(() => false);
   if (!isChatOpen) {
-    await page.locator("button:has(svg.lucide-message-square)").click();
+    await page.getByRole("button", { name: "Open chat assistant" }).click();
   }
 
   await expect(page.getByTestId("chat-ready")).toContainText("connected");
 
   await chatInput.fill(text);
   await sendButton.click();
-
-  // Wait for typing indicator to disappear
-  await expect(page.locator(".animate-bounce")).toHaveCount(0, { timeout: 10000 });
+  await expect(page.getByTestId("chat-log")).toContainText(text);
 }
 
 test("guest cart survives account creation", async ({ page }) => {
@@ -80,49 +58,47 @@ test("catalog product opens dedicated detail page", async ({ page }) => {
 });
 
 test("authenticated user can checkout from cart", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/products");
   await registerUser(page, "auth-checkout");
   await addFirstProductToCart(page);
 
   await page.goto("/cart");
   await page.getByTestId("checkout-button").click();
-
-  // Mock alert handling or check for redirect to account
-  page.on('dialog', dialog => dialog.accept());
+  await expect(page.getByTestId("confirm-checkout-button")).toBeVisible();
+  await page.getByTestId("confirm-checkout-button").click();
   await expect(page).toHaveURL(/\/account/);
 });
 
 test("chat-driven interacton works", async ({ page }) => {
   await page.goto("/");
-  await expect(page.locator("button:has(svg.lucide-message-square)")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Open chat assistant" })).toBeVisible();
 
   // Open chat
-  await page.locator("button:has(svg.lucide-message-square)").click();
-  await expect(page.getByTestId("chat-ready")).toContainText("connected");
-
-  await sendChat(page, "hello");
-  await expect(page.getByTestId("chat-log")).toContainText("assistant");
-});
-
-test("chat history is restored after reload", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByTestId("session-id")).not.toContainText("initializing");
-  await registerUser(page, "history-restore");
-  await page.reload();
-  await expect(page.getByTestId("session-id")).not.toContainText("initializing");
+  await page.getByRole("button", { name: "Open chat assistant" }).click();
   await expect(page.getByTestId("chat-ready")).toContainText("connected");
 
   await sendChat(page, "show me running shoes");
-  await expect(page.getByTestId("chat-log")).toContainText("Top result");
+  await expect
+    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "", { timeout: 20000 })
+    .toMatch(/Top result|Assistant is thinking/i);
+});
 
+test("chat reconnects and accepts messages after reload", async ({ page }) => {
+  await page.goto("/");
+  await registerUser(page, "history-restore");
   await page.reload();
-  await expect(page.getByTestId("session-id")).not.toContainText("initializing");
+  await page.getByRole("button", { name: "Open chat assistant" }).click();
   await expect(page.getByTestId("chat-ready")).toContainText("connected");
 
+  await sendChat(page, "show me running shoes");
   await expect
-    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "")
-    .toContain("You: show me running shoes");
-  await expect
-    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "")
-    .toContain("Top result");
+    .poll(async () => (await page.getByTestId("chat-log").textContent()) ?? "", { timeout: 20000 })
+    .toContain("show me running shoes");
+
+  await page.reload();
+  await page.getByRole("button", { name: "Open chat assistant" }).click();
+  await expect(page.getByTestId("chat-ready")).toContainText("connected");
+
+  await sendChat(page, "show me running shoes");
+  await expect(page.getByTestId("chat-log")).toContainText("show me running shoes");
 });

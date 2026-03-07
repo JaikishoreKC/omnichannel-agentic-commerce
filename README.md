@@ -779,7 +779,7 @@ cd backend
 pytest tests -q
 ```
 
-Latest validated run (2026-03-07): `241 passed, 11 skipped`.
+Latest validated run (2026-03-07): `244 passed, 11 skipped`.
 
 Coverage gate:
 

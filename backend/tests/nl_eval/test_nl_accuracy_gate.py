@@ -68,6 +68,20 @@ def _build_eval_cases() -> list[dict[str, Any]]:
                 "actions": ["apply_discount"],
             }
         )
+        cases.append(
+            {
+                "message": f"can you redeem promo code: {code.lower()} at checkout?",
+                "intent": "apply_discount",
+                "actions": ["apply_discount"],
+            }
+        )
+        cases.append(
+            {
+                "message": f"use coupon {code} on my cart total",
+                "intent": "apply_discount",
+                "actions": ["apply_discount"],
+            }
+        )
 
     for idx in range(1, 31):
         cases.append(
