@@ -114,6 +114,11 @@ export async function request<T>(
         ...extraHeaders,
     };
 
+    const accessToken = token();
+    if (accessToken) {
+        headers["Authorization"] = `Bearer ${accessToken}`;
+    }
+
     const savedSession = sessionId();
     if (savedSession) {
         headers["X-Session-Id"] = savedSession;

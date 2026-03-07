@@ -96,9 +96,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfileCompletionRequired(required);
     };
 
-    const _applyAuth = (res: { user: AuthUser; sessionId?: string }) => {
+    const _applyAuth = (res: { user: AuthUser; accessToken?: string; refreshToken?: string; sessionId?: string }) => {
         const normalizedUser = normalizeUser(res.user);
         setUser(normalizedUser);
+        if (res.accessToken) setToken(res.accessToken);
+        if (res.refreshToken) setRefreshToken(res.refreshToken);
         if (res.sessionId) setSessionId(res.sessionId);
         localStorage.setItem("commerce_user", JSON.stringify(normalizedUser));
         syncProfileCompletionRequirement(normalizedUser);
