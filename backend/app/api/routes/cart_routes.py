@@ -38,7 +38,7 @@ def add_cart_item(
         variant_id=payload.variantId,
         quantity=payload.quantity,
     )
-    return {"success": True, "cartId": cart["id"]}
+    return cart
 
 
 @router.put("/items/{item_id}")
@@ -56,7 +56,7 @@ def update_cart_item(
         item_id=item_id,
         quantity=payload.quantity,
     )
-    return {"success": True, "cartId": cart["id"]}
+    return cart
 
 
 @router.delete("/items/{item_id}", status_code=204)
@@ -84,10 +84,4 @@ def apply_discount(
         session_id=session_id,
         discount_code=payload.code,
     )
-    return {
-        "success": True,
-        "discount": cart["appliedDiscount"] | {"amount": cart["discount"]}
-        if cart["appliedDiscount"]
-        else None,
-        "cartId": cart["id"],
-    }
+    return cart

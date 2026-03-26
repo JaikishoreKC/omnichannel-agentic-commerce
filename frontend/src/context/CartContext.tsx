@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { fetchCart as apiFetchCart, addToCart as apiAddToCart, updateCartItem as apiUpdateCartItem, removeFromCart as apiRemoveFromCart } from "../api";
+import { currentSessionId, fetchCart as apiFetchCart, addToCart as apiAddToCart, updateCartItem as apiUpdateCartItem, removeFromCart as apiRemoveFromCart } from "../api";
+import { ensureSession } from "../api/sessions";
 import { useSession } from "./SessionContext";
 import { useAuth } from "./AuthContext";
 import { useToast } from "./ToastContext";
@@ -25,8 +26,16 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const { addToast } = useToast();
     const refreshDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+    const ensureActiveSession = useCallback(async (): Promise<void> => {
+        if (sessionId) {
+            return;
+        }
+        await ensureSession();
+    }, [sessionId]);
+
     const refreshCart = useCallback(async () => {
-        if (!sessionId) return;
+        const activeSessionId = sessionId ?? currentSessionId();
+        if (!activeSessionId) return;
         try {
             setIsLoading(true);
             const data = await apiFetchCart();
@@ -102,10 +111,64 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return recalculateCartFromItems(current, nextItems);
     }, [recalculateCartFromItems]);
 
+    const applyLocalAdd = useCallback((current: Cart, productId: string, variantId: string, quantity: number): Cart => {
+        const existing = current.items.find((item) => item.productId === productId && item.variantId === variantId);
+        if (existing) {
+            const nextQuantity = existing.quantity + quantity;
+            return applyLocalQuantityUpdate(current, existing.itemId, nextQuantity);
+        }
+
+        const provisionalItemId = `pending-${productId}-${variantId}`;
+        const nextItems: Cart["items"] = [
+            ...current.items,
+            {
+                itemId: provisionalItemId,
+                productId,
+                variantId,
+                name: "Item",
+                price: 0,
+                quantity,
+                image: "",
+            },
+        ];
+        return recalculateCartFromItems(current, nextItems);
+    }, [applyLocalQuantityUpdate, recalculateCartFromItems]);
+
     const addItem = async (productId: string, variantId: string, quantity: number) => {
         try {
+            await ensureActiveSession();
             await apiAddToCart({ productId, variantId, quantity });
-            await refreshCart();
+            setCart((current) => {
+                if (!current) {
+                    return {
+                        id: "pending",
+                        userId: user?.id ?? null,
+                        sessionId: sessionId ?? currentSessionId() ?? "pending",
+                        items: [
+                            {
+                                itemId: `pending-${productId}-${variantId}`,
+                                productId,
+                                variantId,
+                                name: "Item",
+                                price: 0,
+                                quantity,
+                                image: "",
+                            },
+                        ],
+                        subtotal: 0,
+                        tax: 0,
+                        shipping: 0,
+                        discount: 0,
+                        total: 0,
+                        itemCount: quantity,
+                        currency: "USD",
+                    };
+                }
+                return applyLocalAdd(current, productId, variantId, quantity);
+            });
+            setTimeout(() => {
+                void refreshCart();
+            }, 300);
             addToast("Added to cart", "success");
         } catch (err) {
             addToast("Failed to add to cart", "error");
@@ -116,6 +179,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const updateItemQuantity = async (itemId: string, quantity: number) => {
         const previousCart = cart;
         try {
+            await ensureActiveSession();
             if (previousCart) {
                 setCart(quantity < 1 ? applyLocalRemove(previousCart, itemId) : applyLocalQuantityUpdate(previousCart, itemId, quantity));
             }
@@ -138,6 +202,7 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const removeItem = async (itemId: string) => {
         const previousCart = cart;
         try {
+            await ensureActiveSession();
             if (previousCart) {
                 setCart(applyLocalRemove(previousCart, itemId));
             }
