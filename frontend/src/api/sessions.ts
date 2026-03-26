@@ -1,6 +1,13 @@
 import { request, setSessionId, sessionId } from "./client";
 
+let ensureSessionInFlight: Promise<string> | null = null;
+
 export async function ensureSession(): Promise<string> {
+    if (ensureSessionInFlight) {
+        return ensureSessionInFlight;
+    }
+
+    ensureSessionInFlight = (async () => {
     const existing = sessionId();
     if (existing) {
         try {
@@ -16,4 +23,11 @@ export async function ensureSession(): Promise<string> {
     });
     setSessionId(payload.sessionId);
     return payload.sessionId;
+    })();
+
+    try {
+        return await ensureSessionInFlight;
+    } finally {
+        ensureSessionInFlight = null;
+    }
 }

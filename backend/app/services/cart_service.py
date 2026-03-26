@@ -248,6 +248,17 @@ class CartService:
 
     def _get_or_create_cart(self, user_id: str | None, session_id: str) -> dict[str, Any]:
         existing = self.cart_repository.get_for_user_or_session(user_id=user_id, session_id=session_id)
+        if user_id and not existing:
+            guest_cart = self.cart_repository.get_for_user_or_session(user_id=None, session_id=session_id)
+            if guest_cart:
+                guest_cart["userId"] = user_id
+                guest_cart["status"] = "active"
+                guest_cart["expiresAt"] = self._next_cart_expiry()
+                self._recalculate_cart(guest_cart)
+                self.cart_repository.update(guest_cart)
+                self._invalidate_cache(user_id=None, session_id=session_id)
+                self._invalidate_cache(user_id=user_id, session_id="")
+                return guest_cart
         if existing:
             if self._is_cart_expired(existing):
                 existing["status"] = "abandoned"
